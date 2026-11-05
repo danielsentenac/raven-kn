@@ -84,10 +84,11 @@ def window_from_samples(t0_gps_samples: Sequence[float],
 
     each at least ``model_sys_min_h``. Calibration: with Bu2019lm on the real
     AT2017gfo light curve (first point +17 h, no pre-merger limit) the
-    median t0 is 41.5 h early and the 90 % interval misses the merger; a
-    fraction of 0.5 is the smallest round value that recovers it. One event
-    and one model: to be revisited with cross-model injections (Jamsin et
-    al., arXiv:2610.28775).
+    median t0 is 40 h early and the 90 % interval misses the merger; on
+    GRB 211211A (first point +6 h) it is 28 h early. 0.75 is the smallest
+    round fraction recovering both (0.5 misses GRB 211211A by 0.5 h). Two
+    events, one model: to be revisited with cross-model injections (Jamsin
+    et al., arXiv:2610.28775).
     """
     s = np.asarray(t0_gps_samples, float)
     a = (1 - credible_level) / 2
@@ -161,7 +162,7 @@ def window_from_bracket(kn: KNCandidate,
 
 
 def estimate_window(kn: KNCandidate, d_mpc_upper: Optional[float] = None,
-                    credible_level: float = 0.9, model_sys_frac: float = 0.5,
+                    credible_level: float = 0.9, model_sys_frac: float = 0.75,
                     model_sys_min_h: float = 1.0, **bracket_kw) -> MergerTimeWindow:
     """Best available window: GRB > (light-curve fit + model margin) & bracket > bracket."""
     if kn.grb is not None:

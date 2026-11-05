@@ -1,0 +1,51 @@
+{
+  "workdir": "examples/validation_grb211211a/runs/D",
+  "label": "GRB211211A_D",
+  "model": "Bu2019lm",
+  "trigger_mjd": 59552.80759953704,
+  "timeshift_bounds": [
+    0.000999999996565748,
+    6.871111611839998
+  ],
+  "informed": false,
+  "data_file": "examples/validation_grb211211a/runs/D/GRB211211A_D.dat",
+  "prior_file": "examples/validation_grb211211a/runs/D/GRB211211A_D.prior",
+  "command": [
+    "~/miniforge3/envs/nmma/bin/python",
+    "~/ACME/RAVEN-Kilonova/raven_kn/treatment/nmma_launcher.py",
+    "--em-model",
+    "Bu2019lm",
+    "--light-curve-data",
+    "examples/validation_grb211211a/runs/D/GRB211211A_D.dat",
+    "--trigger-time",
+    "59552.807600",
+    "--prior-file",
+    "examples/validation_grb211211a/runs/D/GRB211211A_D.prior",
+    "--outdir",
+    "examples/validation_grb211211a/runs/D/nmma_out",
+    "--label",
+    "GRB211211A_D",
+    "--em-tmin",
+    "0.1",
+    "--em-tmax",
+    "14.0",
+    "--interpolation-type",
+    "sklearn_gp",
+    "--sampler",
+    "pymultinest",
+    "--em-error-budget",
+    "1.0",
+    "--plot",
+    "--svd-path",
+    "~/nmma_models",
+    "--nlive",
+    "512",
+    "--local-only"
+  ],
+  "n_detections": 19,
+  "n_limits": 8,
+  "notes": [
+    "log10_mej_wind prior [-2, -0.886] clipped to training range [-2, -0.8861]",
+    "dropped 2 points later than earliest merger + em_tmax (14.0 d)"
+  ]
+}

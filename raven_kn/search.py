@@ -100,7 +100,7 @@ def assess(kn: KNCandidate, out_dir: Optional[str | Path] = None,
            snr_threshold: float = 6.0, p_min: float = 0.1,
            d_max_useful_mpc: Optional[float] = 500.0,
            segments=None, duty_cycle=None, d_max_prior: float = 1500.0,
-           nside: int = 512, model_sys_frac: float = 0.5) -> dict:
+           nside: int = 512, model_sys_frac: float = 0.75) -> dict:
     """Targeted-search trigger decision for one kilonova candidate.
 
     Steps: (1) distance/inclination posterior from EM data; (2) t0 window,

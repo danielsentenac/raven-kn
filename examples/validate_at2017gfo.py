@@ -58,11 +58,14 @@ def main():
     p.add_argument("--data", required=True)
     p.add_argument("--workdir", default="runs")
     p.add_argument("--nlive", default="512")
+    p.add_argument("--model", default="Bu2019lm")
+    p.add_argument("--fit-days", type=float, default=3.0, help="<= 0: all data")
     a = p.parse_args()
     if a.action == "run":
         kn = candidate(a.data, a.case)
         kn, s = lcf.fit(kn, Path(a.workdir) / a.case, executable=EXE,
-                        interpolation_type="sklearn_gp", svd_path=os.path.expanduser("~/nmma_models"),
+                        interpolation_type="sklearn_gp", model=a.model,
+                        fit_days=a.fit_days if a.fit_days > 0 else None, svd_path=os.path.expanduser("~/nmma_models"),
                         extra_args=["--nlive", a.nlive, "--local-only"])
         print("done", a.case)
         return

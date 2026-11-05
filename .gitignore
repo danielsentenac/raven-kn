@@ -7,10 +7,11 @@ __pycache__/
 # regenerable outputs
 examples/out/
 examples/nmma_gw170817/
+examples/old_prior_runs/
 
 # NMMA run working files (keep inputs, setup, posterior samples, plots)
-examples/validation/run_*.out
-examples/validation/runs/*/nmma.log
-examples/validation/runs/*/nmma_out/pm_*/
-examples/validation/runs/*/nmma_out/*.log
-examples/validation/runs/*/nmma_out/*_result.json
+examples/**/*.out
+examples/**/nmma.log
+examples/**/nmma_out/pm_*/
+examples/**/nmma_out/*.log
+examples/**/nmma_out/*_result.json

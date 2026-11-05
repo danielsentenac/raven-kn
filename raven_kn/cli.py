@@ -31,7 +31,7 @@ def main(argv=None):
     a.add_argument("--snr-threshold", type=float, default=6.0)
     a.add_argument("--p-min", type=float, default=0.1)
     a.add_argument("--d-max-useful", type=float, default=500.0)
-    a.add_argument("--model-sys-frac", type=float, default=0.5,
+    a.add_argument("--model-sys-frac", type=float, default=0.75,
                    help="model-systematic margin on a light-curve t0, as a fraction of the "
                         "extrapolation gap to the anchoring data (0 = statistical only)")
 
@@ -50,6 +50,9 @@ def main(argv=None):
     n.add_argument("--interpolation-type", default="tensorflow")
     n.add_argument("--sampler", default="pymultinest")
     n.add_argument("--max-age", type=float, default=7.0, help="days before first detection")
+    n.add_argument("--fit-days", type=float, default=3.0,
+                   help="fit only data up to this many days after the first detection "
+                        "(<= 0: all data)")
     n.add_argument("--uninformed", action="store_true",
                    help="broad distance/inclination priors (fit result reusable as constraint)")
     n.add_argument("--dry-run", action="store_true", help="write inputs and print the command")
@@ -72,6 +75,7 @@ def main(argv=None):
                             model_prior=args.model_prior, svd_path=args.svd_path,
                             interpolation_type=args.interpolation_type, sampler=args.sampler,
                             max_age_d=args.max_age, informed=not args.uninformed,
+                            fit_days=args.fit_days if args.fit_days > 0 else None,
                             executable=os.path.expanduser(args.executable))
         res = {"command": s.command_line, "trigger_mjd": s.trigger_mjd,
                "timeshift_bounds_d": s.timeshift_bounds, "informed_priors": s.informed,

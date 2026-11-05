@@ -1,0 +1,25 @@
+{
+  "C": {
+    "first_detection_after_true_t0_h": 6.239999999933772,
+    "t0_median_minus_true_h": -31.783143513268893,
+    "t0_90pc_width_h": 25.51118787811862,
+    "true_t0_in_90pc": false,
+    "bracket_width_h": 168.0,
+    "window_frac0.0_h": 25.51118787818485,
+    "true_t0_in_window_frac0.0": false,
+    "window_frac0.5_h": 63.53433139138752,
+    "true_t0_in_window_frac0.5": true,
+    "window_frac0.75_h": 78.1909997689724,
+    "true_t0_in_window_frac0.75": true,
+    "D_L_median_mpc": 356.5801085772624,
+    "D_L_90pc_mpc": [
+      349.6004933478939,
+      364.35528192949175
+    ],
+    "D_L_from_redshift_mpc": 357.4903149348956,
+    "theta_obs_median_deg": 31.99237401514736
+  },
+  "D": {
+    "error": "[Errno 2] No such file or directory: 'examples/validation_grb211211a/runs_fit3_Bu2019lm/D/raven_kn_nmma_setup.json'"
+  }
+}
