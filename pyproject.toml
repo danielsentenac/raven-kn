@@ -1,0 +1,22 @@
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "raven-kn"
+version = "0.1.0"
+description = "Kilonova-triggered RAVEN-like coincidence and targeted GW search trigger pipeline"
+requires-python = ">=3.10"
+license = "GPL-3.0-or-later"
+dependencies = ["numpy", "scipy", "astropy", "healpy"]
+
+[project.optional-dependencies]
+lvk = ["lalsuite", "ligo-gracedb", "ligo-raven", "ligo.skymap"]
+brokers = ["requests"]
+test = ["pytest"]
+
+[project.scripts]
+raven-kn = "raven_kn.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["raven_kn*"]

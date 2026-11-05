@@ -1,0 +1,51 @@
+{
+  "workdir": "examples/validation/runs/B",
+  "label": "AT2017gfo_B",
+  "model": "Bu2019lm",
+  "trigger_mjd": 57976.23,
+  "timeshift_bounds": [
+    0.000999999996565748,
+    6.888999999996566
+  ],
+  "informed": true,
+  "data_file": "examples/validation/runs/B/AT2017gfo_B.dat",
+  "prior_file": "examples/validation/runs/B/AT2017gfo_B.prior",
+  "command": [
+    "/home/sentenac/miniforge3/envs/nmma/bin/lightcurve-analysis",
+    "--em-model",
+    "Bu2019lm",
+    "--light-curve-data",
+    "examples/validation/runs/B/AT2017gfo_B.dat",
+    "--trigger-time",
+    "57976.230000",
+    "--prior-file",
+    "examples/validation/runs/B/AT2017gfo_B.prior",
+    "--outdir",
+    "examples/validation/runs/B/nmma_out",
+    "--label",
+    "AT2017gfo_B",
+    "--em-tmin",
+    "0.1",
+    "--em-tmax",
+    "14.0",
+    "--interpolation-type",
+    "sklearn_gp",
+    "--sampler",
+    "pymultinest",
+    "--em-error-budget",
+    "1.0",
+    "--plot",
+    "--svd-path",
+    "/home/sentenac/nmma_models",
+    "--nlive",
+    "512",
+    "--local-only"
+  ],
+  "n_detections": 51,
+  "n_limits": 3,
+  "notes": [
+    "distance prior from EM data: 44.6 +- 4.4 Mpc",
+    "viewing-angle prior: 20.0 +- 5.0 deg",
+    "dropped 6 points later than earliest merger + em_tmax (14.0 d)"
+  ]
+}

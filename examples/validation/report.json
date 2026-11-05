@@ -1,0 +1,24 @@
+{
+  "A": {
+    "t0_median_minus_true_h": -41.53152299013403,
+    "t0_90pc_width_h": 38.35941490146849,
+    "true_t0_in_90pc": false,
+    "bracket_width_h": 168.0,
+    "final_window_h": 38.35941490146849,
+    "true_t0_in_final_window": false,
+    "window_notes": "intersection",
+    "D_L_median_mpc": 44.9807569097585,
+    "theta_obs_median_deg": 20.22346511237898
+  },
+  "B": {
+    "t0_median_minus_true_h": -1.9440006764729818,
+    "t0_90pc_width_h": 8.645352615449164,
+    "true_t0_in_90pc": true,
+    "bracket_width_h": 25.379436111251515,
+    "final_window_h": 8.645352615449164,
+    "true_t0_in_final_window": true,
+    "window_notes": "intersection",
+    "D_L_median_mpc": 47.82199451123556,
+    "theta_obs_median_deg": 20.988391717622292
+  }
+}
