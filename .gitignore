@@ -1,0 +1,16 @@
+# environments / caches
+.venv/
+__pycache__/
+*.egg-info/
+.pytest_cache/
+
+# regenerable outputs
+examples/out/
+examples/nmma_gw170817/
+
+# NMMA run working files (keep inputs, setup, posterior samples, plots)
+examples/validation/run_*.out
+examples/validation/runs/*/nmma.log
+examples/validation/runs/*/nmma_out/pm_*/
+examples/validation/runs/*/nmma_out/*.log
+examples/validation/runs/*/nmma_out/*_result.json

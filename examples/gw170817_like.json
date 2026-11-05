@@ -1,0 +1,64 @@
+{
+  "name": "AT2017gfo-like",
+  "ra": 197.450374,
+  "dec": -23.381495,
+  "pos_err_arcsec": 0.1,
+  "source": "example",
+  "kn_score": 0.9,
+  "photometry": [
+    {
+      "mjd": 57982.40352349537,
+      "band": "g",
+      "mag": 24.5,
+      "upper_limit": true,
+      "survey": "LSST"
+    },
+    {
+      "mjd": 57982.42352349537,
+      "band": "r",
+      "mag": 24.3,
+      "upper_limit": true,
+      "survey": "LSST"
+    },
+    {
+      "mjd": 57982.98269016204,
+      "band": "i",
+      "mag": 17.1,
+      "mag_err": 0.03,
+      "survey": "LSST"
+    },
+    {
+      "mjd": 57983.00352349537,
+      "band": "g",
+      "mag": 17.3,
+      "mag_err": 0.03,
+      "survey": "LSST"
+    },
+    {
+      "mjd": 57983.92852349537,
+      "band": "r",
+      "mag": 17.6,
+      "mag_err": 0.03,
+      "survey": "LSST"
+    },
+    {
+      "mjd": 57984.92852349537,
+      "band": "r",
+      "mag": 18.3,
+      "mag_err": 0.04,
+      "survey": "LSST"
+    }
+  ],
+  "redshift": {
+    "z": 0.009783,
+    "z_err": 1e-05,
+    "kind": "spectroscopic",
+    "source": "host NGC 4993"
+  },
+  "viewing_angle": {
+    "mean_deg": 20.0,
+    "std_deg": 5.0,
+    "method": "VLBI superluminal motion"
+  },
+  "notes": "position/redshift/viewing angle real; photometry synthetic"
+}

@@ -1,0 +1,37 @@
+{
+  "name": "far-candidate",
+  "ra": 150.1,
+  "dec": 2.2,
+  "source": "example",
+  "kn_score": 0.7,
+  "photometry": [
+    {
+      "mjd": 57980.52852349537,
+      "band": "g",
+      "mag": 24.0,
+      "upper_limit": true,
+      "survey": "LSST"
+    },
+    {
+      "mjd": 57983.12852349537,
+      "band": "g",
+      "mag": 23.0,
+      "mag_err": 0.1,
+      "survey": "LSST"
+    },
+    {
+      "mjd": 57983.14852349537,
+      "band": "i",
+      "mag": 22.8,
+      "mag_err": 0.1,
+      "survey": "LSST"
+    }
+  ],
+  "redshift": {
+    "z": 0.15,
+    "z_err": 0.0005,
+    "kind": "spectroscopic",
+    "source": "host"
+  },
+  "notes": "synthetic"
+}
