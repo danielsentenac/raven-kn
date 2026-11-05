@@ -1,0 +1,53 @@
+{
+  "workdir": "examples/validation/runs_fit3_Bu2019lm/A",
+  "label": "AT2017gfo_A",
+  "model": "Bu2019lm",
+  "trigger_mjd": 57976.23,
+  "timeshift_bounds": [
+    0.000999999996565748,
+    6.898378031808113
+  ],
+  "informed": true,
+  "data_file": "examples/validation/runs_fit3_Bu2019lm/A/AT2017gfo_A.dat",
+  "prior_file": "examples/validation/runs_fit3_Bu2019lm/A/AT2017gfo_A.prior",
+  "command": [
+    "/home/sentenac/miniforge3/envs/nmma/bin/python",
+    "/home/sentenac/ACME/RAVEN-Kilonova/raven_kn/treatment/nmma_launcher.py",
+    "--em-model",
+    "Bu2019lm",
+    "--light-curve-data",
+    "examples/validation/runs_fit3_Bu2019lm/A/AT2017gfo_A.dat",
+    "--trigger-time",
+    "57976.230000",
+    "--prior-file",
+    "examples/validation/runs_fit3_Bu2019lm/A/AT2017gfo_A.prior",
+    "--outdir",
+    "examples/validation/runs_fit3_Bu2019lm/A/nmma_out",
+    "--label",
+    "AT2017gfo_A",
+    "--em-tmin",
+    "0.1",
+    "--em-tmax",
+    "14.0",
+    "--interpolation-type",
+    "sklearn_gp",
+    "--sampler",
+    "pymultinest",
+    "--em-error-budget",
+    "1.0",
+    "--plot",
+    "--svd-path",
+    "/home/sentenac/nmma_models",
+    "--nlive",
+    "512",
+    "--local-only"
+  ],
+  "n_detections": 36,
+  "n_limits": 0,
+  "notes": [
+    "distance prior from EM data: 44.6 +- 4.4 Mpc",
+    "viewing-angle prior: 20.0 +- 5.0 deg",
+    "log10_mej_wind prior [-2, -0.886] clipped to training range [-2, -0.8861]",
+    "dropped 22 points later than first detection + 3.0 d"
+  ]
+}

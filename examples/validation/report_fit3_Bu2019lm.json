@@ -1,0 +1,16 @@
+{
+  "A": {
+    "t0_median_minus_true_h": -18.388246996402742,
+    "t0_90pc_width_h": 46.208403914107215,
+    "true_t0_in_90pc": false,
+    "bracket_width_h": 168.0,
+    "final_window_h": 89.83587412900395,
+    "true_t0_in_final_window": true,
+    "window_notes": "model-systematic margin -26.4 h / +26.4 h (frac 0.75, stat. width 46.2 h); no constraining non-detection: early edge = first detection - 7.0 d",
+    "D_L_median_mpc": 45.42016656031042,
+    "theta_obs_median_deg": 20.0071318827752
+  },
+  "B": {
+    "error": "[Errno 2] No such file or directory: 'examples/validation/runs_fit3_Bu2019lm/B/raven_kn_nmma_setup.json'"
+  }
+}

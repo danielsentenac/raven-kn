@@ -1,24 +1,24 @@
 {
   "A": {
-    "t0_median_minus_true_h": -41.53152299013403,
-    "t0_90pc_width_h": 38.35941490146849,
+    "t0_median_minus_true_h": -40.10612428797616,
+    "t0_90pc_width_h": 31.84162721792857,
     "true_t0_in_90pc": false,
     "bracket_width_h": 168.0,
-    "final_window_h": 38.35941490146849,
-    "true_t0_in_final_window": false,
-    "window_notes": "intersection",
-    "D_L_median_mpc": 44.9807569097585,
-    "theta_obs_median_deg": 20.22346511237898
+    "final_window_h": 88.80718761695756,
+    "true_t0_in_final_window": true,
+    "window_notes": "model-systematic margin -28.5 h / +28.5 h (frac 0.5, stat. width 31.8 h); no constraining non-detection: early edge = first detection - 7.0 d",
+    "D_L_median_mpc": 44.45550945965514,
+    "theta_obs_median_deg": 19.800621181122793
   },
   "B": {
-    "t0_median_minus_true_h": -1.9440006764729818,
-    "t0_90pc_width_h": 8.645352615449164,
+    "t0_median_minus_true_h": -1.3361387730969323,
+    "t0_90pc_width_h": 9.333455229202906,
     "true_t0_in_90pc": true,
     "bracket_width_h": 25.379436111251515,
-    "final_window_h": 8.645352615449164,
+    "final_window_h": 19.431242671344016,
     "true_t0_in_final_window": true,
-    "window_notes": "intersection",
-    "D_L_median_mpc": 47.82199451123556,
-    "theta_obs_median_deg": 20.988391717622292
+    "window_notes": "model-systematic margin -1.0 h / +9.1 h (frac 0.5, stat. width 9.3 h); last constraining non-detection PS1 r<24.3 at MJD 57982.4235",
+    "D_L_median_mpc": 46.92037116897902,
+    "theta_obs_median_deg": 20.61323424514989
   }
 }

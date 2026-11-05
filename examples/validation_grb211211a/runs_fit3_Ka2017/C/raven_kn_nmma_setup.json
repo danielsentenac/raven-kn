@@ -1,0 +1,51 @@
+{
+  "workdir": "examples/validation_grb211211a/runs_fit3_Ka2017/C",
+  "label": "GRB211211A_C",
+  "model": "Ka2017",
+  "trigger_mjd": 59552.80759953704,
+  "timeshift_bounds": [
+    0.000999999996565748,
+    6.891601800170241
+  ],
+  "informed": true,
+  "data_file": "examples/validation_grb211211a/runs_fit3_Ka2017/C/GRB211211A_C.dat",
+  "prior_file": "examples/validation_grb211211a/runs_fit3_Ka2017/C/GRB211211A_C.prior",
+  "command": [
+    "/home/sentenac/miniforge3/envs/nmma/bin/python",
+    "/home/sentenac/ACME/RAVEN-Kilonova/raven_kn/treatment/nmma_launcher.py",
+    "--em-model",
+    "Ka2017",
+    "--light-curve-data",
+    "examples/validation_grb211211a/runs_fit3_Ka2017/C/GRB211211A_C.dat",
+    "--trigger-time",
+    "59552.807600",
+    "--prior-file",
+    "examples/validation_grb211211a/runs_fit3_Ka2017/C/GRB211211A_C.prior",
+    "--outdir",
+    "examples/validation_grb211211a/runs_fit3_Ka2017/C/nmma_out",
+    "--label",
+    "GRB211211A_C",
+    "--em-tmin",
+    "0.1",
+    "--em-tmax",
+    "14.0",
+    "--interpolation-type",
+    "sklearn_gp",
+    "--sampler",
+    "pymultinest",
+    "--em-error-budget",
+    "1.0",
+    "--plot",
+    "--svd-path",
+    "/home/sentenac/nmma_models",
+    "--nlive",
+    "512",
+    "--local-only"
+  ],
+  "n_detections": 14,
+  "n_limits": 5,
+  "notes": [
+    "distance prior from EM data: 357.5 +- 4.9 Mpc",
+    "dropped 10 points later than first detection + 3.0 d"
+  ]
+}

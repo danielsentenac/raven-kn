@@ -20,7 +20,7 @@ Interface checked against the NMMA 1.0.1 source:
 * merger time = trigger time + ``timeshift`` (days), detector frame
   (``nmma.em.model``: observed = source x (1+z) + timeshift);
 * the first detection must be later than ``(1+z_max) * em_tmin +
-  timeshift_max`` (``check_model_time_consistency``), which bounds the
+  timeshift_max`` (z_max from the distance prior's upper bound) (``check_model_time_consistency``), which bounds the
   timeshift prior;
 * results: bilby ``<label>_posterior_samples.dat`` or ``<label>_result.json``.
 
@@ -64,10 +64,20 @@ FILTER_MAP = {
 # copied from the NMMA 1.0.1 prior files (GPL-3, nmma/priors/<model>.prior).
 # For other models (e.g. Bu2026, used by Jamsin et al.) pass ``model_prior``.
 MODEL_PRIORS = {
+    # NMMA's Bu2019lm.prior (dyn up to -1.0, wind -3..-0.5) exceeds the
+    # training grid of the distributed Bu2019lm SVD model (dyn -3..-1.699,
+    # wind -2..-0.886): outside it the GP extrapolates. Training range used.
     "Bu2019lm": [
         "KNphi = Uniform(name='KNphi', minimum=15., maximum=75.)",
-        "log10_mej_dyn = Uniform(name='log10_mej_dyn', minimum=-3., maximum=-1.0)",
-        "log10_mej_wind = Uniform(name='log10_mej_wind', minimum=-3., maximum=-0.5)",
+        "log10_mej_dyn = Uniform(name='log10_mej_dyn', minimum=-3., maximum=-1.699)",
+        "log10_mej_wind = Uniform(name='log10_mej_wind', minimum=-2., maximum=-0.886)",
+    ],
+    # Ka2017 (Kasen et al. 2017, one component, no viewing angle):
+    # NMMA 1.0.2 priors/Ka2017.prior; clipped to the training range if known.
+    "Ka2017": [
+        "log10_mej = Uniform(name='log10_mej', minimum=-3., maximum=-1.)",
+        "log10_vej = Uniform(name='log10_vej', minimum=-1.52, maximum=-0.53)",
+        "log10_Xlan = Uniform(name='log10_Xlan', minimum=-9, maximum=-1)",
     ],
     "Bu2023Ye": [
         "log10_mej_dyn = Uniform(name='log10_mej_dyn', minimum=-3., maximum=-1.7)",
@@ -79,6 +89,68 @@ MODEL_PRIORS = {
     ],
 }
 _OURS = ("luminosity_distance", "inclination_EM", "timeshift")
+
+# Order of the training parameters stored in NMMA SVD model files
+# (``param_mins`` / ``param_maxs``), from nmma.em.model (v1.0.2).
+MODEL_PARAM_NAMES = {
+    "Bu2019lm": ["log10_mej_dyn", "log10_mej_wind", "KNphi", "KNtheta"],
+    "Bu2019nsbh": ["log10_mej_dyn", "log10_mej_wind", "KNtheta"],
+    "Bu2019lm_sparse": ["log10_mej_dyn", "log10_mej_wind"],
+    "Ka2017": ["log10_mej", "log10_vej", "log10_Xlan"],
+}
+
+
+def model_training_ranges(model: str, svd_path: Optional[str | Path],
+                          param_names: Optional[list[str]] = None) -> dict[str, tuple[float, float]]:
+    """Training range of each model parameter, read from ``<svd_path>/<model>.joblib``.
+
+    ``KNtheta`` (deg) is returned as ``inclination_EM`` (rad). Empty dict if
+    the file or the parameter names are unavailable.
+    """
+    names = param_names or MODEL_PARAM_NAMES.get(model)
+    if svd_path is None or names is None:
+        return {}
+    f = Path(svd_path).expanduser() / f"{model}.joblib"
+    if not f.exists():
+        return {}
+    import joblib
+    core = joblib.load(f)
+    entry = next(iter(core.values()))
+    lo, hi = np.asarray(entry["param_mins"], float), np.asarray(entry["param_maxs"], float)
+    if len(lo) != len(names):
+        return {}
+    out = {}
+    for n, a, b in zip(names, lo, hi):
+        if n == "KNtheta":
+            out["inclination_EM"] = (math.radians(a), math.radians(b))
+        else:
+            out[n] = (float(a), float(b))
+    return out
+
+
+def clip_prior_lines(lines: list[str], ranges: dict[str, tuple[float, float]]) -> tuple[list[str], list[str]]:
+    """Narrow ``minimum``/``maximum`` of each prior to the training range."""
+    import re
+    out, notes = [], []
+    for ln in lines:
+        name = ln.split("=")[0].strip()
+        if name in ranges:
+            a, b = ranges[name]
+            mn = re.search(r"minimum\s*=\s*([-+0-9.eE]+)", ln)
+            mx = re.search(r"maximum\s*=\s*([-+0-9.eE]+)", ln)
+            if mn and mx:
+                lo, hi = float(mn.group(1)), float(mx.group(1))
+                nlo, nhi = max(lo, a), min(hi, b)
+                if nlo >= nhi:
+                    raise ValueError(f"prior on {name} [{lo}, {hi}] outside training range [{a}, {b}]")
+                if (nlo, nhi) != (lo, hi):
+                    ln = ln[:mn.start(1)] + f"{nlo:.6g}" + ln[mn.end(1):]
+                    mx = re.search(r"maximum\s*=\s*([-+0-9.eE]+)", ln)
+                    ln = ln[:mx.start(1)] + f"{nhi:.6g}" + ln[mx.end(1):]
+                    notes.append(f"{name} prior [{lo:g}, {hi:g}] clipped to training range "
+                                 f"[{nlo:.4g}, {nhi:.4g}]")
+        out.append(ln)
+    return out, notes
 
 
 def nmma_filter(survey: str, band: str) -> str:
@@ -135,6 +207,22 @@ def _model_prior_lines(model: str, model_prior: Optional[str | Path]) -> list[st
     return keep
 
 
+def distance_prior(kn: KNCandidate, informed: bool = True,
+                   d_max: float = 1500.0) -> tuple[str, Optional[str], float]:
+    """(prior line, note, upper bound in Mpc) for ``luminosity_distance``."""
+    cons = [c for c in constraints_from_candidate(kn) if not c.name.startswith("lc_fit")]
+    if informed and cons:
+        post = combine(cons, d_max=d_max)
+        m, s = float(np.mean(post.d_mpc)), float(np.std(post.d_mpc))
+        hi = m + 6 * s
+        return (f"luminosity_distance = TruncatedGaussian(mu={m:.3f}, sigma={max(s, 0.5):.3f}, "
+                f"minimum={max(m - 6 * s, 0.1):.3f}, maximum={hi:.3f}, "
+                f"name='luminosity_distance')",
+                f"distance prior from EM data: {m:.1f} +- {s:.1f} Mpc", hi)
+    return (f"luminosity_distance = Uniform(minimum=1.0, maximum={d_max:.1f}, "
+            f"name='luminosity_distance')", None, d_max)
+
+
 def build_prior(kn: KNCandidate, model: str, timeshift_bounds: tuple[float, float],
                 informed: bool = True, model_prior: Optional[str | Path] = None,
                 d_max: float = 1500.0) -> tuple[list[str], list[str]]:
@@ -143,17 +231,10 @@ def build_prior(kn: KNCandidate, model: str, timeshift_bounds: tuple[float, floa
     notes = []
     a, b = timeshift_bounds
     lines.append(f"timeshift = Uniform(minimum={a:.5f}, maximum={b:.5f}, name='timeshift')")
-    cons = [c for c in constraints_from_candidate(kn) if not c.name.startswith("lc_fit")]
-    if informed and cons:
-        post = combine(cons, d_max=d_max)
-        m, s = float(np.mean(post.d_mpc)), float(np.std(post.d_mpc))
-        lines.append(f"luminosity_distance = TruncatedGaussian(mu={m:.3f}, sigma={max(s, 0.5):.3f}, "
-                     f"minimum={max(m - 6 * s, 0.1):.3f}, maximum={m + 6 * s:.3f}, "
-                     f"name='luminosity_distance')")
-        notes.append(f"distance prior from EM data: {m:.1f} +- {s:.1f} Mpc")
-    else:
-        lines.append(f"luminosity_distance = Uniform(minimum=1.0, maximum={d_max:.1f}, "
-                     f"name='luminosity_distance')")
+    line, note, _ = distance_prior(kn, informed, d_max)
+    lines.append(line)
+    if note:
+        notes.append(note)
     if informed and kn.viewing_angle is not None:
         mu, sg = math.radians(kn.viewing_angle.mean_deg), math.radians(kn.viewing_angle.std_deg)
         lines.append(f"inclination_EM = TruncatedGaussian(mu={mu:.5f}, sigma={sg:.5f}, minimum=0., "
@@ -165,14 +246,25 @@ def build_prior(kn: KNCandidate, model: str, timeshift_bounds: tuple[float, floa
 
 
 def write_lightcurve(kn: KNCandidate, path: str | Path, t_start_mjd: float,
-                     t_end_mjd: float = np.inf) -> tuple[int, int]:
-    """NMMA observations file; returns (n_detections, n_limits) written."""
+                     t_end_mjd: float = np.inf,
+                     drop_limit_only_filters: bool = False) -> tuple[int, int, list[str]]:
+    """NMMA observations file; returns (n_detections, n_limits, dropped filters).
+
+    ``drop_limit_only_filters``: remove filters with only non-detections,
+    needed when NMMA is run without :mod:`nmma_launcher` (NMMA 1.0.x
+    ``check_model_time_consistency`` crashes on them).
+    """
+    pts = [p for p in kn.photometry if t_start_mjd <= p.mjd <= t_end_mjd]
+    all_f = {nmma_filter(p.survey, p.band) for p in pts}
+    with_det = {nmma_filter(p.survey, p.band) for p in pts if not p.upper_limit}
+    keep = with_det if drop_limit_only_filters else all_f
+    dropped = sorted(all_f - keep)
     rows, nd, nl = [], 0, 0
-    for p in sorted(kn.photometry, key=lambda p: p.mjd):
-        if p.mjd < t_start_mjd or p.mjd > t_end_mjd:
+    for p in sorted(pts, key=lambda p: p.mjd):
+        filt = nmma_filter(p.survey, p.band)
+        if filt not in keep:
             continue
         isot = Time(p.mjd, format="mjd", scale="utc").isot
-        filt = nmma_filter(p.survey, p.band)
         if p.upper_limit:
             rows.append(f"{isot} {filt} {p.mag:.3f} inf")
             nl += 1
@@ -180,24 +272,45 @@ def write_lightcurve(kn: KNCandidate, path: str | Path, t_start_mjd: float,
             rows.append(f"{isot} {filt} {p.mag:.3f} {p.mag_err if p.mag_err else 0.1:.3f}")
             nd += 1
     Path(path).write_text("\n".join(rows) + "\n")
-    return nd, nl
+    return nd, nl, dropped
 
 
 def setup(kn: KNCandidate, workdir: str | Path, model: str = "Bu2019lm",
           informed: bool = True, model_prior: Optional[str | Path] = None,
           max_age_d: float = 7.0, lookback_d: float = 3.0,
-          em_tmin: float = 0.1, em_tmax: float = 14.0, z_max: float = 0.12,
+          em_tmin: float = 0.1, em_tmax: float = 14.0, d_max: float = 1500.0,
+          fit_days: Optional[float] = 3.0,
           interpolation_type: str = "tensorflow", sampler: str = "pymultinest",
           svd_path: Optional[str] = None, em_error_budget: float = 1.0,
-          extra_args: Optional[list[str]] = None, executable: str = "lightcurve-analysis") -> NMMASetup:
+          extra_args: Optional[list[str]] = None, executable: str = "lightcurve-analysis",
+          use_launcher: bool = True) -> NMMASetup:
     """Write the NMMA data and prior files and build the command.
 
     The merger is searched in [first detection - ``max_age_d``, first
-    detection - (1 + z_max) * em_tmin]. Non-detections up to ``lookback_d``
+    detection - (1 + z_max) * em_tmin], z_max being the redshift of the
+    largest distance allowed by the distance prior. Non-detections up to ``lookback_d``
     before that are kept (they constrain t0 through the model). The trigger
     time is put at the earliest kept point.
+
+    ``fit_days``: only data up to ``fit_days`` after the first detection are
+    fitted (None: all). Later points carry little t0 information, and when
+    the model cannot follow the late evolution they bias t0: with Bu2019lm
+    on AT2017gfo, all data give a merger ~48 h early, the first ~3 days
+    ~16 h early (chi2 profile, README).
+
+    ``use_launcher``: if ``executable`` is an NMMA ``lightcurve-analysis``
+    with a ``python`` next to it (conda/venv layout), run NMMA through
+    :mod:`raven_kn.treatment.nmma_launcher` with that python, which works
+    around NMMA's crash on non-detection-only filters; otherwise such
+    filters are dropped (noted).
     """
     wd = Path(workdir)
+    prefix = [executable]
+    exe_path = shutil.which(executable)
+    if use_launcher and exe_path and Path(exe_path).name == "lightcurve-analysis":
+        py = Path(exe_path).parent / "python"
+        if py.exists():
+            prefix = [str(py), str(Path(__file__).with_name("nmma_launcher.py"))]
     wd.mkdir(parents=True, exist_ok=True)
     fd = kn.first_detection
     if fd is None:
@@ -207,7 +320,13 @@ def setup(kn: KNCandidate, workdir: str | Path, model: str = "Bu2019lm",
     kept_ul = [p.mjd for p in kn.upper_limits if t_start <= p.mjd < fd.mjd]
     trigger = min([earliest_merger] + kept_ul) - 1e-3
     ts_lo = earliest_merger - trigger
-    ts_hi = (fd.mjd - trigger) - (1 + z_max) * em_tmin
+    # NMMA requires the model start, stretched by (1 + z_max) and shifted by
+    # the largest timeshift, to precede the first detection
+    from astropy import units as u
+    from astropy.cosmology import Planck18, z_at_value
+    d_hi = distance_prior(kn, informed, d_max)[2]
+    z_max = 1.02 * float(z_at_value(Planck18.luminosity_distance, d_hi * u.Mpc))
+    ts_hi = (fd.mjd - trigger) - (1 + z_max) * em_tmin - 1e-3
     if ts_hi <= ts_lo:
         raise ValueError("timeshift range empty: lower em_tmin or raise max_age_d")
     label = kn.name.replace(" ", "_").replace("+", "_")
@@ -215,13 +334,27 @@ def setup(kn: KNCandidate, workdir: str | Path, model: str = "Bu2019lm",
     # NMMA requires every detection inside the model span for the earliest
     # allowed merger; later points carry no t0 information: drop them.
     t_end = earliest_merger + em_tmax - 0.01
+    if fit_days is not None:
+        t_end = min(t_end, fd.mjd + fit_days)
     n_late = sum(p.mjd > t_end for p in kn.photometry)
-    nd, nl = write_lightcurve(kn, data_file, trigger, t_end)
-    lines, notes = build_prior(kn, model, (ts_lo, ts_hi), informed, model_prior)
+    nd, nl, dropped = write_lightcurve(kn, data_file, trigger, t_end,
+                                       drop_limit_only_filters=len(prefix) == 1)
+    lines, notes = build_prior(kn, model, (ts_lo, ts_hi), informed, model_prior, d_max)
+    ranges = model_training_ranges(model, svd_path)
+    if ranges:
+        lines, clip_notes = clip_prior_lines(lines, ranges)
+        notes += clip_notes
+    elif svd_path is None:
+        notes.append("model training ranges not checked (no svd_path): priors may extrapolate the model")
     prior_file.write_text("\n".join(lines) + "\n")
+    if dropped:
+        notes.append(f"dropped non-detection-only filters {dropped}: NMMA run without the "
+                     f"launcher crashes on them")
     if n_late:
-        notes.append(f"dropped {n_late} points later than earliest merger + em_tmax ({em_tmax} d)")
-    cmd = [executable, "--em-model", model, "--light-curve-data", str(data_file),
+        notes.append(f"dropped {n_late} points later than "
+                     + (f"first detection + {fit_days} d" if fit_days is not None and
+                        t_end == fd.mjd + fit_days else f"earliest merger + em_tmax ({em_tmax} d)"))
+    cmd = prefix + ["--em-model", model, "--light-curve-data", str(data_file),
            "--trigger-time", f"{trigger:.6f}", "--prior-file", str(prior_file),
            "--outdir", str(wd / "nmma_out"), "--label", label,
            "--em-tmin", str(em_tmin), "--em-tmax", str(em_tmax),
@@ -291,4 +424,5 @@ def fit(kn: KNCandidate, workdir: str | Path, dry_run: bool = False, **kw) -> tu
 
 def import_result(kn: KNCandidate, workdir: str | Path) -> KNCandidate:
     s = NMMASetup.load(workdir)
-    return apply_posterior(kn, s, read_posterior(Path(s.workdir) / "nmma_out", s.label))
+    # read from the given directory (the run may have been moved since setup)
+    return apply_posterior(kn, s, read_posterior(Path(workdir) / "nmma_out", s.label))

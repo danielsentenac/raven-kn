@@ -63,19 +63,40 @@ Interface checked against the NMMA 1.0.1 source (not yet run with NMMA itself):
 - priors: model parameters from NMMA's prior files (Bu2019lm, Bu2023Ye built in; any other model, e.g. Bu2026, via `--model-prior`), distance as a truncated Gaussian from the EM distance posterior, `inclination_EM` from the viewing angle (else `Sine`);
 - with these informed priors the fitted D_L/ι are **not** reused as an extra constraint (`lc_fit_informed`), to avoid counting the redshift twice; use `--uninformed` to get an independent kilonova distance.
 
-## Validation with real NMMA (v1.0.2, Bu2019lm, sklearn_gp, pymultinest 512 live points)
+## Validation with real NMMA (v1.0.2, sklearn_gp, pymultinest 512 live points)
 
-`examples/validate_at2017gfo.py` on NMMA's AT2017gfo PS1 g,r,i,z light curve (first point +0.7 d),
-NGC 4993 redshift and VLBI angle as priors; truth = GW170817 merger time. About 4 min per run.
+Two real kilonovae with a known merger time, the prompt signal hidden from the fit:
+AT2017gfo (`examples/validate_at2017gfo.py`, PS1 g,r,i,z, first point +17 h; truth GW170817) and
+GRB 211211A (`examples/validate_grb211211a.py`, PS1/Bessell/2MASS, first point +6.2 h; truth the
+Swift-BAT/Fermi-GBM trigger 2021-12-11T13:09:59, GCN 31202). Distance from the host redshift
+(and VLBI angle for AT2017gfo) as priors, priors clipped to the model training range. ~4-10 min per run.
 
-| case | t0 median − true | 90 % stat. window | truth inside | window with model margin (frac 0.5) | truth inside |
-|---|---|---|---|---|---|
-| A: real data only | −41.5 h | 38.4 h | **no** | 96.8 h (±29.2 h) | yes |
-| B: + synthetic g, r non-detections 3 h before merger | −1.9 h | 8.6 h | yes | 19.0 h (−1.0 / +9.4 h) | yes |
+| event | model, data fitted | t0 median − true | 90 % interval | truth in 90 % | window with 0.75 margin | truth inside |
+|---|---|---|---|---|---|---|
+| AT2017gfo | Bu2019lm, all data | −40.1 h | 32 h | no | 89 h | yes |
+| AT2017gfo | Bu2019lm, first 3 d | −18.4 h | 46 h | no | 90 h | yes |
+| AT2017gfo | Ka2017, first 3 d | −27.4 h | 87 h | no | 138 h | yes |
+| AT2017gfo + g,r non-detections 3 h before merger (synthetic) | Bu2019lm, all data | −1.3 h | 9 h | yes | 19 h | yes |
+| GRB 211211A | Bu2019lm, all data | −28.2 h | 25 h | no | 74 h | yes |
+| GRB 211211A | Bu2019lm, first 3 d | −31.8 h | 26 h | no | 78 h | yes |
+| GRB 211211A | Ka2017, first 3 d | −26.2 h | 38 h | no | 83 h | yes |
+| GRB 211211A, no distance prior | Bu2019lm, all data | −25.9 h | 24 h | no | — | — |
 
-A is biased early, as Jamsin et al. found for Bu2019lm on AT2017gfo (too high early opacity → too long a rise);
-the pre-merger non-detection removes the bias and narrows the window 4.5x. B's non-detection is placed
-relative to the known merger time (best case by construction). Results in `examples/validation/report.json`.
+Findings:
+- Without a recent pre-merger non-detection, both models put the merger **~1 day too early** and the
+  statistical interval misses it; the model-systematic margin (default 0.75) is what recovers it.
+  A non-detection a few hours before the merger removes the bias (−1.3 h) and gives a 19 h window.
+- Bu2019lm cannot follow AT2017gfo's slow evolution: at the true t0 it is up to ~1 mag too bright in i,z at
+  1.5–2.5 d and ~1 mag too faint after 6 d (chi2 profile over fixed t0); the fit makes the source older,
+  with parameters at the grid edges. Fitting only the first 3 days (`fit_days`, default) halves the bias
+  on AT2017gfo but not on GRB 211211A, whose early optical light includes afterglow.
+- The kilonova-only distance is unreliable: 165 Mpc (90 %: 115–274) for GRB 211211A at 357 Mpc.
+  Use a spectroscopic redshift for the "is a search worth it" decision.
+- Fixed on the way: priors copied from NMMA's `Bu2019lm.prior` exceeded the model's training range
+  (50–80 % of samples extrapolated); NMMA crashes on non-detection-only filters (`nmma_launcher.py`
+  works around it); the timeshift bound now follows the distance prior's redshift.
+
+Reports: `examples/validation/report*.json`, `examples/validation_grb211211a/report*.json`.
 
 Environment notes: NMMA runs from the conda env `nmma` (`--executable` or `$RAVEN_KN_NMMA_EXE`);
 models in `~/nmma_models` (`python -c "from nmma.core.gitlab import main; main()" --model Bu2019lm --filters ...`,
@@ -84,11 +105,11 @@ the `svdmodel-download` entry point is broken in v1.0.2); some sncosmo bandpasse
 
 ## Assumptions to revisit (all are parameters)
 
-- **Model-systematic margin** on a light-curve t0 (`window_from_samples`, `--model-sys-frac`, default 0.5):
+- **Model-systematic margin** on a light-curve t0 (`window_from_samples`, `--model-sys-frac`, default 0.75):
   the 90 % interval is widened by 0.5 x the extrapolation gap from the median t0 to the data that anchor it
   (first detection on the late side; last constraining non-detection, else the same gap, on the early side),
-  at least 1 h, then intersected with the photometric bracket. 0.5 is the smallest round value that recovers
-  GW170817 in case A: calibrated on one event and one model; to be redone with cross-model injections.
+  at least 1 h, then intersected with the photometric bracket. 0.75 is the smallest round value recovering
+  the merger in all the real-data fits above (two events, two models); to be redone with cross-model injections.
 - **Bracket model** (`window_from_bracket`): kilonova at least as bright as
   M = −15 from 0.25 d after merger; a non-detection constrains only if deeper
   than that at the 95th-percentile distance; 7 d default early edge. To be
@@ -117,7 +138,8 @@ the `svdmodel-download` entry point is broken in v1.0.2); some sncosmo bandpasse
 ## License and credits
 
 GPL-3.0-or-later (see `LICENSE`), as LVK RAVEN (`ligo-raven`) and NMMA, which this code follows or borrows from:
-the built-in Bu2019lm / Bu2023Ye model priors are copied from NMMA's prior files, and
-`examples/validation/AT2017gfo_reduced.dat` is NMMA's `example_files/lightcurves/AT2017gfo_reduced.dat`
+the built-in Bu2019lm / Ka2017 / Bu2023Ye model priors are adapted from NMMA's prior files, and
+`examples/validation/AT2017gfo_reduced.dat` and `examples/validation_grb211211a/GRB211211A.txt` are NMMA's
+`example_files/lightcurves/AT2017gfo_reduced.dat` and `GRB211211A.txt`
 (https://github.com/nuclear-multimessenger-astronomy/nmma, tag v1.0.2).
 Merger-time methodology: Jamsin et al., arXiv:2610.28775.
