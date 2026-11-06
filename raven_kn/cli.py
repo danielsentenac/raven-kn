@@ -31,6 +31,9 @@ def main(argv=None):
     a.add_argument("--snr-threshold", type=float, default=6.0)
     a.add_argument("--p-min", type=float, default=0.1)
     a.add_argument("--d-max-useful", type=float, default=500.0)
+    a.add_argument("--chirp-mass", type=float, default=None,
+                   help="source chirp mass in Msun to rescale the BNS ranges (e.g. 0.5 for a "
+                        "sub-solar alert); default: BNS 1.2188")
     a.add_argument("--model-sys-frac", type=float, default=0.75,
                    help="model-systematic margin on a light-curve t0, as a fraction of the "
                         "extrapolation gap to the anchoring data (0 = statistical only)")
@@ -40,6 +43,8 @@ def main(argv=None):
     c.add_argument("--superevent-id", default="S000000")
     c.add_argument("--superevent-far", type=float, required=True)
     c.add_argument("--gw-skymap")
+    c.add_argument("--chirp-mass", type=float, default=None,
+                   help="superevent chirp mass in Msun (distance-factor horizon); default BNS")
 
     n = sub.add_parser("nmma", help="NMMA light-curve fit -> t0 posterior")
     n.add_argument("candidate")
@@ -92,12 +97,13 @@ def main(argv=None):
         return
     if args.cmd == "assess":
         res = assess(kn, args.out, _ranges(args.ranges), args.snr_threshold, args.p_min,
-                     args.d_max_useful, model_sys_frac=args.model_sys_frac)
+                     args.d_max_useful, model_sys_frac=args.model_sys_frac,
+                     chirp_mass_msun=args.chirp_mass)
     else:
         post = posterior_for(kn)
         win = estimate_window(kn)
         res = coinc_far(kn, {"superevent_id": args.superevent_id, "far": args.superevent_far},
-                        win, args.gw_skymap, post)
+                        win, args.gw_skymap, post, chirp_mass_msun=args.chirp_mass)
     print(json.dumps(res, indent=2, default=float))
 
 
