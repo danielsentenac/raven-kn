@@ -107,11 +107,21 @@ the `svdmodel-download` entry point is broken in v1.0.2); some sncosmo bandpasse
 
 `examples/s250818k_case.py` runs RAVEN-KN on the public S250818k sky maps (GraceDB; FAR 6.8e-8 Hz,
 HasSSM > 99 %) and AT2025ulz (GCN 41414; host z = 0.0848, DESI). Pre-discovery ZTF limits were shallower
-than the transient, so the t0 window is the 7-day fallback. Host distance 400 Mpc against a GW distance of
-218 ± 80 Mpc along that line of sight; joint FAR 14.8/yr (time), 0.22/yr (time + sky), 1.8–2.5/yr with the
-distance factor (BNS horizon), i.e. the distance disfavours the association. Expected network SNR at 400 Mpc:
-3.3 for a BNS, 1.6–2.5 for chirp masses 0.5–0.87 Msun (approximate O4c ranges): no targeted search would be
-triggered. SN 2025ulz was classified as a type IIb supernova; the physical link is still debated.
+than the transient, so the t0 window is the 7-day fallback.
+
+- Host distance: 400 Mpc (Planck18; 370–386 Mpc for H0 = 73–70), ±5 Mpc from peculiar velocity.
+- GW distance along the host direction (conditional posterior from the 3D map, `conditional_distance`):
+  272 ± 74 Mpc, 90 % 153–395 Mpc (BAYESTAR); 266 ± 70 Mpc, 90 % 153–383 Mpc (Bilby); P(D > 400 Mpc) = 3–4 %,
+  i.e. a ~1.8–2σ tension. (DISTMU/DISTSIGMA, 218 / ~80 Mpc, are ansatz parameters, not mean and sd.)
+- Joint FAR: 14.8/yr (time), 0.22/yr (time + sky), 1.8–2.5/yr with the distance factor. The host lies beyond
+  the reference horizon (362 Mpc BNS, 172 Mpc for Mc = 0.5), so the distance factor is only approximate
+  (`distance_overlap_valid` = False); the detectability argument below is the cleaner statement.
+- Expected network SNR at 400 Mpc: 3.3 for a BNS, 1.6–2.5 for chirp masses 0.5–0.87 Msun (approximate O4c
+  ranges): no targeted search would be triggered.
+- Not done: GW parameter estimation with sky position and distance fixed to the host (needs O4c strain data
+  or LVK posterior samples), the proper test of whether the GW data accommodate 400 Mpc.
+
+SN 2025ulz was classified as a type IIb supernova; the physical link is still debated.
 
 ## Assumptions to revisit (all are parameters)
 
