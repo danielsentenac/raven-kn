@@ -103,6 +103,16 @@ models in `~/nmma_models` (`python -c "from nmma.core.gitlab import main; main()
 the `svdmodel-download` entry point is broken in v1.0.2); some sncosmo bandpasses redirect to SVO's dead
 `http://` URL and had to be fetched once from `https://svo2.cab.inta-csic.es/theory/fps/` into sncosmo's cache.
 
+## Real case: S250818k / AT2025ulz
+
+`examples/s250818k_case.py` runs RAVEN-KN on the public S250818k sky maps (GraceDB; FAR 6.8e-8 Hz,
+HasSSM > 99 %) and AT2025ulz (GCN 41414; host z = 0.0848, DESI). Pre-discovery ZTF limits were shallower
+than the transient, so the t0 window is the 7-day fallback. Host distance 400 Mpc against a GW distance of
+218 ± 80 Mpc along that line of sight; joint FAR 14.8/yr (time), 0.22/yr (time + sky), 1.8–2.5/yr with the
+distance factor (BNS horizon), i.e. the distance disfavours the association. Expected network SNR at 400 Mpc:
+3.3 for a BNS, 1.6–2.5 for chirp masses 0.5–0.87 Msun (approximate O4c ranges): no targeted search would be
+triggered. SN 2025ulz was classified as a type IIb supernova; the physical link is still debated.
+
 ## Assumptions to revisit (all are parameters)
 
 - **Model-systematic margin** on a light-curve t0 (`window_from_samples`, `--model-sys-frac`, default 0.75):
@@ -119,6 +129,9 @@ the `svdmodel-download` entry point is broken in v1.0.2); some sncosmo bandpasse
 - **BNS ranges**: defaults H1 150, L1 160, V1 55 Mpc are approximate O4 values;
   pass the live ranges and science segments of the window. Horizon = 2.264 × range.
 - **Thresholds**: targeted network SNR 6, P_min 0.1, hard cut 500 Mpc.
+- **Source class**: ranges are BNS (1.4+1.4 Msun) ranges; `--chirp-mass` / `chirp_mass_msun` rescales them
+  as Mc^(5/6) (inspiral-dominated sources only), e.g. to the chirp-mass bin of a sub-solar (HasSSM) alert.
+  The distance factor of the joint FAR uses the same scaled horizon.
 - **Prompt GRB → θ_obs ≲ 30°** soft cut; jet-structure model would be better.
 - **Redshift → distance** at fixed Planck18 cosmology with 300 km/s peculiar
   velocity (do not use it for an H0 measurement).

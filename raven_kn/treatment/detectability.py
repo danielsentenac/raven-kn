@@ -32,6 +32,25 @@ HORIZON_OVER_RANGE = 2.264
 # detector summary pages for the epoch of the window.
 DEFAULT_RANGES_MPC = {"H1": 150.0, "L1": 160.0, "V1": 55.0}
 
+# Chirp mass of the 1.4 + 1.4 Msun binary that quoted BNS ranges refer to.
+BNS_CHIRP_MASS = 1.2188
+
+
+def scale_ranges(ranges_mpc: dict[str, float], chirp_mass_msun: Optional[float]) -> dict[str, float]:
+    """Ranges for another chirp mass: inspiral amplitude scales as Mc^(5/6).
+
+    Valid for inspiral-dominated signals (sub-solar to a few Msun chirp
+    mass), e.g. the chirp-mass bin of an LVK alert (HasSSM candidates:
+    0.1-0.87 Msun). Not for heavy binary black holes, whose merger lies in
+    band. None: ranges unchanged (BNS).
+    """
+    if chirp_mass_msun is None:
+        return dict(ranges_mpc)
+    if chirp_mass_msun <= 0:
+        raise ValueError("chirp mass must be positive")
+    f = (chirp_mass_msun / BNS_CHIRP_MASS) ** (5 / 6)
+    return {k: v * f for k, v in ranges_mpc.items()}
+
 
 def _antenna_grid(ifos: Sequence[str], ra_deg: float, dec_deg: float,
                   times: np.ndarray) -> Optional[dict[str, np.ndarray]]:
@@ -119,7 +138,11 @@ def assess_detectability(post: DistanceInclinationPosterior, window: MergerTimeW
                          ranges_mpc: dict[str, float] = DEFAULT_RANGES_MPC,
                          snr_threshold: float = 6.0, p_min: float = 0.1,
                          d_max_useful_mpc: Optional[float] = 500.0,
-                         segments=None, duty_cycle=None, seed: Optional[int] = 1) -> Detectability:
+                         segments=None, duty_cycle=None, seed: Optional[int] = 1,
+                         chirp_mass_msun: Optional[float] = None) -> Detectability:
+    """``ranges_mpc`` are BNS (1.4 + 1.4 Msun) ranges; ``chirp_mass_msun``
+    rescales them to the source class searched for (see :func:`scale_ranges`)."""
+    ranges_mpc = scale_ranges(ranges_mpc, chirp_mass_msun)
     snr, frac, antenna = network_snr_samples(post, window, ra_deg, dec_deg, ranges_mpc,
                                              segments, duty_cycle, seed=seed)
     p = float(np.mean(snr >= snr_threshold))
@@ -138,6 +161,8 @@ def assess_detectability(post: DistanceInclinationPosterior, window: MergerTimeW
         reasons.append("WARNING: no distance information; prior only")
     if worth:
         reasons.append(f"P(network SNR >= {snr_threshold}) = {p:.3f}")
+    if chirp_mass_msun is not None:
+        reasons.append(f"ranges scaled to chirp mass {chirp_mass_msun:g} Msun")
     return Detectability(p, float(np.median(snr)),
                          tuple(float(x) for x in np.quantile(snr, [0.05, 0.95])),
                          snr_threshold, dict(ranges_mpc), frac, antenna, worth, reasons)

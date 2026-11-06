@@ -22,7 +22,7 @@ from .connection import GraceDbConnector, KNCandidate
 from .skymap import (distance_overlap, kn_skymap_3d, read_gw_skymap,
                      skymap_overlap_integral, write_skymap)
 from .treatment.detectability import (DEFAULT_RANGES_MPC, HORIZON_OVER_RANGE,
-                                      assess_detectability)
+                                      assess_detectability, scale_ranges)
 from .treatment.distance_inclination import DistanceInclinationPosterior, posterior_for
 from .treatment.far import DEFAULT_KN_CANDIDATE_RATE, coinc_far_kn
 from .treatment.t0 import MergerTimeWindow, estimate_window
@@ -61,11 +61,14 @@ def coinc_far(kn: KNCandidate, superevent: dict, window: MergerTimeWindow,
               gw_skymap: Optional[dict | str | Path] = None,
               post: Optional[DistanceInclinationPosterior] = None,
               kn_rate: float = DEFAULT_KN_CANDIDATE_RATE,
-              ranges_mpc: dict[str, float] = DEFAULT_RANGES_MPC) -> dict:
+              ranges_mpc: dict[str, float] = DEFAULT_RANGES_MPC,
+              chirp_mass_msun: Optional[float] = None) -> dict:
     """Joint FAR of a superevent and a kilonova candidate (RAVEN keys + distance).
 
-    The distance factor is referenced to the network BNS horizon
-    (2.264 x the largest range).
+    The distance factor is referenced to the network horizon (2.264 x the
+    largest range), for the superevent's chirp mass if given (else BNS).
+    If the kilonova lies beyond that horizon the factor is not meaningful
+    (and the association is implausible on that ground alone).
     """
     far_gw = superevent.get("far")
     if not far_gw:
@@ -76,7 +79,8 @@ def coinc_far(kn: KNCandidate, superevent: dict, window: MergerTimeWindow,
         sky = skymap_overlap_integral(gw["PROB"], kn.ra, kn.dec, gw.get("nested", True))
         if post is not None and "DISTMU" in gw:
             dist = distance_overlap(gw, kn.ra, kn.dec, post,
-                                    d_ref_mpc=HORIZON_OVER_RANGE * max(ranges_mpc.values()))
+                                    d_ref_mpc=HORIZON_OVER_RANGE * max(
+                                        scale_ranges(ranges_mpc, chirp_mass_msun).values()))
     out = coinc_far_kn(window.duration, far_gw, kn_rate, sky, dist)
     out.update(superevent_id=superevent.get("superevent_id"), external_event=kn.graceid or kn.name)
     return out
@@ -100,7 +104,8 @@ def assess(kn: KNCandidate, out_dir: Optional[str | Path] = None,
            snr_threshold: float = 6.0, p_min: float = 0.1,
            d_max_useful_mpc: Optional[float] = 500.0,
            segments=None, duty_cycle=None, d_max_prior: float = 1500.0,
-           nside: int = 512, model_sys_frac: float = 0.75) -> dict:
+           nside: int = 512, model_sys_frac: float = 0.75,
+           chirp_mass_msun: Optional[float] = None) -> dict:
     """Targeted-search trigger decision for one kilonova candidate.
 
     Steps: (1) distance/inclination posterior from EM data; (2) t0 window,
@@ -113,7 +118,8 @@ def assess(kn: KNCandidate, out_dir: Optional[str | Path] = None,
     d95 = float(np.quantile(post.d_mpc, 0.95)) if post.constraints else None
     window = estimate_window(kn, d_mpc_upper=d95, model_sys_frac=model_sys_frac)
     det = assess_detectability(post, window, kn.ra, kn.dec, ranges_mpc, snr_threshold,
-                               p_min, d_max_useful_mpc, segments, duty_cycle)
+                               p_min, d_max_useful_mpc, segments, duty_cycle,
+                               chirp_mass_msun=chirp_mass_msun)
     decision = {
         "candidate": kn.name, "ra": kn.ra, "dec": kn.dec,
         "t0_window": {**asdict(window), "duration_h": window.duration / 3600},

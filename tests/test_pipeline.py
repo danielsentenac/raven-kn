@@ -190,3 +190,24 @@ def test_model_margin_small_when_anchored_by_limit():
     early = (kn.t0_samples_gps and np.quantile(kn.t0_samples_gps, 0.05)) - w.gps_start
     assert early <= 1.01 * 3600                             # early side: only the 1 h floor
     assert w.duration < 24 * 3600 and w.gps_start <= T0 <= w.gps_end
+
+
+# ---------------- chirp-mass scaling ----------------
+
+def test_scale_ranges_chirp_mass():
+    from raven_kn.treatment.detectability import BNS_CHIRP_MASS, scale_ranges
+    r = {"H1": 150.0, "L1": 160.0}
+    assert scale_ranges(r, None) == r
+    assert scale_ranges(r, BNS_CHIRP_MASS)["L1"] == pytest.approx(160.0)
+    assert scale_ranges(r, 0.5)["L1"] == pytest.approx(160.0 * (0.5 / 1.2188) ** (5 / 6))
+    with pytest.raises(ValueError):
+        scale_ranges(r, 0.0)
+
+
+def test_subsolar_chirp_mass_lowers_detectability():
+    kn = make_kn(z=0.0848, theta=None)          # ~400 Mpc, S250818k-like host
+    bns = assess(kn)
+    ssm = assess(kn, chirp_mass_msun=0.5)
+    assert ssm["detectability"]["snr_median"] < 0.6 * bns["detectability"]["snr_median"]
+    assert not ssm["trigger_targeted_search"]
+    assert any("chirp mass 0.5" in r for r in ssm["detectability"]["reasons"])
