@@ -67,7 +67,47 @@ def main(argv=None):
                    help="NMMA lightcurve-analysis path (default: $RAVEN_KN_NMMA_EXE or PATH), "
                         "e.g. ~/miniforge3/envs/nmma/bin/lightcurve-analysis")
 
+    g = sub.add_parser("targeted", help="light targeted GW search (PyCBC) at a known position")
+    g.add_argument("--request", help="<name>_targeted_search_request.json from assess")
+    g.add_argument("--ra", type=float)
+    g.add_argument("--dec", type=float)
+    g.add_argument("--gps-start", type=float)
+    g.add_argument("--gps-end", type=float)
+    g.add_argument("--ifos", default="H1,L1,V1")
+    g.add_argument("--mchirp-min", type=float, default=1.0)
+    g.add_argument("--mchirp-max", type=float, default=1.5)
+    g.add_argument("--f-low", type=float, default=30.0)
+    g.add_argument("--subsegment", type=float, default=1024.0)
+    g.add_argument("--n-slides", type=int, default=200)
+    g.add_argument("--no-gating", action="store_true")
+    g.add_argument("--source", default="gwosc", choices=["gwosc", "files"])
+    g.add_argument("--files", help="IFO=path,... for --source files")
+    g.add_argument("--ca-bundle", help="CA file if Python fails SSL to gwosc.org, "
+                                       "e.g. /etc/pki/tls/certs/ca-bundle.crt")
+    g.add_argument("--label", default=None)
+    g.add_argument("--out", default="targeted_out")
+
     args = p.parse_args(argv)
+    if args.cmd == "targeted":
+        from .targeted.search import (TargetedSearchConfig, file_fetcher, gwosc_fetcher, run)
+        kw = dict(ifos=tuple(args.ifos.split(",")), mchirp_min=args.mchirp_min,
+                  mchirp_max=args.mchirp_max, f_low=args.f_low, subsegment_s=args.subsegment,
+                  n_slides=args.n_slides, gate_threshold=None if args.no_gating else 50.0)
+        if args.request:
+            cfg = TargetedSearchConfig.from_request(args.request, **kw)
+        else:
+            cfg = TargetedSearchConfig(args.ra, args.dec, args.gps_start, args.gps_end, **kw)
+        if args.label:
+            cfg.label = args.label
+        if args.source == "files":
+            files = dict(kv.split("=") for kv in args.files.split(","))
+            fetch = file_fetcher(files, cfg.sample_rate)
+        else:
+            fetch = gwosc_fetcher(cfg.sample_rate, args.ca_bundle)
+        res = run(cfg, fetch, args.out)
+        print(json.dumps({"p_value": res.p_value, "bank_size": res.bank_size,
+                          "loudest": res.loudest}, indent=2, default=float))
+        return
     kn = load_candidate(args.candidate)
     if args.cmd == "nmma":
         from .connection import save_candidate

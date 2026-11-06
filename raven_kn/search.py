@@ -147,6 +147,8 @@ def assess(kn: KNCandidate, out_dir: Optional[str | Path] = None,
             "candidate": kn.name, "ra_deg": kn.ra, "dec_deg": kn.dec,
             "gps_start": window.gps_start, "gps_end": window.gps_end,
             "priors": decision["search_priors"], "skymap": fits.name,
+            "mchirp_range": ([0.9 * chirp_mass_msun, 1.1 * chirp_mass_msun] if chirp_mass_msun
+                             else [1.0, 1.5]),
             "samples": f"{stem}_dist_incl_samples.npz",
             "note": "split windows longer than a few hours into sub-segments (Earth rotation)",
         }
