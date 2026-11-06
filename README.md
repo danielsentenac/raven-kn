@@ -103,6 +103,36 @@ models in `~/nmma_models` (`python -c "from nmma.core.gitlab import main; main()
 the `svdmodel-download` entry point is broken in v1.0.2); some sncosmo bandpasses redirect to SVO's dead
 `http://` URL and had to be fetched once from `https://svo2.cab.inta-csic.es/theory/fps/` into sncosmo's cache.
 
+## Targeted GW search (`raven_kn.targeted`, `raven-kn targeted`)
+
+Light PyCBC-based search at the kilonova position over its t0 window, following Jamsin et al.:
+- template bank: equal-mass, non-spinning TaylorF2 over a chirp-mass range, spaced with the analytic
+  chirp-mass metric and calibrated on direct matches so that the minimal match is 0.97
+  (181 templates for 1.18–1.22 Msun, ~2150 for 1.0–1.5, ~10000 for sub-solar 0.4–0.9);
+- per sub-segment (default 1024 s): GWOSC or local strain, gating of loud glitches, median-Welch PSD,
+  matched filter, each detector's |SNR| shifted by its time delay for the known sky position,
+  network SNR sqrt(sum rho_d^2) maximised over templates;
+- background: cyclic time slides of the other detectors; p-value of the loudest on-source value,
+  sub-segments combined with a trials factor. Input: the request file written by `assess`
+  (position, GPS window, chirp-mass range) or explicit arguments.
+
+```bash
+raven-kn targeted --request out/<name>_targeted_search_request.json --out targeted_out \
+    --ca-bundle /etc/pki/tls/certs/ca-bundle.crt      # if Python's SSL fails against gwosc.org
+```
+
+GW170817 on GWOSC open data (H1, L1, V1; 1024 s windows; 181 templates; 200 slides):
+
+| window | loudest network SNR | time | chirp mass | H1 / L1 / V1 | p-value |
+|---|---|---|---|---|---|
+| containing the merger | 29.1 | 1187008882.426 (true .43) | 1.1976 (true 1.1977) | 18.5 / 22.2 / 3.2 | 0.005 (= 1/201, floor) |
+| 15 min earlier (noise) | 8.0 | — | — | 3.2 / 3.7 / 6.4 | 0.045 |
+
+The L1 glitch 1.1 s before the merger, still in the GWOSC data, is gated automatically (costing some
+L1 SNR: 22 vs 26 published). Results: `examples/targeted_gw170817/`.
+Limitations: incoherent statistic, no chi-square (single-detector noise can dominate, as V1 in the noise
+window), background depth limited by the number of slides. Production: PyGRB.
+
 ## Real case: S250818k / AT2025ulz
 
 `examples/s250818k_case.py` runs RAVEN-KN on the public S250818k sky maps (GraceDB; FAR 6.8e-8 Hz,
@@ -153,9 +183,10 @@ SN 2025ulz was classified as a type IIb supernova; the physical link is still de
 
 ## Not yet done
 
-- Targeted-search runner (PyCBC/PyGRB config from the request JSON, sub-segmentation).
+- PyGRB configuration writer for the production targeted search (coherent statistic, chi-square vetoes).
+- Signal-consistency test (chi-square) and deeper background (off-source time, more slides) in the light search.
+- Calibration of the model-systematic margin with cross-model injections (0.75 is fitted on two events).
 - Archive queries for the last non-detection in other surveys (ATLAS, ZTF forced photometry, GOTO, BlackGEM).
-- Model-systematics: a t0 bias like case A would make a targeted search miss the merger; try Bu2026 (Jamsin et al.) / other models, and widen windows by a model-systematic term.
 - GCN Kafka listener and live GraceDB/segment (DQSegDB) queries.
 
 ## License and credits
