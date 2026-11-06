@@ -58,6 +58,7 @@ FILTER_MAP = {
     "PS1": {b: f"ps1::{b}" for b in "grizy"},
     "PAN-STARRS": {b: f"ps1::{b}" for b in "grizy"},
     "SDSS": {"u": "sdssu"},
+    "ATLAS": {"c": "atlasc", "o": "atlaso"},
 }
 
 # Model-parameter priors (everything except distance, inclination, timeshift),

@@ -9,17 +9,23 @@ Per sub-segment of the on-source window (default 1024 s):
    chirp-mass range) in each detector;
 4. each detector's |SNR| shifted by its time delay from the geocentre for the
    known (RA, Dec) at that time, max-pooled in short bins (absorbs the
-   rounding of the delays), and combined as rho_net = sqrt(sum_d rho_d^2);
+   rounding of the delays), and combined as rho_net = sqrt(sum_d rho_d^2)
+   where at least two detectors exceed ``coinc_threshold`` (else 0);
 5. the loudest rho_net over templates and the sub-segment's on-source time;
 6. background: cyclic time slides of the other detectors (steps larger than
    the light travel time) give the loudest rho_net of noise-only trials of
-   the same length; p-value = (n_louder + 1)/(n_slides + 1).
+   the same length, after removing the loudest on-source candidate
+   (hierarchical removal); p-value = (n_louder + 1)/(n_slides + 1), plus an
+   exponential-tail extrapolation below that floor.
 
 Sub-segment p-values are combined with a trials factor
 (:func:`raven_kn.treatment.far.combine_subsegments`).
 
-Limitations (v0): incoherent network statistic, no chi-square / signal
-consistency test, aligned zero-spin equal-mass templates. Use PyGRB for
+Signal consistency: where a detector's SNR exceeds ``chisq_threshold``, the
+power chi-square (``chisq_bins`` bins) is computed and the SNR replaced by
+PyCBC's reweighted SNR (newSNR, q = 6, n = 2), on-source and in the slides.
+
+Limitations: incoherent network statistic, zero-spin equal-mass templates. Use PyGRB for
 production; this is for fast assessment and validation.
 """
 
@@ -61,6 +67,13 @@ class TargetedSearchConfig:
     slide_step_s: float = 3.0
     pool_s: float = 1.0 / 128
     gate_threshold: Optional[float] = 50.0
+    chisq_bins: Optional[int] = 16          # None: no chi-square reweighting
+    chisq_threshold: float = 5.0             # compute chi-square where SNR exceeds this
+    max_chisq_points: int = 500              # per template and detector (loudest kept)
+    hierarchical_removal: bool = True        # mask the loudest on-source candidate in the slides
+    coinc_threshold: float = 4.0             # a candidate needs >= 2 detectors above this (0: off)
+    removal_window_s: float = 1.0
+    removal_min_second_snr: float = 6.0      # remove only if the 2nd-loudest detector is this loud
     max_templates: int = 20000
     label: str = "targeted"
 
@@ -194,16 +207,26 @@ def gwosc_fetcher(sample_rate: int = 2048, ca_bundle: Optional[str] = None) -> S
     return fetch
 
 
-def file_fetcher(files: dict[str, str | Path], sample_rate: int = 2048) -> StrainFetcher:
-    """Local GWOSC hdf5 / gwf files, one per detector."""
+def file_fetcher(files: dict[str, str | Path], sample_rate: int = 2048,
+                 fallback: Optional[StrainFetcher] = None) -> StrainFetcher:
+    """Local strain files per detector: GWOSC hdf5, or frame files given as
+    ``path:channel`` (e.g. ``L-L1_LOSC_CLN_4_V1-1187007040-2048.gwf:L1:LOSC-STRAIN``).
+    Detectors without a file use ``fallback`` (e.g. :func:`gwosc_fetcher`)."""
     def fetch(ifo, start, end):
-        from gwpy.timeseries import TimeSeries
-        f = str(files[ifo])
-        if f.endswith((".hdf5", ".h5")):
-            ts = TimeSeries.read(f, format="hdf5.gwosc")
+        if ifo not in files:
+            if fallback is None:
+                raise KeyError(f"no file for {ifo}")
+            return fallback(ifo, start, end)
+        spec = str(files[ifo])
+        if spec.endswith((".hdf5", ".h5")):
+            from gwpy.timeseries import TimeSeries
+            ts = TimeSeries.read(spec, format="hdf5.gwosc").crop(start, end).to_pycbc()
         else:
-            ts = TimeSeries.read(f, f"{ifo}:GWOSC-4KHZ_R1_STRAIN")
-        return ts.crop(start, end).resample(sample_rate).to_pycbc()
+            from pycbc.frame import read_frame
+            path, channel = spec.split(":", 1)
+            ts = read_frame(path, channel, start_time=start, end_time=end)
+        from pycbc.filter import resample_to_delta_t
+        return resample_to_delta_t(ts, 1.0 / sample_rate)
     return fetch
 
 
@@ -224,6 +247,8 @@ class SubsegmentResult:
     p_value: float = 1.0
     gates: dict[str, list[float]] = field(default_factory=dict)
     notes: str = ""
+    p_value_extrapolated: Optional[float] = None
+    extrapolation_reach: Optional[float] = None
 
 
 @dataclass
@@ -270,10 +295,67 @@ def _pool(x, n):
     return x[: m * n].reshape(m, n).max(axis=1)
 
 
+def extrapolated_pvalue(loudest: float, background: Sequence[float], tail_frac: float = 0.1) -> float:
+    """p-value of ``loudest`` from an exponential fit to the top ``tail_frac``
+    of the background loudest values: P(X > x) = q exp(-(x - x_q)/lambda)
+    for x > x_q, x_q the (1 - q) quantile, lambda the mean excess (maximum
+    likelihood). Gives a p-value below the 1/(N+1) floor of the slides,
+    as an extrapolation (Jamsin et al. extrapolate their background
+    similarly). Returns the empirical value when ``loudest`` is inside the
+    sampled range."""
+    b = np.sort(np.asarray(background, float))
+    n = len(b)
+    k = max(int(round(tail_frac * n)), 5)
+    xq = b[-k - 1] if n > k else b[0]
+    lam = float(np.mean(b[-k:] - xq))
+    if loudest <= b[-1] or lam <= 0:
+        return targeted_pvalue(loudest, b)
+    return float(k / n * np.exp(-(loudest - xq) / lam))
+
+
+def extrapolation_reach(loudest: float, background: Sequence[float]) -> float:
+    """How far beyond the sampled background the extrapolation goes, in units
+    of the background's spread above its median: values >> 3 mean the
+    extrapolated p-value is a formal number only."""
+    b = np.asarray(background, float)
+    if len(b) == 0:
+        return float("inf")
+    spread = max(float(np.max(b) - np.median(b)), 1e-6)
+    return float((loudest - np.max(b)) / spread)
+
+
+def slide_shifts(n_ifos: int, n_steps: int, n_slides: int) -> list[tuple[int, ...]]:
+    """Distinct time-slide offsets (in steps) for each detector, first fixed.
+
+    Two detectors: (0, k), k = 1 .. n_steps - 1. Three or more: the other
+    detectors take independent offsets with all relative offsets non-zero,
+    so many more slides fit in one sub-segment (n_steps^2 instead of n_steps).
+    """
+    out = []
+    if n_ifos < 2 or n_steps < 2:
+        return out
+    if n_ifos == 2:
+        return [(0, k) for k in range(1, min(n_steps, n_slides + 1))]
+    rng = np.random.default_rng(12345)
+    seen = set()
+    tries = 0
+    while len(out) < n_slides and tries < 50 * n_slides:
+        tries += 1
+        sh = (0,) + tuple(int(x) for x in rng.integers(1, n_steps, n_ifos - 1))
+        rel = [(a - b) % n_steps for i, a in enumerate(sh) for b in sh[i + 1:]]
+        if 0 in rel or sh in seen:
+            continue
+        seen.add(sh)
+        out.append(sh)
+    return out
+
+
 def search_subsegment(cfg: TargetedSearchConfig, bank: Sequence[float], fetch: StrainFetcher,
                       start: float, end: float) -> SubsegmentResult:
     import pycbc.psd
-    from pycbc.filter import matched_filter
+    from pycbc.events.ranking import newsnr
+    from pycbc.filter import matched_filter_core
+    from pycbc.vetoes import power_chisq_at_points_from_precomputed, power_chisq_bins
     from pycbc.waveform import get_fd_waveform
 
     tmax = template_duration(min(bank), cfg.f_low)
@@ -289,6 +371,8 @@ def search_subsegment(cfg: TargetedSearchConfig, bank: Sequence[float], fetch: S
         if not np.all(np.isfinite(ts.numpy())):
             gates[ifo] = ["non-finite data"]
             continue
+        if len(ts) % 2:                              # even length: FFT and PSD sizes agree
+            ts = ts[:len(ts) - 1]
         ts, g = _condition(ts, cfg.f_low, cfg.gate_threshold)
         data[ifo], gates[ifo] = ts, g
         ifos.append(ifo)
@@ -304,12 +388,15 @@ def search_subsegment(cfg: TargetedSearchConfig, bank: Sequence[float], fetch: S
         ts = data[ifo]
         psd = pycbc.psd.welch(ts, seg_len=int(16 * fs), seg_stride=int(8 * fs),
                               avg_method="median")
-        psd = pycbc.psd.interpolate(psd, 1.0 / ts.duration)
+        stilde[ifo] = ts.to_frequencyseries()
+        psd = pycbc.psd.interpolate(psd, stilde[ifo].delta_f)
+        if len(psd) != len(stilde[ifo]):
+            psd.resize(len(stilde[ifo]))
         psds[ifo] = pycbc.psd.inverse_spectrum_truncation(psd, int(4 * fs),
                                                           low_frequency_cutoff=cfg.f_low)
-        stilde[ifo] = ts.to_frequencyseries()
 
     n_on = None
+    n_chisq = {ifo: 0 for ifo in ifos}
     pooled = {ifo: [] for ifo in ifos}               # per template, pooled |snr| aligned to geocentre
     for mc in bank:
         m = _mass_equal(mc)
@@ -318,23 +405,42 @@ def search_subsegment(cfg: TargetedSearchConfig, bank: Sequence[float], fetch: S
             hp, _ = get_fd_waveform(approximant="TaylorF2", mass1=m, mass2=m,
                                     delta_f=st.delta_f, f_lower=cfg.f_low)
             hp.resize(len(st))
-            snr = matched_filter(hp, st, psd=psds[ifo], low_frequency_cutoff=cfg.f_low)
-            t0 = float(snr.start_time)
+            snr_u, corr, norm = matched_filter_core(hp, st, psd=psds[ifo],
+                                                    low_frequency_cutoff=cfg.f_low)
+            t0 = float(snr_u.start_time)
             # geocentre time tg corresponds to detector time tg + delay
             i0 = int(round((start + delays[ifo] - t0) * fs))
             i1 = int(round((end + delays[ifo] - t0) * fs))
-            x = np.abs(snr.numpy()[i0:i1]).astype(np.float32)
+            su = snr_u.numpy()
+            x = (np.abs(su[i0:i1]) * norm).astype(np.float32)
+            if cfg.chisq_bins:
+                idx = np.flatnonzero(x > cfg.chisq_threshold)
+                if len(idx) > cfg.max_chisq_points:
+                    idx = idx[np.argsort(x[idx])[-cfg.max_chisq_points:]]
+                if len(idx):
+                    bins = power_chisq_bins(hp, cfg.chisq_bins, psds[ifo], cfg.f_low)
+                    gidx = (idx + i0).astype(np.uint32)
+                    chisq = power_chisq_at_points_from_precomputed(corr, su[gidx], norm, bins, gidx)
+                    red = np.asarray(chisq) / (2 * cfg.chisq_bins - 2)
+                    x[idx] = newsnr(x[idx], red).astype(np.float32)
+                    n_chisq[ifo] += len(idx)
             p = _pool(x, n_pool)
             n_on = len(p) if n_on is None else min(n_on, len(p))
             pooled[ifo].append(p)
     P = {ifo: np.stack([p[:n_on] for p in pooled[ifo]]) for ifo in ifos}   # (n_templates, n_bins)
 
     def network(shifts):
-        tot = None
+        tot, n_above = None, None
         for k, ifo in enumerate(ifos):
             a = P[ifo] if shifts[k] == 0 else np.roll(P[ifo], shifts[k], axis=1)
             tot = a.astype(np.float64) ** 2 if tot is None else tot + a ** 2
-        return np.sqrt(tot)
+            if cfg.coinc_threshold > 0:
+                above = (a >= cfg.coinc_threshold).astype(np.int8)
+                n_above = above if n_above is None else n_above + above
+        net = np.sqrt(tot)
+        if n_above is not None:
+            net[n_above < 2] = 0.0           # coincidence: at least two detectors
+        return net
 
     net = network([0] * len(ifos))
     it, ib = np.unravel_index(int(np.argmax(net)), net.shape)
@@ -342,16 +448,36 @@ def search_subsegment(cfg: TargetedSearchConfig, bank: Sequence[float], fetch: S
     loud_gps = start + (ib + 0.5) * n_pool / fs
     rho_ifo = {ifo: float(P[ifo][it, ib]) for ifo in ifos}
 
+    second = sorted(rho_ifo.values())[-2] if len(rho_ifo) > 1 else 0.0
+    removed = cfg.hierarchical_removal and second >= cfg.removal_min_second_snr
+    if removed:
+        # a loud coincident candidate would otherwise enter every slide through
+        # its single-detector SNRs (PyCBC "hierarchical removal"). Only for
+        # candidates loud in >= 2 detectors: a single-detector glitch must stay
+        # in the background, where its slid copies show it is not significant.
+        w = max(int(round(cfg.removal_window_s * fs / n_pool)), 1)
+        for ifo in ifos:
+            P[ifo][:, max(ib - w, 0):ib + w + 1] = 0.0
     step = max(int(round(cfg.slide_step_s / (n_pool / fs))), 1)
-    n_slides = min(cfg.n_slides, max(n_on // step - 1, 0))
-    bkg = []
-    for k in range(1, n_slides + 1):
-        # detector j slid by j*k*step bins: distinct relative shifts for all pairs
-        bkg.append(float(network([j * k * step for j in range(len(ifos))]).max()))
+    shifts = slide_shifts(len(ifos), n_on // step, cfg.n_slides)
+    n_slides = len(shifts)
+    bkg = [float(network([s * step for s in sh]).max()) for sh in shifts]
     p = targeted_pvalue(loud, bkg) if bkg else 1.0
-    return SubsegmentResult(start, end, ifos, loud, loud_gps, float(bank[it]), rho_ifo, bkg, p,
-                            gates, f"{len(bank)} templates, {n_slides} slides, delays "
-                            + ", ".join(f"{i}:{delays[i] * 1e3:+.1f} ms" for i in ifos))
+    p_ext = extrapolated_pvalue(loud, bkg) if len(bkg) >= 50 else None
+    reach = extrapolation_reach(loud, bkg) if bkg else None
+    res = SubsegmentResult(start, end, ifos, loud, loud_gps, float(bank[it]), rho_ifo, bkg, p,
+                            gates, f"{len(bank)} templates, {n_slides} slides, "
+                            + ("no chi-square" if not cfg.chisq_bins else
+                               f"newSNR ({cfg.chisq_bins}-bin chi-square at "
+                               + ", ".join(f"{i}:{n_chisq[i]}" for i in ifos) + " points)")
+                            + ", delays " + ", ".join(f"{i}:{delays[i] * 1e3:+.1f} ms" for i in ifos)
+                            + (", loudest removed from background" if removed else ""))
+    res.p_value_extrapolated = p_ext
+    res.extrapolation_reach = reach
+    if reach is not None and reach > 3:
+        res.notes += (f"; loudest is {reach:.0f} background spreads beyond the loudest slide: "
+                      "extrapolated p-value only formal, quote p < 1/(n_slides+1)")
+    return res
 
 
 def run(cfg: TargetedSearchConfig, fetch: StrainFetcher, out_dir: Optional[str | Path] = None,

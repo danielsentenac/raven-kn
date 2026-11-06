@@ -81,13 +81,33 @@ def main(argv=None):
     g.add_argument("--n-slides", type=int, default=200)
     g.add_argument("--no-gating", action="store_true")
     g.add_argument("--source", default="gwosc", choices=["gwosc", "files"])
-    g.add_argument("--files", help="IFO=path,... for --source files")
+    g.add_argument("--files", help="IFO=path[:channel],... (frame files need :channel); "
+                                   "detectors without a file are read from GWOSC")
     g.add_argument("--ca-bundle", help="CA file if Python fails SSL to gwosc.org, "
                                        "e.g. /etc/pki/tls/certs/ca-bundle.crt")
     g.add_argument("--label", default=None)
     g.add_argument("--out", default="targeted_out")
 
+    y = sub.add_parser("pygrb", help="PyGRB override configs (one per sub-segment) + bank")
+    y.add_argument("--request", required=True, help="targeted search request JSON from assess")
+    y.add_argument("--out", default="pygrb_configs")
+    y.add_argument("--subsegment", type=float, default=1024.0)
+    y.add_argument("--f-low", type=float, default=30.0)
+    y.add_argument("--offsource-factor", type=float, default=6.0)
+    y.add_argument("--base-config", default="pygrb_base.ini",
+                   help="LVK PyGRB base configuration the overrides are layered on")
+
     args = p.parse_args(argv)
+    if args.cmd == "pygrb":
+        from .targeted.pygrb import write_pygrb_overrides
+        from .targeted.search import TargetedSearchConfig
+        cfg = TargetedSearchConfig.from_request(args.request, subsegment_s=args.subsegment,
+                                                f_low=args.f_low)
+        files = write_pygrb_overrides(cfg, args.out, offsource_factor=args.offsource_factor,
+                                      base_config=args.base_config)
+        print(json.dumps({"n_subsegments": len(files), "out": args.out,
+                          "run_script": f"{args.out}/run_pygrb.sh"}, indent=2))
+        return
     if args.cmd == "targeted":
         from .targeted.search import (TargetedSearchConfig, file_fetcher, gwosc_fetcher, run)
         kw = dict(ifos=tuple(args.ifos.split(",")), mchirp_min=args.mchirp_min,
@@ -99,13 +119,16 @@ def main(argv=None):
             cfg = TargetedSearchConfig(args.ra, args.dec, args.gps_start, args.gps_end, **kw)
         if args.label:
             cfg.label = args.label
-        if args.source == "files":
-            files = dict(kv.split("=") for kv in args.files.split(","))
-            fetch = file_fetcher(files, cfg.sample_rate)
+        gw = gwosc_fetcher(cfg.sample_rate, args.ca_bundle)
+        if args.files:
+            files = dict(kv.split("=", 1) for kv in args.files.split(","))
+            fetch = file_fetcher(files, cfg.sample_rate, fallback=gw)
         else:
-            fetch = gwosc_fetcher(cfg.sample_rate, args.ca_bundle)
+            fetch = gw
         res = run(cfg, fetch, args.out)
-        print(json.dumps({"p_value": res.p_value, "bank_size": res.bank_size,
+        print(json.dumps({"p_value": res.p_value,
+                          "p_value_extrapolated": res.loudest.get("p_value_extrapolated"),
+                          "bank_size": res.bank_size,
                           "loudest": res.loudest}, indent=2, default=float))
         return
     kn = load_candidate(args.candidate)
