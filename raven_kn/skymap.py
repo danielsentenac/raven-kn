@@ -137,6 +137,45 @@ def skymap_overlap_integral(gw_prob: np.ndarray, ra: float, dec: float,
         return float(gw_prob[ipix] * len(gw_prob) / np.sum(gw_prob))
 
 
+def conditional_distance(gw: dict, ra: float, dec: float,
+                         d_compare_mpc: Optional[float] = None) -> dict:
+    """GW luminosity-distance posterior along one direction.
+
+    The 3D map stores, per pixel, the *parameters* of the ansatz
+    p(r) = DISTNORM r^2 N(r; DISTMU, DISTSIGMA): DISTMU/DISTSIGMA are not the
+    mean and standard deviation of the distance. This returns the actual
+    conditional mean, sd and 90 % interval, and optionally P(D > d_compare)
+    and the distance likelihood ratio N(d_compare)/N(DISTMU) (the ansatz
+    Gaussian is the GW distance likelihood once the r^2 prior is removed).
+    """
+    if "DISTMU" not in gw:
+        raise KeyError("GW sky map has no distance layers")
+    nside = hp.npix2nside(len(gw["PROB"]))
+    ipix = hp.ang2pix(nside, ra, dec, lonlat=True, nest=gw.get("nested", True))
+    mu, sig = float(gw["DISTMU"][ipix]), float(gw["DISTSIGMA"][ipix])
+    out = {"distmu": mu, "distsigma": sig}
+    if not np.isfinite(mu) or sig <= 0:
+        return out
+    r = np.linspace(1e-3, max(mu, 0) + 12 * sig, 20000)
+    p = r ** 2 * norm.pdf(r, mu, sig)
+    p /= np.trapezoid(p, r)
+    cdf = np.concatenate([[0], np.cumsum(0.5 * (p[1:] + p[:-1]) * np.diff(r))])
+    mean = float(np.trapezoid(r * p, r))
+    out.update(mean_mpc=mean, sd_mpc=float(np.sqrt(np.trapezoid((r - mean) ** 2 * p, r))),
+               interval90_mpc=[float(x) for x in np.interp([0.05, 0.95], cdf, r)])
+    if d_compare_mpc is not None:
+        out["p_beyond"] = float(1 - np.interp(d_compare_mpc, r, cdf))
+        out["likelihood_ratio_to_peak"] = float(np.exp(-0.5 * ((d_compare_mpc - mu) / sig) ** 2))
+    return out
+
+
+def distance_overlap_valid(post: DistanceInclinationPosterior, d_ref_mpc: float) -> bool:
+    """The distance factor assumes the kilonova distance lies inside the
+    reference volume (unrelated GW candidates uniform in volume up to
+    ``d_ref_mpc``); False if the bulk (95th percentile) is beyond it."""
+    return bool(np.quantile(post.d_mpc, 0.95) <= d_ref_mpc)
+
+
 def distance_overlap(gw: dict, ra: float, dec: float, post: DistanceInclinationPosterior,
                      d_ref_mpc: Optional[float] = None) -> float:
     """I_D = E_{D ~ p_KN}[ p_GW(D | Omega_KN) / pi(D) ],  pi(D) = 3 D^2 / D_ref^3.
@@ -146,7 +185,9 @@ def distance_overlap(gw: dict, ra: float, dec: float, post: DistanceInclinationP
     the reach of the GW search (distance distribution of unrelated GW
     candidates); use the network horizon, not an arbitrary prior bound,
     or the factor is inflated as (d_ref / D)^3. It must exceed the bulk of
-    the kilonova posterior.
+    the kilonova posterior (check with :func:`distance_overlap_valid`); if it
+    does not, the GW search could hardly have seen the source at the
+    kilonova distance, which is itself evidence against the association.
     """
     d_ref = d_ref_mpc if d_ref_mpc is not None else post.d_max_prior
     if "DISTMU" not in gw:

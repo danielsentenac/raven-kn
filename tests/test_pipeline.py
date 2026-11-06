@@ -211,3 +211,18 @@ def test_subsolar_chirp_mass_lowers_detectability():
     assert ssm["detectability"]["snr_median"] < 0.6 * bns["detectability"]["snr_median"]
     assert not ssm["trigger_targeted_search"]
     assert any("chirp mass 0.5" in r for r in ssm["detectability"]["reasons"])
+
+
+def test_conditional_distance_is_not_ansatz_parameters():
+    from raven_kn.skymap import conditional_distance, distance_overlap_valid
+    nside = 16
+    npix = 12 * nside ** 2
+    gw = {"PROB": np.full(npix, 1.0 / npix), "DISTMU": np.full(npix, 218.0),
+          "DISTSIGMA": np.full(npix, 80.0), "DISTNORM": np.ones(npix), "nested": True}
+    c = conditional_distance(gw, 10.0, 20.0, d_compare_mpc=400.0)
+    assert c["distmu"] == 218.0
+    assert 260 < c["mean_mpc"] < 280            # r^2 factor shifts the mean above DISTMU
+    assert c["interval90_mpc"][1] < 400 and 0.02 < c["p_beyond"] < 0.06
+    assert c["likelihood_ratio_to_peak"] == pytest.approx(np.exp(-0.5 * (182 / 80) ** 2))
+    post = posterior_for(make_kn(z=0.0848, theta=None))      # ~400 Mpc
+    assert not distance_overlap_valid(post, 362.0) and distance_overlap_valid(post, 500.0)

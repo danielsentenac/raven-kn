@@ -21,7 +21,8 @@ import numpy as np
 from astropy.time import Time
 
 from raven_kn.connection import KNCandidate, PhotometryPoint, Redshift
-from raven_kn.skymap import distance_overlap, read_gw_skymap, skymap_overlap_integral
+from raven_kn.skymap import (conditional_distance, distance_overlap, distance_overlap_valid,
+                             read_gw_skymap, skymap_overlap_integral)
 from raven_kn.treatment.detectability import (BNS_CHIRP_MASS, HORIZON_OVER_RANGE,
                                               assess_detectability, scale_ranges)
 from raven_kn.treatment.distance_inclination import posterior_for
@@ -63,8 +64,10 @@ def main():
         cred[order] = np.cumsum(gw["PROB"][order])
         area90 = float((np.cumsum(gw["PROB"][order]) < 0.9).sum() * hp.nside2pixarea(nside, degrees=True))
         sky = skymap_overlap_integral(gw["PROB"], RA, DEC)
+        d_host = float(np.median(post.d_mpc))
         res = {"area90_deg2": area90, "kn_credible_level": float(cred[ipix]),
-               "gw_distance_at_kn_pixel_mpc": [float(gw["DISTMU"][ipix]), float(gw["DISTSIGMA"][ipix])],
+               # real GW distance posterior along the line of sight (not DISTMU/DISTSIGMA)
+               "gw_distance_along_kn_direction": conditional_distance(gw, RA, DEC, d_host),
                "sky_overlap": sky}
         for label, mc in (("BNS horizon", BNS_CHIRP_MASS), ("sub-solar Mc=0.5", 0.5)):
             dref = HORIZON_OVER_RANGE * max(scale_ranges(ranges_bns, mc).values())
@@ -72,6 +75,7 @@ def main():
             far = coinc_far_kn(win.duration, GW_FAR, sky_overlap=sky, distance_overlap=dist)
             res[f"joint_far ({label}, d_ref={dref:.0f} Mpc)"] = {
                 "distance_overlap": dist,
+                "distance_overlap_valid": distance_overlap_valid(post, dref),
                 "temporal_far_per_yr": far["temporal_coinc_far"] * 3.156e7,
                 "spatiotemporal_far_per_yr": far["spatiotemporal_coinc_far"] * 3.156e7,
                 "with_distance_far_per_yr": (far["spatiotemporal_distance_coinc_far"] or np.nan) * 3.156e7}

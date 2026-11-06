@@ -19,7 +19,7 @@ from typing import Optional
 import numpy as np
 
 from .connection import GraceDbConnector, KNCandidate
-from .skymap import (distance_overlap, kn_skymap_3d, read_gw_skymap,
+from .skymap import (distance_overlap, distance_overlap_valid, kn_skymap_3d, read_gw_skymap,
                      skymap_overlap_integral, write_skymap)
 from .treatment.detectability import (DEFAULT_RANGES_MPC, HORIZON_OVER_RANGE,
                                       assess_detectability, scale_ranges)
@@ -74,14 +74,19 @@ def coinc_far(kn: KNCandidate, superevent: dict, window: MergerTimeWindow,
     if not far_gw:
         raise ValueError("RAVEN-KN: superevent has no FAR")
     sky = dist = None
+    dist_valid = None
     if gw_skymap is not None:
         gw = read_gw_skymap(gw_skymap) if not isinstance(gw_skymap, dict) else gw_skymap
         sky = skymap_overlap_integral(gw["PROB"], kn.ra, kn.dec, gw.get("nested", True))
         if post is not None and "DISTMU" in gw:
-            dist = distance_overlap(gw, kn.ra, kn.dec, post,
-                                    d_ref_mpc=HORIZON_OVER_RANGE * max(
-                                        scale_ranges(ranges_mpc, chirp_mass_msun).values()))
+            d_ref = HORIZON_OVER_RANGE * max(scale_ranges(ranges_mpc, chirp_mass_msun).values())
+            dist = distance_overlap(gw, kn.ra, kn.dec, post, d_ref_mpc=d_ref)
+            dist_valid = distance_overlap_valid(post, d_ref)
     out = coinc_far_kn(window.duration, far_gw, kn_rate, sky, dist)
+    out["distance_overlap_valid"] = dist_valid
+    if dist_valid is False:
+        out["distance_overlap_note"] = ("kilonova beyond the reference horizon: distance factor "
+                                        "approximate; association disfavoured by detectability")
     out.update(superevent_id=superevent.get("superevent_id"), external_event=kn.graceid or kn.name)
     return out
 
