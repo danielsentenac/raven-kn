@@ -256,6 +256,146 @@ class FinkConnector:
         return kn
 
 
+class ALeRCEConnector:
+    """ZTF light curves with non-detections from the ALeRCE broker (public API,
+    ``/ztf/v1/objects/<oid>/lightcurve``). Non-detections carry the
+    difference-image limiting magnitude ``diffmaglim``: exactly what the
+    t0 bracket needs."""
+
+    BANDS = {1: "g", 2: "r", 3: "i"}
+
+    def __init__(self, base_url: str = "https://api.alerce.online/ztf/v1", session: Any = None):
+        self.base_url = base_url.rstrip("/")
+        self._session = session
+
+    @property
+    def session(self):
+        if self._session is None:
+            import requests
+            self._session = requests.Session()
+        return self._session
+
+    def fetch(self, oid: str) -> dict[str, Any]:
+        r = self.session.get(f"{self.base_url}/objects/{oid}/lightcurve", timeout=60)
+        r.raise_for_status()
+        return r.json()
+
+    @classmethod
+    def parse(cls, lc: dict[str, Any]) -> list[PhotometryPoint]:
+        pts = []
+        for d in lc.get("detections", []):
+            if d.get("dubious") or d.get("isdiffpos") in (-1, "f", "0", 0) or d.get("magpsf") is None:
+                continue
+            pts.append(PhotometryPoint(float(d["mjd"]), cls.BANDS.get(int(d["fid"]), str(d["fid"])),
+                                       float(d["magpsf"]), float(d.get("sigmapsf") or 0.1),
+                                       survey="ZTF"))
+        for n in lc.get("non_detections", []):
+            if n.get("diffmaglim") is None:
+                continue
+            pts.append(PhotometryPoint(float(n["mjd"]), cls.BANDS.get(int(n["fid"]), str(n["fid"])),
+                                       float(n["diffmaglim"]), upper_limit=True, survey="ZTF"))
+        return pts
+
+    def candidate(self, oid: str, **extra) -> KNCandidate:
+        lc = self.fetch(oid)
+        dets = [d for d in lc.get("detections", []) if d.get("ra") is not None]
+        if not dets:
+            raise LookupError(f"ALeRCE: no detection for {oid}")
+        return KNCandidate(name=oid, ra=float(np.median([d["ra"] for d in dets])),
+                           dec=float(np.median([d["dec"] for d in dets])), source="ALeRCE",
+                           photometry=self.parse(lc), **extra)
+
+    def add_to(self, kn: KNCandidate, oid: str) -> KNCandidate:
+        kn.add_photometry(self.parse(self.fetch(oid)))
+        return kn
+
+
+class ATLASForcedPhotometryConnector:
+    """ATLAS forced photometry server (https://fallingstar-data.com/forcedphot/),
+    queue-based REST API with a personal token. Gives forced flux at the
+    candidate position on every ATLAS image: detections and 5-sigma limits
+    (``mag5sig``) in cyan 'c' / orange 'o', mapped to NMMA ``atlasc``/``atlaso``.
+
+    Interface written from the server's API guide; needs a token to run
+    (not tested against the live service here).
+    """
+
+    def __init__(self, token: str, base_url: str = "https://fallingstar-data.com/forcedphot",
+                 session: Any = None, snr_detect: float = 5.0, poll_s: float = 10.0,
+                 max_wait_s: float = 1800.0):
+        self.token, self.base_url = token, base_url.rstrip("/")
+        self._session = session
+        self.snr_detect, self.poll_s, self.max_wait_s = snr_detect, poll_s, max_wait_s
+
+    @property
+    def session(self):
+        if self._session is None:
+            import requests
+            self._session = requests.Session()
+        return self._session
+
+    def _headers(self):
+        return {"Authorization": f"Token {self.token}", "Accept": "application/json"}
+
+    def request(self, ra: float, dec: float, mjd_min: float, mjd_max: Optional[float] = None) -> str:
+        import time
+        data = {"ra": ra, "dec": dec, "mjd_min": mjd_min, "send_email": False}
+        if mjd_max is not None:
+            data["mjd_max"] = mjd_max
+        r = self.session.post(f"{self.base_url}/queue/", headers=self._headers(), data=data, timeout=60)
+        r.raise_for_status()
+        task_url = r.json()["url"]
+        waited = 0.0
+        while True:
+            r = self.session.get(task_url, headers=self._headers(), timeout=60)
+            r.raise_for_status()
+            j = r.json()
+            if j.get("finishtimestamp"):
+                if not j.get("result_url"):
+                    raise RuntimeError(f"ATLAS task failed: {j.get('error_msg')}")
+                return self.session.get(j["result_url"], headers=self._headers(), timeout=60).text
+            if waited > self.max_wait_s:
+                raise TimeoutError("ATLAS forced photometry still queued")
+            time.sleep(self.poll_s)
+            waited += self.poll_s
+
+    def parse(self, text: str) -> list[PhotometryPoint]:
+        lines = [ln for ln in text.splitlines() if ln.strip()]
+        head = lines[0].lstrip("#").split()
+        col = {k: i for i, k in enumerate(head)}
+        pts = []
+        for ln in lines[1:]:
+            v = ln.split()
+            try:
+                mjd, flux, dflux = float(v[col["MJD"]]), float(v[col["uJy"]]), float(v[col["duJy"]])
+                band, lim = v[col["F"]], float(v[col["mag5sig"]])
+            except (KeyError, ValueError, IndexError):
+                continue
+            if dflux > 0 and flux / dflux >= self.snr_detect and flux > 0:
+                mag = 23.9 - 2.5 * np.log10(flux)
+                pts.append(PhotometryPoint(mjd, band, float(mag), float(1.0857 * dflux / flux),
+                                           survey="ATLAS"))
+            elif lim > 0:
+                pts.append(PhotometryPoint(mjd, band, lim, upper_limit=True, survey="ATLAS"))
+        return pts
+
+    def add_to(self, kn: KNCandidate, days_before: float = 10.0) -> KNCandidate:
+        fd = kn.first_detection
+        t_ref = fd.mjd if fd else Time.now().mjd
+        kn.add_photometry(self.parse(self.request(kn.ra, kn.dec, t_ref - days_before)))
+        return kn
+
+
+def last_nondetection(kn: KNCandidate, depth_mag: Optional[float] = None) -> Optional[PhotometryPoint]:
+    """Latest non-detection before the first detection, over all surveys merged
+    into the candidate; with ``depth_mag``, only limits at least that deep."""
+    fd = kn.first_detection
+    if fd is None:
+        return None
+    lims = [p for p in kn.upper_limits if p.mjd < fd.mjd and (depth_mag is None or p.mag >= depth_mag)]
+    return max(lims, key=lambda p: p.mjd) if lims else None
+
+
 class GraceDbConnector:
     """Thin wrapper over ``ligo.gracedb.rest.GraceDb`` with the calls RAVEN
     uses: superevent queries, log messages, file downloads.

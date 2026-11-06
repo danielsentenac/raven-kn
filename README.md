@@ -107,31 +107,69 @@ the `svdmodel-download` entry point is broken in v1.0.2); some sncosmo bandpasse
 
 Light PyCBC-based search at the kilonova position over its t0 window, following Jamsin et al.:
 - template bank: equal-mass, non-spinning TaylorF2 over a chirp-mass range, spaced with the analytic
-  chirp-mass metric and calibrated on direct matches so that the minimal match is 0.97
-  (181 templates for 1.18–1.22 Msun, ~2150 for 1.0–1.5, ~10000 for sub-solar 0.4–0.9);
-- per sub-segment (default 1024 s): GWOSC or local strain, gating of loud glitches, median-Welch PSD,
-  matched filter, each detector's |SNR| shifted by its time delay for the known sky position,
-  network SNR sqrt(sum rho_d^2) maximised over templates;
-- background: cyclic time slides of the other detectors; p-value of the loudest on-source value,
-  sub-segments combined with a trials factor. Input: the request file written by `assess`
-  (position, GPS window, chirp-mass range) or explicit arguments.
+  chirp-mass metric calibrated on direct matches (minimal match 0.97: 181 templates for 1.18–1.22 Msun,
+  ~2150 for 1.0–1.5, ~10000 for sub-solar 0.4–0.9);
+- per sub-segment (default 1024 s): GWOSC, local hdf5 or frame files (`IFO=path:channel`), gating of loud
+  glitches, median-Welch PSD, matched filter;
+- signal consistency: 16-bin power chi-square where a detector's SNR > 5, SNR replaced by newSNR;
+- each detector aligned by its time delay for the known sky position; network SNR sqrt(sum rho_d^2)
+  counted only where >= 2 detectors exceed 4 (coincidence), maximised over templates;
+- background: time slides (independent shifts per detector, many per sub-segment); the loudest on-source
+  candidate is removed from the background only if loud in two detectors (2nd-loudest SNR >= 6), so a
+  single-detector glitch stays in its own background; p-value, exponential-tail extrapolation flagged as
+  formal when far beyond the sampled background; sub-segments combined with a trials factor.
 
 ```bash
 raven-kn targeted --request out/<name>_targeted_search_request.json --out targeted_out \
     --ca-bundle /etc/pki/tls/certs/ca-bundle.crt      # if Python's SSL fails against gwosc.org
 ```
 
-GW170817 on GWOSC open data (H1, L1, V1; 1024 s windows; 181 templates; 200 slides):
+GW170817, H1 and V1 from GWOSC, L1 from the glitch-subtracted release (LIGO-P1700349,
+`L-L1_LOSC_CLN_4_V1-1187007040-2048.gwf`); 181 templates, 1000 slides:
 
-| window | loudest network SNR | time | chirp mass | H1 / L1 / V1 | p-value |
+| window | network SNR | H1 / L1 / V1 | time, chirp mass | p-value | background max / median |
 |---|---|---|---|---|---|
-| containing the merger | 29.1 | 1187008882.426 (true .43) | 1.1976 (true 1.1977) | 18.5 / 22.2 / 3.2 | 0.005 (= 1/201, floor) |
-| 15 min earlier (noise) | 8.0 | — | — | 3.2 / 3.7 / 6.4 | 0.045 |
+| containing the merger | 30.9 (published 32.4) | 18.6 / 24.5 / 3.2 | 1187008882.426, 1.1976 | < 1/1001 (22 background spreads beyond the loudest slide) | 8.5 / 7.5 |
+| 15 min earlier (noise) | 7.4 | 4.0 / 5.4 / 3.1 | — | 0.62 | 8.5 / 7.5 |
 
-The L1 glitch 1.1 s before the merger, still in the GWOSC data, is gated automatically (costing some
-L1 SNR: 22 vs 26 published). Results: `examples/targeted_gw170817/`.
-Limitations: incoherent statistic, no chi-square (single-detector noise can dominate, as V1 in the noise
-window), background depth limited by the number of slides. Production: PyGRB.
+With the GWOSC GWTC-1 L1 data instead (`GW170817_signal/noise_targeted_result.json`), the glitch 1.1 s
+before the merger is gated out with part of the signal and the chi-square penalises the damaged L1 signal:
+network SNR 22.6 (H1 / L1 / V1 = 18.5 / 12.6 / 3.2), still p < 1/1001 against a background of max 8.3;
+the noise window gives p = 0.48. Before hierarchical removal was added, the H1 signal leaked into every
+slide (background median 18.7). Tests use synthetic Gaussian noise
+with injections and a sine-Gaussian glitch. Results: `examples/targeted_gw170817/`.
+Remaining limitations: incoherent statistic, zero-spin equal-mass templates. Production: PyGRB.
+
+## Last non-detection from survey archives
+
+The t0 window depends most on the latest deep image of the position before the first detection.
+`connection.py` merges photometry from several sources into one candidate:
+- `ALeRCEConnector` — ZTF detections and non-detections (`diffmaglim`) from the public ALeRCE API
+  (tested live: ZTF21abdpqpq, last non-detection r > 20.5 1.98 d before the first detection);
+- `ATLASForcedPhotometryConnector` — ATLAS forced photometry (cyan/orange, 5σ limits) via the
+  fallingstar-data.com queue API; needs a personal token (written from the API guide, tested on mocked
+  responses only);
+- `FinkConnector` (ZTF API; LSST endpoint to configure);
+- `last_nondetection(kn, depth_mag)` — latest (optionally deep enough) limit before the first detection,
+  over all merged surveys.
+
+## PyGRB configuration (`raven-kn pygrb`)
+
+The production targeted search is PyGRB (coherent SNR, chi-square and null-stream vetoes). It is built for
+on-source windows of seconds to minutes, so the kilonova window is split into sub-segments and one
+override file is written per sub-segment, with a shared HDF template bank (loads with PyCBC in the igwn
+environment) and `run_pygrb.sh`:
+
+```bash
+raven-kn pygrb --request out/<name>_targeted_search_request.json --out pygrb_configs \
+    --base-config pygrb_base.ini        # LVK PyGRB base configuration, not provided here
+```
+
+Overrides: `[workflow] trigger-name, trigger-time, ra, dec (deg), start-time, end-time`,
+`[workflow-exttrig_segments] on-before, on-after, min-duration, max-duration`,
+`[workflow-tmpltbank] PREGENERATED_BANK` (option names checked against PyCBC 2.8). `pad-data` and
+`quanta` stay in the base configuration and must be compatible with the off-source length. Not run here
+(needs the LVK base configuration, frame access and HTCondor).
 
 ## Real case: S250818k / AT2025ulz
 
@@ -183,10 +221,10 @@ SN 2025ulz was classified as a type IIb supernova; the physical link is still de
 
 ## Not yet done
 
-- PyGRB configuration writer for the production targeted search (coherent statistic, chi-square vetoes).
-- Signal-consistency test (chi-square) and deeper background (off-source time, more slides) in the light search.
+- Run the PyGRB configurations end to end on a cluster with the LVK base configuration.
+- Off-source (non-slide) background and a coherent statistic in the light search.
 - Calibration of the model-systematic margin with cross-model injections (0.75 is fitted on two events).
-- Archive queries for the last non-detection in other surveys (ATLAS, ZTF forced photometry, GOTO, BlackGEM).
+- ZTF forced photometry (IRSA ZFPS), GOTO, BlackGEM archive connectors; live test of the ATLAS connector.
 - GCN Kafka listener and live GraceDB/segment (DQSegDB) queries.
 
 ## License and credits
