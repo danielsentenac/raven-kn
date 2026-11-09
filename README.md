@@ -296,7 +296,7 @@ SN 2025ulz was classified as a type IIb supernova; the physical link is still de
 ## Not yet done
 
 - Compare the PyGRB result with the light search; live DQSegDB test of the veto query.
-- Coherent statistic (and null stream) in the light search; it uses coincident network SNR.
+- Coherent statistic and null stream are left to PyGRB: the light search is a fast first pass on coincident network SNR (a coherent statistic through the time slides would keep the complex SNR of every template and detector, ~9 GB for the GW170817 bank). PyGRB run on GW170817 at CC-IN2P3 (Slurm) pending.
 - Injection calibration at Rubin depth and cadence, and with a third model (e.g. Bu2026).
 - ZTF forced photometry (IRSA ZFPS), GOTO, BlackGEM archive connectors; live test of the ATLAS connector.
 - Listener: run on the live GCN stream (needs GCN credentials); live GraceDB/segment (DQSegDB) queries.

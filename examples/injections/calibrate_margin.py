@@ -19,7 +19,7 @@ apart, 5-sigma depth 21.5, nights lost with probability 0.3, epochs from
 coverage (late discovery, as AT2017gfo). Distances uniform in volume in
 40-150 Mpc; host redshift known (informed distance prior, as in practice).
 
-  python calibrate_margin.py make   --out runs_inj [--n 12 --seed 1]
+  python calibrate_margin.py make   --out runs_inj [--n 12 --seed 1 --survey ztf|rubin]
   python calibrate_margin.py run    --out runs_inj [--workers 6]
   python calibrate_margin.py report --out runs_inj
 """
@@ -42,7 +42,6 @@ EXE = os.path.expanduser(os.environ.get("RAVEN_KN_NMMA_EXE",
                                         "~/miniforge3/envs/nmma/bin/lightcurve-analysis"))
 SVD = os.path.expanduser("~/nmma_models")
 FILTERS = {"ps1::g": "g", "ps1::r": "r", "ps1::i": "i"}
-DEPTH = 21.5
 T_BASE = 1400000000.0
 HERE = Path(__file__).parent
 
@@ -56,14 +55,29 @@ def draw_params(model, rng):
             "log10_Xlan": rng.uniform(-6, -2)}
 
 
+SURVEY = {"depth": 21.5, "cadence_d": 1.0, "lost": 0.3, "bands_per_epoch": 3,
+          "d_min": 40.0, "d_max": 150.0, "fit_days": 3.0}
+PRESETS = {
+    "ztf": {},
+    # Rubin WFD-like: deeper, a field revisited every ~3 nights, 2 filters per night
+    "rubin": {"depth": 24.5, "cadence_d": 3.0, "lost": 0.2, "bands_per_epoch": 2, "d_max": 300.0,
+              "fit_days": 6.5},
+}
+
+
 def survey_times(rng, pre_merger):
-    phase = rng.uniform(0, 1)
+    cad = SURVEY["cadence_d"]
+    phase = rng.uniform(0, cad)
     first = -3 if pre_merger else int(rng.integers(0, 2))
-    nights = [k + phase for k in range(first, 7) if k + phase <= 6.0]
-    nights = [t for t in nights if rng.uniform() > 0.3]
+    epochs = [k * cad + phase for k in range(first, int(6 / cad) + 2) if k * cad + phase <= 6.0]
+    epochs = [t for t in epochs if rng.uniform() > SURVEY["lost"]]
     times, bands = [], []
-    for t in nights:
-        for j, f in enumerate(FILTERS):
+    for t in epochs:
+        fs = list(FILTERS)
+        if SURVEY["bands_per_epoch"] < len(fs):
+            fs = sorted(rng.choice(fs, SURVEY["bands_per_epoch"], replace=False),
+                        key=list(FILTERS).index)
+        for j, f in enumerate(fs):
             times.append(t + 0.03 * j)
             bands.append(f)
     return np.array(times), bands
@@ -75,7 +89,8 @@ def make(out: Path, n: int, seed: int):
     meta, jobs = [], []
     while len(meta) < 2 * n:
         model = "Bu2019lm" if len(meta) % 2 == 0 else "Ka2017"
-        d = (40 ** 3 + rng.uniform() * (150 ** 3 - 40 ** 3)) ** (1 / 3)
+        lo, hi = SURVEY["d_min"], SURVEY["d_max"]
+        d = (lo ** 3 + rng.uniform() * (hi ** 3 - lo ** 3)) ** (1 / 3)
         par = dict(draw_params(model, rng), luminosity_distance=d)
         pre = bool(rng.uniform() < 0.5)
         t, b = survey_times(rng, pre)
@@ -94,16 +109,16 @@ def make(out: Path, n: int, seed: int):
         for k, (t, f) in enumerate(zip(m["t"], m["bands"])):
             mag = lc[f][k] if t > 0 else np.inf
             mjd = gps_to_mjd(t0_gps + t * 86400)
-            if np.isfinite(mag) and mag < DEPTH:
-                sig = float(np.hypot(0.03, 0.2 * 10 ** (0.4 * (mag - DEPTH))))
+            if np.isfinite(mag) and mag < SURVEY["depth"]:
+                sig = float(np.hypot(0.03, 0.2 * 10 ** (0.4 * (mag - SURVEY["depth"]))))
                 phot.append(PhotometryPoint(mjd, FILTERS[f], float(mag + rng.normal(0, sig)), sig,
                                             survey="PS1"))
                 ndet += 1
             else:
-                phot.append(PhotometryPoint(mjd, FILTERS[f], DEPTH, upper_limit=True,
+                phot.append(PhotometryPoint(mjd, FILTERS[f], SURVEY["depth"], upper_limit=True,
                                             survey="PS1"))
         first = min((p.mjd for p in phot if not p.upper_limit), default=None)
-        n_early = sum(1 for p in phot if not p.upper_limit and first is not None and p.mjd < first + 3)
+        n_early = sum(1 for p in phot if not p.upper_limit and first is not None and p.mjd < first + SURVEY["fit_days"])
         if n_early < 3:
             continue
         from astropy.cosmology import Planck18, z_at_value
@@ -115,18 +130,19 @@ def make(out: Path, n: int, seed: int):
         kept.append({"name": name, "t0_gps": t0_gps, **{k: m[k] for k in
                      ("truth_model", "params", "pre_merger_coverage")}})
     (out / "injections.json").write_text(json.dumps(kept, indent=1))
+    (out / "survey.json").write_text(json.dumps(SURVEY, indent=1))
     print(f"{len(kept)} injections kept of {len(meta)}")
 
 
 def _fit(args):
-    out, name, model = args
+    out, name, model, fit_days = args
     kn = load_candidate(out / f"{name}.json")
     wd = out / "fits" / f"{name}__{model}"
     if (wd / "nmma_out").exists() and any((wd / "nmma_out").glob("*posterior*")):
         return name, model, "exists"
     try:
         lcf.fit(kn, wd, executable=EXE, interpolation_type="sklearn_gp", model=model,
-                svd_path=SVD, extra_args=["--nlive", "512", "--local-only"])
+                svd_path=SVD, fit_days=fit_days, extra_args=["--nlive", "512", "--local-only"])
         return name, model, "ok"
     except Exception as e:      # keep going; reported
         return name, model, f"failed: {e}"
@@ -134,7 +150,8 @@ def _fit(args):
 
 def run(out: Path, workers: int):
     inj = json.loads((out / "injections.json").read_text())
-    tasks = [(out, i["name"], m) for i in inj for m in ("Ka2017", "Bu2019lm")]
+    sv = json.loads((out / "survey.json").read_text()) if (out / "survey.json").exists() else SURVEY
+    tasks = [(out, i["name"], m, sv.get("fit_days", 3.0)) for i in inj for m in ("Ka2017", "Bu2019lm")]
     with ProcessPoolExecutor(workers) as ex:
         for name, model, status in ex.map(_fit, tasks):
             print(name, model, status, flush=True)
@@ -206,8 +223,11 @@ def main():
     p.add_argument("--n", type=int, default=12)
     p.add_argument("--seed", type=int, default=1)
     p.add_argument("--workers", type=int, default=6)
+    p.add_argument("--survey", choices=sorted(PRESETS), default="ztf",
+                   help="survey preset used by 'make' (stored with the injections)")
     a = p.parse_args()
     out = Path(a.out)
+    SURVEY.update(PRESETS[a.survey])
     {"make": lambda: make(out, a.n, a.seed), "run": lambda: run(out, a.workers),
      "report": lambda: report(out)}[a.action]()
 

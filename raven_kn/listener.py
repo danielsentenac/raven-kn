@@ -302,14 +302,15 @@ def _evaluate(kn: KNCandidate, gw: dict, moc: Optional[Table], combined: Optiona
     sky factor is then no longer GW-only)."""
     if gw.get("gpstime") is None or gw.get("far") is None:
         return None
-    window = estimate_window(kn)
+    # same window as raven_kn.search.assess: the 95th-percentile EM distance
+    # decides which non-detections constrain the merger time
+    post = posterior_for(kn) if (kn.redshift or kn.distance or kn.lc_fit_samples) else None
+    d95 = float(np.quantile(post.d_mpc, 0.95)) if post is not None and post.constraints else None
+    window = estimate_window(kn, d_mpc_upper=d95)
     if not window.gps_start <= gw["gpstime"] <= window.gps_end:
         return None
     far_map = combined if (use_combined and combined is not None) else moc
     flat = moc_to_flat(far_map) if far_map is not None else None
-    post = None
-    if flat is not None and (kn.redshift or kn.distance or kn.lc_fit_samples):
-        post = posterior_for(kn)
     res = coinc_far(kn, {"superevent_id": gw["superevent_id"], "far": gw["far"]}, window,
                     gw_skymap=flat, post=post, **coinc_kw)
     res.update(alert_type=gw.get("alert_type"), gw_gpstime=gw["gpstime"],
