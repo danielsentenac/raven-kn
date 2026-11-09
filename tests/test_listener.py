@@ -109,3 +109,33 @@ def test_grb_notice_attached_and_narrows_window(tmp_path):
     res = handle_gw_alert(gw_alert(), store)
     w = {r["external_event"]: r["window"] for r in res}
     assert w["test"]["gps_end"] - w["test"]["gps_start"] == pytest.approx(6.0)
+
+
+GBM_VOEVENT = """<?xml version='1.0' encoding='UTF-8'?>
+<voe:VOEvent xmlns:voe="http://www.ivoa.net/xml/VOEvent/v2.0" role="{role}" version="2.0"
+  ivorn="ivo://nasa.gsfc.gcn/Fermi#GBM_Gnd_Pos_2017-08-17T12:41:06.47_524666471_0-002">
+ <What><Param name="TrigID" value="524666471"/><Param name="Burst_Signif" value="4.8"/></What>
+ <WhereWhen><ObsDataLocation><ObservationLocation><AstroCoords coord_system_id="UTC-FK5-GEO">
+  <Time unit="s"><TimeInstant><ISOTime>{iso}</ISOTime></TimeInstant></Time>
+  <Position2D unit="deg"><Name1>RA</Name1><Name2>Dec</Name2>
+   <Value2><C1>{ra}</C1><C2>{dec}</C2></Value2><Error2Radius>11.6</Error2Radius></Position2D>
+ </AstroCoords></ObservationLocation></ObsDataLocation></WhereWhen>
+</voe:VOEvent>"""
+
+
+def test_gbm_voevent_attached(tmp_path):
+    from raven_kn.listener import parse_grb_notice
+    iso = Time(T0 + 1.74, format="gps").utc.isot
+    xml = GBM_VOEVENT.format(role="observation", iso=iso, ra=176.8, dec=-39.8)
+    n = parse_grb_notice(xml.encode())
+    assert n["grb"].instrument == "Fermi-GBM" and n["grb"].graceid == "524666471"
+    assert n["err_deg"] == pytest.approx(np.hypot(11.6, 3.7))
+    store = CandidateStore(tmp_path)
+    store.save(make_kn())
+    assert handle_grb_notice(GBM_VOEVENT.format(role="test", iso=iso, ra=RA, dec=DEC), store) == []
+    # GW170817's GBM ground position is 24 deg from NGC 4993: inside 2 x 12.2 deg
+    assert handle_grb_notice(xml, store, err_scale=1.0) == []
+    assert handle_grb_notice(xml, store) == ["test"]
+    far = GBM_VOEVENT.format(role="observation", iso=iso, ra=RA + 60, dec=DEC)
+    kn = make_kn(); kn.name = "other"; store.save(kn)
+    assert handle_grb_notice(far, store) == []

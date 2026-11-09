@@ -156,7 +156,13 @@ def clip_prior_lines(lines: list[str], ranges: dict[str, tuple[float, float]]) -
 
 def nmma_filter(survey: str, band: str) -> str:
     m = FILTER_MAP.get(survey.upper(), {})
-    return m.get(band, band)        # unknown: assume band is already an NMMA name
+    if band in m:
+        return m[band]
+    if len(band) <= 1:              # a bare band letter NMMA has no model file for
+        import warnings
+        warnings.warn(f"survey {survey!r}, band {band!r}: no NMMA filter mapping; add it to "
+                      "FILTER_MAP or give the NMMA filter name as the band")
+    return band                     # assume band is already an NMMA name
 
 
 @dataclass

@@ -39,8 +39,10 @@ def synthetic_fetcher(inject: bool, distance_mpc: float = 120.0, seed: int = 1):
             hc.start_time += T_INJ
             sig = Detector(ifo).project_wave(hp, hc, RA, DEC, PSI)
             i0 = int(round((float(sig.start_time) - start) * FS))
-            a = ts.numpy()
-            a[i0:i0 + len(sig)] += sig.numpy()[: max(0, min(len(sig), n - i0))]
+            a, h = ts.numpy(), sig.numpy()
+            lo, hi = max(i0, 0), min(i0 + len(h), n)      # overlap only (no wrap-around)
+            if hi > lo:
+                a[lo:hi] += h[lo - i0:hi - i0]
         cache[key] = ts
         return ts
     return fetch
@@ -186,3 +188,14 @@ def test_veto_free_subsegments(tmp_path):
         name = cp["workflow"]["trigger-name"]
         half = int(run.split(f"--workflow-name {name}")[1].split("on-before:")[1].split()[0])
         assert all(t + half <= va or t - half >= vb for va, vb in v)
+
+
+def test_offsource_trials():
+    from raven_kn.targeted.search import offsource_windows
+    cfg = TargetedSearchConfig(**{**_cfg().__dict__, "n_offsource": 4, "n_slides": 20})
+    w = offsource_windows(cfg, 64, 4)
+    assert w[0][1] == cfg.gps_start - 64 and w[1][0] == cfg.gps_end + 64
+    assert all(b <= cfg.gps_start or a >= cfg.gps_end for a, b in w)
+    s = run(cfg, synthetic_fetcher(inject=True), progress=False).subsegments[0]
+    assert len(s.offsource) == 4 and max(s.offsource) < 9
+    assert s.p_value_offsource == pytest.approx(1 / 5)

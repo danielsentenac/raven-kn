@@ -34,7 +34,7 @@ from __future__ import annotations
 import json
 import math
 import os
-from dataclasses import asdict, dataclass, field
+from dataclasses import asdict, dataclass, field, replace
 from pathlib import Path
 from typing import Callable, Optional, Sequence
 
@@ -75,6 +75,8 @@ class TargetedSearchConfig:
     removal_window_s: float = 1.0
     removal_min_second_snr: float = 6.0      # remove only if the 2nd-loudest detector is this loud
     max_templates: int = 20000
+    n_offsource: int = 0                     # off-source trials per sub-segment (0: slides only)
+    offsource_gap_s: float = 64.0            # gap between the on-source window and off-source trials
     label: str = "targeted"
 
     @classmethod
@@ -249,6 +251,8 @@ class SubsegmentResult:
     notes: str = ""
     p_value_extrapolated: Optional[float] = None
     extrapolation_reach: Optional[float] = None
+    offsource: list[float] = field(default_factory=list)
+    p_value_offsource: Optional[float] = None
 
 
 @dataclass
@@ -480,6 +484,39 @@ def search_subsegment(cfg: TargetedSearchConfig, bank: Sequence[float], fetch: S
     return res
 
 
+def offsource_windows(cfg: TargetedSearchConfig, length: float, n: int) -> list[tuple[float, float]]:
+    """``n`` windows of ``length`` s outside the whole on-source window,
+    alternately before and after it, ``offsource_gap_s`` away from it and
+    from each other's neighbours (PyGRB-style off-source trials)."""
+    out, k_before, k_after = [], 0, 0
+    for i in range(n):
+        if i % 2 == 0:
+            b = cfg.gps_start - cfg.offsource_gap_s - k_before * length
+            out.append((b - length, b))
+            k_before += 1
+        else:
+            a = cfg.gps_end + cfg.offsource_gap_s + k_after * length
+            out.append((a, a + length))
+            k_after += 1
+    return out
+
+
+def offsource_background(cfg: TargetedSearchConfig, bank: Sequence[float], fetch: StrainFetcher,
+                         length: float, n: int) -> list[float]:
+    """Loudest zero-lag network statistic in each off-source trial of the
+    same length and sky position as an on-source sub-segment. Unlike time
+    slides, this samples the real non-stationarity of the data around the
+    window (at the cost of a full matched filter per trial). Trials with
+    fewer than two detectors are skipped."""
+    c = replace(cfg, n_slides=0)
+    out = []
+    for a, b in offsource_windows(cfg, length, n):
+        r = search_subsegment(c, bank, fetch, a, b)
+        if len(r.ifos) >= 2:
+            out.append(r.loudest_rho_net)
+    return out
+
+
 def run(cfg: TargetedSearchConfig, fetch: StrainFetcher, out_dir: Optional[str | Path] = None,
         bank: Optional[Sequence[float]] = None, progress: bool = True) -> TargetedSearchResult:
     bank = list(bank) if bank is not None else build_bank(
@@ -490,15 +527,25 @@ def run(cfg: TargetedSearchConfig, fetch: StrainFetcher, out_dir: Optional[str |
         if b - a < 16:
             continue
         r = search_subsegment(cfg, bank, fetch, a, b)
+        if cfg.n_offsource > 0 and len(r.ifos) >= 2:
+            r.offsource = offsource_background(cfg, bank, fetch, b - a, cfg.n_offsource)
+            if r.offsource:
+                r.p_value_offsource = targeted_pvalue(r.loudest_rho_net, r.offsource)
+                r.notes += f"; {len(r.offsource)} off-source trials"
         subs.append(r)
         if progress:
             print(f"[{a:.0f}, {b:.0f}] rho_net={r.loudest_rho_net:.2f} at {r.loudest_gps:.2f} "
-                  f"Mc={r.loudest_mchirp:.4f} p={r.p_value:.4f} {r.notes}", flush=True)
+                  f"Mc={r.loudest_mchirp:.4f} p={r.p_value:.4f}"
+                  + (f" p_off={r.p_value_offsource:.3f}" if r.p_value_offsource is not None else "")
+                  + f" {r.notes}", flush=True)
     valid = [s for s in subs if s.background]
-    p_all = combine_subsegments([s.p_value for s in valid]) if valid else 1.0
+    # with off-source trials, the more conservative of the two p-values per sub-segment
+    p_all = combine_subsegments([max(s.p_value, s.p_value_offsource or 0.0) for s in valid]) \
+        if valid else 1.0
     best = max(subs, key=lambda s: s.loudest_rho_net) if subs else None
     loudest = asdict(best) if best else {}
     loudest.pop("background", None)
+    loudest.pop("offsource", None)
     res = TargetedSearchResult(asdict(cfg), len(bank), subs, p_all, loudest)
     if out_dir is not None:
         out = Path(out_dir)

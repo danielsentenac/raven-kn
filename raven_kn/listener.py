@@ -49,7 +49,11 @@ log = logging.getLogger("raven_kn.listener")
 GW_TOPIC = "igwn.gwalert"
 # GCN unified-schema JSON GRB topics (others can be passed to listen())
 GRB_TOPICS = ("gcn.notices.swift.bat.guano", "gcn.notices.einstein_probe.wxt.alert",
-              "gcn.notices.svom.eclairs.alert")
+              "gcn.notices.svom.eclairs.alert",
+              # classic VOEvent (XML): Fermi-GBM flight / ground / final positions
+              "gcn.classic.voevent.FERMI_GBM_FLT_POS", "gcn.classic.voevent.FERMI_GBM_GND_POS",
+              "gcn.classic.voevent.FERMI_GBM_FIN_POS")
+GBM_SYS_ERR_DEG = 3.7       # GBM systematic localisation error (Connaughton et al. 2015, core)
 MAX_FLAT_ORDER = 9          # flattened GW maps: nside 512
 
 
@@ -155,10 +159,39 @@ def parse_gw_alert(msg: dict | bytes | str) -> dict[str, Any]:
     return out
 
 
+def parse_voevent(xml: bytes | str) -> dict[str, Any]:
+    """Classic GCN VOEvent (Fermi-GBM, Swift-BAT...): ISOTime, C1/C2 and
+    Error2Radius (degrees) from WhereWhen; TrigID from the parameters. For
+    GBM the systematic error is added in quadrature."""
+    import xml.etree.ElementTree as ET
+    root = ET.fromstring(xml.encode() if isinstance(xml, str) else xml)
+
+    def find(tag):
+        return next((e for e in root.iter() if e.tag.split("}")[-1] == tag), None)
+    params = {e.get("name"): e.get("value") for e in root.iter()
+              if e.tag.split("}")[-1] == "Param"}
+    ivorn = root.get("ivorn", "")
+    t = find("ISOTime").text.strip()
+    ra, dec, err = (find(k) for k in ("C1", "C2", "Error2Radius"))
+    instrument = "Fermi-GBM" if "Fermi" in ivorn or "GBM" in ivorn else ivorn.split("/")[-1].split("#")[0]
+    e = float(err.text) if err is not None else None
+    if e is not None and instrument == "Fermi-GBM":
+        e = float(np.hypot(e, GBM_SYS_ERR_DEG))
+    return {"grb": GRBAssociation(gps=_gps(t), instrument=instrument,
+                                  graceid=params.get("TrigID")),
+            "ra": float(ra.text) if ra is not None else None,
+            "dec": float(dec.text) if dec is not None else None,
+            "err_deg": e, "role": root.get("role")}
+
+
 def parse_grb_notice(msg: dict | bytes | str) -> dict[str, Any]:
-    """GCN unified-schema notice: time, position and its error (degrees)."""
+    """GCN notice, unified JSON schema (time, position and error in
+    degrees) or classic VOEvent XML (:func:`parse_voevent`)."""
     if isinstance(msg, (bytes, str)):
-        msg = json.loads(msg)
+        text = msg.decode() if isinstance(msg, bytes) else msg
+        if text.lstrip().startswith("<"):
+            return parse_voevent(text)
+        msg = json.loads(text)
     err = msg.get("ra_dec_error")
     return {"grb": GRBAssociation(gps=_gps(msg["trigger_time"]),
                                   instrument=msg.get("instrument", msg.get("mission", "")),
@@ -261,14 +294,19 @@ def handle_gw_alert(msg: dict | bytes | str, store: CandidateStore, **coinc_kw) 
 
 
 def handle_grb_notice(msg: dict | bytes | str, store: CandidateStore,
-                      max_lead_days: float = 3.0, min_err_deg: float = 0.0) -> list[str]:
-    """Attach a GRB to candidates inside its error circle (or within
-    ``min_err_deg``) whose first detection follows it by < ``max_lead_days``.
-    Candidates that already have a GRB are left alone. Returns their names."""
+                      max_lead_days: float = 3.0, min_err_deg: float = 0.0,
+                      err_scale: float = 2.0) -> list[str]:
+    """Attach a GRB to candidates within ``err_scale`` x its error radius
+    (or ``min_err_deg``) whose first detection follows it by
+    < ``max_lead_days``. Notice radii are ~68 % (1-sigma-like) circles;
+    x2 is ~99 % for a 2D Gaussian (GW170817: NGC 4993 lies 24 deg from the
+    GBM ground position, radius 11.6 deg stat. + 3.7 deg sys.). Candidates
+    that already have a GRB are left alone; test notices are ignored.
+    Returns the names of the candidates updated."""
     n = parse_grb_notice(msg)
-    if n["ra"] is None or n["dec"] is None:
+    if n.get("role") == "test" or n["ra"] is None or n["dec"] is None:
         return []
-    radius = max(n["err_deg"] or 0.0, min_err_deg)
+    radius = max(err_scale * (n["err_deg"] or 0.0), min_err_deg)
     grb_pos = SkyCoord(n["ra"] * u.deg, n["dec"] * u.deg)
     hits = []
     for kn in store.candidates():

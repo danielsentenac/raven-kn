@@ -119,6 +119,10 @@ Light PyCBC-based search at the kilonova position over its t0 window, following 
   candidate is removed from the background only if loud in two detectors (2nd-loudest SNR >= 6), so a
   single-detector glitch stays in its own background; p-value, exponential-tail extrapolation flagged as
   formal when far beyond the sampled background; sub-segments combined with a trials factor.
+- off-source trials (`--n-offsource N`): the same search, zero-lag, in N windows of the sub-segment length
+  outside the whole on-source window (alternately before/after, 64 s gap), as PyGRB does; it samples the
+  real non-stationarity around the window that slides of on-source data cannot. With trials, each
+  sub-segment uses the larger of the slide and off-source p-values.
 
 ```bash
 raven-kn targeted --request out/<name>_targeted_search_request.json --out targeted_out \
@@ -202,10 +206,11 @@ raven-kn add candidate.json --store kn_store/            # a new or updated kilo
   to `kn_store/coinc/<superevent>__<candidate>.json` with the GW conditional-distance parameters at the
   candidate. Updates replace the stored alert (an alert without a map keeps the previous map); retractions
   delete it.
-- **GRB notice** (GCN unified JSON: `trigger_time`, `ra`, `dec`, `ra_dec_error`; default topics Swift-BAT
-  GUANO, Einstein Probe WXT, SVOM ECLAIRs): attached to candidates inside the error circle whose first
-  detection follows within 3 days; their window becomes RAVEN's [−5, +1] s. Fermi-GBM classic VOEvent
-  notices are not parsed yet.
+- **GRB notice**, GCN unified JSON (`trigger_time`, `ra`, `dec`, `ra_dec_error`: Swift-BAT GUANO,
+  Einstein Probe WXT, SVOM ECLAIRs) or classic VOEvent XML (Fermi-GBM flight/ground/final positions, with
+  the 3.7° GBM systematic added in quadrature): attached to candidates within 2× the error radius whose
+  first detection follows within 3 days; their window becomes RAVEN's [−5, +1] s. With 1× the radius the
+  GW170817 GBM ground position (24° from NGC 4993) would be missed. Test notices are ignored.
 - **Late candidate**: `raven-kn add` matches it against GW alerts of the last 14 days.
 
 Nothing is uploaded to GraceDB from the listener (use `calc_signif_gracedb` once results are vetted).
@@ -262,10 +267,10 @@ SN 2025ulz was classified as a type IIb supernova; the physical link is still de
 ## Not yet done
 
 - Compare the PyGRB result with the light search; live DQSegDB test of the veto query.
-- Off-source (non-slide) background and a coherent statistic in the light search.
+- Coherent statistic (and null stream) in the light search; it uses coincident network SNR.
 - Calibration of the model-systematic margin with cross-model injections (0.75 is fitted on two events).
 - ZTF forced photometry (IRSA ZFPS), GOTO, BlackGEM archive connectors; live test of the ATLAS connector.
-- Listener: run on the live GCN stream (needs GCN credentials); Fermi-GBM VOEvent notices; live GraceDB/segment (DQSegDB) queries.
+- Listener: run on the live GCN stream (needs GCN credentials); live GraceDB/segment (DQSegDB) queries.
 
 ## License and credits
 
