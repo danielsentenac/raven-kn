@@ -115,6 +115,12 @@ def main(argv=None):
     y.add_argument("--vetoes", help="text file of vetoed GPS intervals 'start end' (all detectors; "
                                     "segwizard columns 'id start end duration' also read); "
                                     "sub-segments are placed between them")
+    y.add_argument("--veto-definer", help="veto-definer XML: its CAT flags (--veto-categories) are "
+                                          "queried from DQSegDB and excluded")
+    y.add_argument("--veto-categories", type=int, nargs="+", default=[1, 2])
+    y.add_argument("--science-flag", nargs="+", default=[], metavar="IFO=FLAG",
+                   help="exclude time outside science, e.g. H1=H1:DMT-ANALYSIS_READY:1")
+    y.add_argument("--segment-url", default="https://segments.ligo.org")
 
     li = sub.add_parser("listen", help="GCN Kafka listener: GW alerts and GRB notices vs stored "
                                        "kilonova candidates (credentials: $GCN_CLIENT_ID, "
@@ -148,13 +154,23 @@ def main(argv=None):
         from .targeted.search import TargetedSearchConfig
         cfg = TargetedSearchConfig.from_request(args.request, subsegment_s=args.subsegment,
                                                 f_low=args.f_low)
+        vetoes = _read_segments(args.vetoes) if args.vetoes else []
+        if args.veto_definer or args.science_flag:
+            from .targeted.segments import excluded_segments, write_segments
+            vetoes += excluded_segments(
+                cfg.ifos, cfg.gps_start, cfg.gps_end, veto_definer=args.veto_definer,
+                categories=args.veto_categories, url=args.segment_url,
+                science_flags=dict(f.split("=", 1) for f in args.science_flag))
+            os.makedirs(args.out, exist_ok=True)
+            write_segments(sorted(vetoes), os.path.join(args.out, "excluded_segments.txt"))
         files = write_pygrb_overrides(cfg, args.out, offsource_factor=args.offsource_factor,
                                       base_config=args.base_config,
                                       event_template=args.event_template,
                                       bank_path=args.bank_path,
                                       extra_overrides=args.extra_override,
-                                      vetoes=_read_segments(args.vetoes) if args.vetoes else ())
+                                      vetoes=vetoes)
         print(json.dumps({"n_subsegments": len(files), "out": args.out,
+                          "excluded_s": sum(b - a for a, b in vetoes),
                           "run_script": f"{args.out}/run_pygrb.sh"}, indent=2))
         return
     if args.cmd == "targeted":

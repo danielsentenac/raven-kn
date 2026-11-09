@@ -183,7 +183,10 @@ H1/L1/V1 matched filtering on O2 cleaned C02 frames over 4 bank splits, injectio
 page). Not yet submitted. Lessons: PyGRB aborts if the on-source contains vetoed time (a CAT2 H1 second
 444 s after the merger stopped the first attempt), so for long windows pass the vetoed intervals
 (`--vetoes FILE`, all detectors merged): sub-segments are then placed in the veto-free stretches
-(`veto_free_subsegments`, 1 s guard, pieces < 16 s dropped); the `--output` directory must exist before generation (`run_pygrb.sh` creates it).
+(`veto_free_subsegments`, 1 s guard, pieces < 16 s dropped), or let RAVEN-KN query them:
+`--veto-definer VDF.xml --veto-categories 1 2 --science-flag H1=H1:DMT-ANALYSIS_READY:1 ...` (gwpy +
+DQSegDB, `raven_kn.targeted.segments`; padding as in the veto definer; tested offline, and on the O2
+veto definer file at CIT — DQSegDB was unreachable on 2026-11-09); the `--output` directory must exist before generation (`run_pygrb.sh` creates it).
 
 ## Real-time listener (`raven_kn.listener`, `raven-kn listen`)
 
@@ -258,7 +261,7 @@ SN 2025ulz was classified as a type IIb supernova; the physical link is still de
 
 ## Not yet done
 
-- Compare the PyGRB result with the light search; fetch veto segments from DQSegDB automatically.
+- Compare the PyGRB result with the light search; live DQSegDB test of the veto query.
 - Off-source (non-slide) background and a coherent statistic in the light search.
 - Calibration of the model-systematic margin with cross-model injections (0.75 is fitted on two events).
 - ZTF forced photometry (IRSA ZFPS), GOTO, BlackGEM archive connectors; live test of the ATLAS connector.
