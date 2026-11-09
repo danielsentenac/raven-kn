@@ -143,11 +143,12 @@ def main(argv=None):
     ad.add_argument("--use-combined-skymap", action="store_true")
 
     h = sub.add_parser("host", help="host galaxy, redshift and redshift-independent distance "
-                                    "(NED, then GLADE+; NED-D for nearby hosts)")
+                                    "(NED, then GLADE+, then DES Y6; NED-D for nearby hosts)")
     h.add_argument("candidate")
     h.add_argument("--max-offset-kpc", type=float, default=50.0)
     h.add_argument("--overwrite", action="store_true",
                    help="replace a spectroscopic redshift already in the candidate")
+    h.add_argument("--no-des", action="store_true", help="skip the DES Y6 Gold photo-z fallback")
     h.add_argument("--save", help="write the updated candidate JSON here")
 
     t = sub.add_parser("tns", help="TNS classification, redshift and spectra "
@@ -161,7 +162,8 @@ def main(argv=None):
         from .connection import TNSConnector, find_host, save_candidate
         kn = load_candidate(args.candidate)
         if args.cmd == "host":
-            res = find_host(kn, max_offset_kpc=args.max_offset_kpc, overwrite=args.overwrite)
+            res = find_host(kn, max_offset_kpc=args.max_offset_kpc, overwrite=args.overwrite,
+                            use_des=not args.no_des)
         else:
             res = TNSConnector(os.environ["TNS_BOT_ID"], os.environ["TNS_BOT_NAME"],
                                os.environ["TNS_API_KEY"]).add_to(kn, args.objname)

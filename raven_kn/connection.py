@@ -507,11 +507,24 @@ class HostGalaxy:
     z_err: Optional[float]           # measurement error (peculiar velocity added downstream)
     z_kind: str                      # spectroscopic | photometric | none
     d_l_mpc: Optional[float]
-    b_mag: Optional[float]
+    b_mag: Optional[float]           # magnitude used for P_cc (B for GLADE+, r for DES)
     sep_arcsec: float
     offset_kpc: Optional[float]
     p_chance: Optional[float]        # probability of a chance alignment (Bloom et al. 2002)
     catalog: str = "GLADE+"
+
+
+def p_chance(mag: Optional[float], r_arcsec: float, r_half_arcsec: float = 0.0) -> Optional[float]:
+    """Probability of a chance alignment with a galaxy at least as bright as
+    ``mag`` (Bloom et al. 2002, Berger 2010): P_cc = 1 - exp(-pi r_e^2
+    sigma(<= m)), galaxy counts of Hogg et al. (1997), effective radius
+    r_e = sqrt(r^2 + 4 r_half^2) (the host's extent counts when the
+    transient lies inside it)."""
+    if mag is None or not np.isfinite(mag):
+        return None
+    sigma = 10 ** (0.33 * (mag - 24) - 2.44) / (0.33 * np.log(10))   # arcsec^-2
+    r_e = max(np.hypot(r_arcsec, 2 * r_half_arcsec), 1.0)
+    return float(1 - np.exp(-np.pi * r_e ** 2 * sigma))
 
 
 class GladePlusConnector:
@@ -570,10 +583,7 @@ class GladePlusConnector:
 
     @staticmethod
     def p_chance(b_mag: Optional[float], r_arcsec: float) -> Optional[float]:
-        if b_mag is None or not np.isfinite(b_mag):
-            return None
-        sigma = 10 ** (0.33 * (b_mag - 24) - 2.44) / (0.33 * np.log(10))   # arcsec^-2
-        return float(1 - np.exp(-np.pi * max(r_arcsec, 1.0) ** 2 * sigma))
+        return p_chance(b_mag, r_arcsec)
 
     @classmethod
     def parse(cls, text: str) -> list[HostGalaxy]:
@@ -630,6 +640,103 @@ class GladePlusConnector:
                                    source=f"host {h.name} ({h.catalog}, offset {h.offset_kpc:.1f} kpc, "
                                           f"P_cc {h.p_chance:.2g})")
         return h
+
+
+class DESY6Connector:
+    """Host-galaxy photometric redshifts from DES Y6 Gold (Bechtol et al.
+    2025): 5,000 deg^2 of the southern sky (roughly dec -65..+5 deg, outside
+    the Galactic plane), ~450 million galaxies to i ~ 23.5, i.e. about 20x
+    more galaxies than GLADE+ there and complete far beyond the ~150 Mpc where
+    GLADE+ stops being so. Redshifts are DNF photo-z (De Vicente et al. 2016;
+    ``dnf_z``, error ``dnf_zsigma``): sigma_z ~ 0.02-0.05 for bright galaxies,
+    less reliable below z ~ 0.05 where the training spectra are few, so the
+    redshift is always flagged photometric. Against 109 NED spectroscopic
+    galaxies at 0.01 < z < 0.15 in 7 DES fields: NMAD(dz/(1+z)) = 0.013,
+    bias < 0.007, 1% outliers (|dz| > 0.05), but ``dnf_zsigma`` too small by
+    1.2-1.5 (rms pull); the error used is max(``ZERR_SCALE`` * dnf_zsigma,
+    ``ZERR_FLOOR``). Those galaxies are likely in DNF's training set, so real
+    hosts may do somewhat worse.
+
+    Queried on the NOIRLab Astro Data Lab TAP service (``des_dr2.y6_gold``,
+    no account needed; cone search via q3c). Selection: extended objects
+    (``ext_mash`` >= 2), de-reddened BDF r < ``max_mag`` (a dwarf host with
+    M_r = -16 is r ~ 22.5 at 500 Mpc), a valid photo-z. Hosts are ranked by
+    P_cc in r with the half-light radius (``flux_radius_r``, 0.263"/pixel).
+    An empty reply means the position is outside the footprint.
+    """
+
+    TAP = "https://datalab.noirlab.edu/tap/sync"
+    TABLE = "des_dr2.y6_gold"
+    PIXEL_ARCSEC = 0.263
+    ZERR_SCALE, ZERR_FLOOR = 1.5, 0.01
+
+    def __init__(self, session: Any = None, timeout: float = 120.0, max_mag: float = 23.5):
+        self._session = session
+        self.timeout = timeout
+        self.max_mag = max_mag
+
+    @property
+    def session(self):
+        if self._session is None:
+            import requests
+            self._session = requests.Session()
+        return self._session
+
+    def query(self, ra: float, dec: float, radius_arcsec: float, max_rows: int = 5000) -> str:
+        # Data Lab's ADQL parser rejects CONTAINS/POINT here; q3c works in this form
+        return (f"SELECT TOP {int(max_rows)} coadd_object_id, ra, dec, dnf_z, dnf_zsigma, "
+                f"bdf_mag_r_corrected, flux_radius_r, ext_mash, flags_gold, "
+                f"q3c_dist(ra, dec, {ra:.6f}, {dec:.6f}) * 3600 AS sep FROM {self.TABLE} "
+                f"WHERE 't' = q3c_radial_query(ra, dec, {ra:.6f}, {dec:.6f}, "
+                f"{radius_arcsec / 3600:.6f}) AND ext_mash >= 2 "
+                f"AND bdf_mag_r_corrected < {self.max_mag:.2f} AND dnf_z > 0 ORDER BY sep")
+
+    def fetch(self, ra: float, dec: float, radius_arcsec: float, max_rows: int = 5000) -> str:
+        r = self.session.post(self.TAP, data={"REQUEST": "doQuery", "LANG": "ADQL",
+                                              "FORMAT": "csv",
+                                              "QUERY": self.query(ra, dec, radius_arcsec, max_rows)},
+                              timeout=self.timeout)
+        r.raise_for_status()
+        if r.text.lstrip().startswith("<"):       # VOTable error document instead of CSV
+            import re
+            m = re.search(r'QUERY_STATUS" value="ERROR">([^<]*)', r.text)
+            raise ConnectionError("DES Y6 query failed: " + (m.group(1).strip() if m else r.text[:200]))
+        return r.text
+
+    @classmethod
+    def parse(cls, text: str) -> list[HostGalaxy]:
+        import csv
+        import io
+        from astropy.cosmology import Planck18
+        out = []
+        for row in csv.DictReader(io.StringIO(text)):
+            def num(k):
+                try:
+                    v = float(row.get(k) or "nan")
+                except ValueError:
+                    return None
+                return v if np.isfinite(v) else None
+            z, sep, mag = num("dnf_z"), num("sep") or 0.0, num("bdf_mag_r_corrected")
+            if z is None or not 0 < z < 2:
+                continue
+            r_half = (num("flux_radius_r") or 0.0) * cls.PIXEL_ARCSEC
+            d_a = Planck18.angular_diameter_distance(z).to("kpc").value
+            z_err = max(cls.ZERR_SCALE * (num("dnf_zsigma") or 0.0), cls.ZERR_FLOOR)
+            out.append(HostGalaxy(f"DES Y6 {row['coadd_object_id']}", num("ra"), num("dec"), z,
+                                  z_err, "photometric",
+                                  float(Planck18.luminosity_distance(z).to("Mpc").value), mag, sep,
+                                  float(np.radians(sep / 3600) * d_a), p_chance(mag, sep, r_half),
+                                  catalog="DES Y6"))
+        return out
+
+    def hosts(self, ra: float, dec: float, radius_arcsec: float = 300.0,
+              max_offset_kpc: float = 50.0) -> list[HostGalaxy]:
+        """Galaxies within ``max_offset_kpc`` (at their photo-z), most
+        probable host (lowest P_cc) first."""
+        gals = [g for g in self.parse(self.fetch(ra, dec, radius_arcsec))
+                if g.offset_kpc <= max_offset_kpc]
+        return sorted(gals, key=lambda g: (g.p_chance if g.p_chance is not None else 1.0,
+                                           g.offset_kpc))
 
 
 class NEDConnector:
@@ -818,7 +925,9 @@ class TNSConnector:
 
 
 def find_host(kn: KNCandidate, ned: Optional[NEDConnector] = None,
-              glade: Optional[GladePlusConnector] = None, max_offset_kpc: float = 50.0,
+              glade: Optional[GladePlusConnector] = None,
+              des: Optional["DESY6Connector"] = None, use_des: bool = True,
+              max_offset_kpc: float = 50.0,
               max_p_chance: float = 0.1, nedd_max_z: float = 0.03,
               overwrite: bool = False) -> dict[str, Any]:
     """Host galaxy, redshift and (if nearby) redshift-independent distance.
@@ -827,7 +936,8 @@ def find_host(kn: KNCandidate, ned: Optional[NEDConnector] = None,
     spectrum, TNS or a circular) is kept unless ``overwrite``; otherwise
     NED's nearest galaxy with a spectroscopic redshift within
     ``max_offset_kpc``; otherwise GLADE+ (lowest chance probability, may be
-    photometric). For a host closer than ``nedd_max_z`` with NED-D entries,
+    photometric); otherwise, in the southern DES footprint, DES Y6 Gold
+    (photometric, deeper: hosts beyond GLADE+'s ~150 Mpc completeness). For a host closer than ``nedd_max_z`` with NED-D entries,
     the best redshift-independent distance is added (peculiar velocities
     dominate the redshift error there). Each step is logged in the result.
     """
@@ -853,6 +963,16 @@ def find_host(kn: KNCandidate, ned: Optional[NEDConnector] = None,
             log["steps"].append(f"GLADE+: {len(gl)} galaxies within {max_offset_kpc} kpc")
         except Exception as e:
             log["steps"].append(f"GLADE+ failed: {type(e).__name__}")
+    if host is None and use_des:
+        try:
+            des = des or DESY6Connector()
+            dg = des.hosts(kn.ra, kn.dec, max_offset_kpc=max_offset_kpc)
+            if dg and (dg[0].p_chance is None or dg[0].p_chance <= max_p_chance):
+                host = dg[0]
+            log["steps"].append(f"DES Y6: {len(dg)} galaxies within {max_offset_kpc} kpc"
+                                if dg else "DES Y6: no galaxy (outside the footprint?)")
+        except Exception as e:
+            log["steps"].append(f"DES Y6 failed: {type(e).__name__}")
     if host is not None:
         log["host"] = asdict(host)
         if not have_spec and (kn.redshift is None or overwrite or host.z_kind == "spectroscopic"):

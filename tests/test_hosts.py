@@ -5,8 +5,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from raven_kn.connection import (GladePlusConnector, KNCandidate, NEDConnector, TNSConnector,
-                                 find_host, helio_to_cmb)
+from raven_kn.connection import (DESY6Connector, GladePlusConnector, KNCandidate, NEDConnector,
+                                 TNSConnector, find_host, helio_to_cmb, p_chance)
 from raven_kn.treatment.distance_inclination import posterior_for
 
 DATA = Path(__file__).parent / "data"
@@ -89,6 +89,56 @@ def test_glade_mirror_fallback_on_database_error():
     with pytest.raises(ConnectionError):
         GladePlusConnector(session=FakeSession({"cfa.harvard": bad, "idia": bad, "unistra": bad})
                            ).fetch(0, 0, 10)
+
+
+ESO243 = (17.6154 + 8 / 3600 / 0.693, -46.0742)     # 8" east of ESO 243-49 (z_spec 0.0224)
+EMPTY_NED = "prefname,prefphytype,ra,dec,z,zunc,zflag,n_dist,sep\n"
+
+
+def des_session():
+    return FakeSession({"datalab": Resp((DATA / "desy6_eso243-49.csv").read_text())})
+
+
+def test_desy6_host_photoz():
+    des = DESY6Connector(session=des_session())
+    hosts = des.hosts(*ESO243)
+    h = hosts[0]
+    assert h.catalog == "DES Y6" and h.z_kind == "photometric"
+    assert h.z == pytest.approx(0.0224, abs=0.005) and h.z_err >= 0.01
+    assert h.sep_arcsec < 9 and h.offset_kpc < 5 and h.p_chance < 1e-2
+    assert all(g.offset_kpc <= 50 for g in hosts)
+    q = des.session.calls[0][1]["data"]["QUERY"]
+    assert "q3c_radial_query" in q and "des_dr2.y6_gold" in q and "ext_mash >= 2" in q
+
+
+def test_desy6_error_document_raises():
+    err = Resp('<?xml version="1.0"?><VOTABLE><RESOURCE><INFO name="QUERY_STATUS" '
+               'value="ERROR">ParseException</INFO></RESOURCE></VOTABLE>')
+    with pytest.raises(ConnectionError, match="ParseException"):
+        DESY6Connector(session=FakeSession({"datalab": err})).fetch(0, 0, 10)
+
+
+def test_find_host_falls_back_to_des():
+    """No NED or GLADE+ host: DES Y6 photo-z; outside the footprint: nothing."""
+    ned = NEDConnector(session=FakeSession({"tap/sync": Resp(EMPTY_NED)}))
+    glade = GladePlusConnector(session=FakeSession({"asu-tsv": Resp("#\n")}))
+    kn = KNCandidate("x", *ESO243)
+    log = find_host(kn, ned=ned, glade=glade, des=DESY6Connector(session=des_session()))
+    assert kn.redshift.kind == "photometric" and "DES Y6" in kn.redshift.source
+    assert any(s.startswith("DES Y6:") for s in log["steps"])
+    kn2 = KNCandidate("y", 237.9757, 30.9023)
+    log2 = find_host(kn2, ned=ned, glade=glade,
+                     des=DESY6Connector(session=FakeSession({"datalab": Resp("ra\n")})))
+    assert kn2.redshift is None and "outside the footprint" in " ".join(log2["steps"])
+    kn3 = KNCandidate("z", *ESO243)
+    find_host(kn3, ned=ned, glade=glade, use_des=False)
+    assert kn3.redshift is None
+
+
+def test_p_chance_half_light_radius():
+    assert p_chance(14.0, 7.5, 20.0) > p_chance(14.0, 7.5)
+    assert GladePlusConnector.p_chance(18.0, 5.0) == p_chance(18.0, 5.0)
+    assert p_chance(None, 5.0) is None
 
 
 def test_spectroscopic_redshift_kept():

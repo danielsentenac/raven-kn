@@ -12,7 +12,7 @@ candidates (joint FAR) and/or a targeted search of archived strain.**
 
 | RAVEN-KN | Role | RAVEN analogue |
 |---|---|---|
-| `raven_kn.connection` | `KNCandidate` (photometry incl. non-detections, redshift, distance, viewing angle, GRB, light-curve-fit samples, spectroscopic class); connectors: Fink, ALeRCE, ATLAS, GraceDB, GCN JSON, NED/NED-D, GLADE+, TNS, local JSON | `gracedb_events.ExtTrig` / `SE` |
+| `raven_kn.connection` | `KNCandidate` (photometry incl. non-detections, redshift, distance, viewing angle, GRB, light-curve-fit samples, spectroscopic class); connectors: Fink, ALeRCE, ATLAS, GraceDB, GCN JSON, NED/NED-D, GLADE+, DES Y6, TNS, local JSON | `gracedb_events.ExtTrig` / `SE` |
 | `raven_kn.treatment.t0` | merger-time window [tl, th]: GRB (seconds) > light-curve-fit t0 posterior ∩ photometric bracket (last *constraining* non-detection → first detection) | fixed `tl, th` |
 | `raven_kn.treatment.lightcurve_fit` | NMMA wrapper: candidate → NMMA data/prior files and `lightcurve-analysis` command → posterior read back as `t0_samples_gps` (+ D_L, ι) | — (new) |
 | `raven_kn.treatment.distance_inclination` | joint (D_L, cos ι) posterior from spectroscopic redshift, host distance, VLBI/afterglow viewing angle, prompt GRB, light-curve-fit samples; search priors | — (new) |
@@ -186,11 +186,13 @@ host galaxy's spectrum. The connection module now fetches it:
 | **NED** (TAP `NEDTAP.objdir`) | galaxies with redshift around the candidate: SDSS, DESI, 6dF, literature; spectroscopic/photometric flag | public |
 | **NED-D** | redshift-independent distances of the host (SBF, TRGB, Cepheids, SNe Ia, FP, Tully-Fisher); GW-based entries are dropped | public |
 | **GLADE+** (VizieR VII/291, mirrors with fallback) | LVK's galaxy catalogue: CMB-frame z (spec. or photometric), B/K magnitudes, chance-coincidence probability | public |
+| **DES Y6 Gold** (NOIRLab Data Lab TAP `des_dr2.y6_gold`) | southern 5,000 deg², ~450 M galaxies (20× GLADE+ there, complete well beyond 150 Mpc): DNF photo-z, r magnitude, half-light radius | public |
 | **TNS** | spectroscopic classification (e.g. "Kilonova"), transient/host redshift, list of spectra (ASCII/FITS) | bot ID + API key |
 
 `find_host` keeps a spectroscopic redshift already in the candidate (from TNS, a GCN circular or a spectrum);
 otherwise takes NED's nearest galaxy with a spectroscopic redshift within 50 kpc projected, else GLADE+ (lowest
-chance-coincidence probability, may be photometric); for a host at z < 0.03 it adds the best NED-D distance.
+chance-coincidence probability, may be photometric), else DES Y6 Gold in its footprint (photometric); for a
+host at z < 0.03 it adds the best NED-D distance.
 Redshifts are converted to the CMB frame; the 300 km/s peculiar-velocity error is added downstream.
 
 | event | result | truth |
@@ -199,7 +201,12 @@ Redshifts are converted to the CMB frame; the 300 km/s peculiar-velocity error i
 | GRB 211211A | WISEA J140910.48+275320.6 (NED), z 0.0763 spec. | z 0.0763 (not in GLADE+) |
 | AT2025ulz | GLADE+ 15877920, 0.9″, **photometric** z 0.102 ± 0.036 (NED has no host redshift yet) | DESI/Keck z 0.0848 |
 
-So: NED first (spectroscopic completeness beyond 100 Mpc), GLADE+ as a fallback; for a new event the
+DES Y6 DNF photo-z against 109 NED spectroscopic galaxies at 0.01 < z < 0.15 (7 DES fields): NMAD
+Δz/(1+z) = 0.013, bias < 0.007, 1% outliers; the catalogue's `dnf_zsigma` is 1.2–1.5× too small, so the error
+used is 1.5 × `dnf_zsigma` (floor 0.01). ESO 243-49 (z 0.0224), transient placed 8″ off: DES host at 7.5″,
+photo-z 0.022 ± 0.013, P_cc 8e-4 (P_cc in r with the half-light radius, Bloom et al. 2002).
+
+So: NED first (spectroscopic completeness beyond 100 Mpc), GLADE+, then DES Y6 as fallbacks; for a new event the
 spectroscopic host redshift typically arrives hours to days later through TNS or GCN circulars, and replaces
 a photometric one.
 
