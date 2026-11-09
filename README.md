@@ -211,7 +211,12 @@ The t0 window depends most on the latest deep image of the position before the f
 - `ATLASForcedPhotometryConnector` — ATLAS forced photometry (cyan/orange, 5σ limits) via the
   fallingstar-data.com queue API; needs a personal token (written from the API guide, tested on mocked
   responses only);
-- `FinkConnector` (ZTF API; LSST endpoint to configure);
+- `FinkConnector` (ZTF API);
+- `FinkLSSTConnector` — Rubin light curves from the Fink/LSST API (`api.lsst.fink-portal.org`, checked live
+  2026-11): alert sources and forced photometry (DiaForcedSource) in nJy, converted to AB magnitudes
+  (S/N >= 5) or 5σ limits, TAI -> UTC; `conesearch` for Rubin objects at a known position. Fink's forced
+  photometry currently covers only the visits of the object's own detections, so pre-discovery Rubin limits
+  are not yet available there. NMMA fits of Rubin data need the `lsst*` filter models (not downloaded here);
 - `last_nondetection(kn, depth_mag)` — latest (optionally deep enough) limit before the first detection,
   over all merged surveys.
 
@@ -330,7 +335,6 @@ SN 2025ulz was classified as a type IIb supernova; the physical link is still de
   classification lowers the joint FAR by 72x.
 - **Distance overlap** referenced to the network horizon; meaningful only for
   GW maps with distance layers.
-- Fink LSST endpoint/schema not checked; ZTF API column names used.
 
 ## Not yet done
 

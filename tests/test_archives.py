@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+import numpy as np
 import pytest
 
 from raven_kn.connection import (ALeRCEConnector, ATLASForcedPhotometryConnector, KNCandidate,
@@ -69,3 +70,35 @@ def test_last_nondetection_depth():
                                             PhotometryPoint(9.0, "r", 21.0, upper_limit=True)])
     assert last_nondetection(kn).mjd == 9.5
     assert last_nondetection(kn, depth_mag=20.0).mjd == 9.0
+
+
+def test_fink_lsst_flux_to_mag_and_limits():
+    import json
+    from pathlib import Path
+    from raven_kn.connection import FinkLSSTConnector
+    d = Path(__file__).parent / "data"
+    src = json.loads((d / "fink_lsst_sources_170591538829590749.json").read_text())
+    fp = json.loads((d / "fink_lsst_fp_170591538829590749.json").read_text())
+
+    class S:
+        def get(self, url, params=None, timeout=None):
+            class R:
+                def raise_for_status(self):
+                    pass
+
+                def json(self):
+                    return src if url.endswith("sources") else fp
+            return R()
+    c = FinkLSSTConnector(session=S())
+    kn = c.candidate("170591538829590749")
+    assert kn.ra == pytest.approx(src[0]["r:ra"]) and kn.photometry
+    # one point per visit (forced photometry kept), sorted, TAI -> UTC
+    assert len(kn.photometry) == len({r["r:visit"] for r in src} | {r["r:visit"] for r in fp})
+    first = min(fp, key=lambda r: r["r:midpointMjdTai"])
+    p0 = next(p for p in kn.photometry if abs(p.mjd - (first["r:midpointMjdTai"] - 37 / 86400)) < 1e-6)
+    assert p0.mjd == pytest.approx(first["r:midpointMjdTai"] - 37 / 86400)
+    assert p0.mag == pytest.approx(31.4 - 2.5 * np.log10(first["r:psfFlux"]))
+    assert all(p.survey == "LSST" for p in kn.photometry)
+    # a faint forced point becomes a 5-sigma limit
+    pt = c._point({"r:midpointMjdTai": 61000.0, "r:band": "g", "r:psfFlux": 300.0, "r:psfFluxErr": 200.0})
+    assert pt.upper_limit and pt.mag == pytest.approx(31.4 - 2.5 * np.log10(1000.0))

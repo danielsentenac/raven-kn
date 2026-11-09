@@ -193,10 +193,8 @@ class FinkConnector:
     """Fetch light curves (with upper limits) from the Fink broker REST API.
 
     The default endpoint and column names are those of the ZTF Fink API
-    (``/api/v1/objects`` with ``withupperlim``). The LSST Fink API uses a
-    different base URL and Rubin alert schema: pass ``base_url`` and a
-    ``parser`` adapted to it; check the schema against the live service
-    before relying on it.
+    (``/api/v1/objects`` with ``withupperlim``). For Rubin use
+    :class:`FinkLSSTConnector` (different API, fluxes, forced photometry).
     """
 
     ZTF_BANDS = {1: "g", 2: "r", 3: "i"}
@@ -254,6 +252,96 @@ class FinkConnector:
         """Add this survey's photometry (and pre-discovery limits) to a
         candidate found elsewhere: the multi-survey last-non-detection step."""
         kn.add_photometry(self.parser(self.fetch_rows(object_id)))
+        return kn
+
+
+class FinkLSSTConnector:
+    """Rubin (LSST) light curves from the Fink/LSST API
+    (``https://api.lsst.fink-portal.org``, checked 2026-11).
+
+    Rubin alerts carry difference-image fluxes (``psfFlux``, nJy), not
+    magnitudes, and no upper limits: non-detections come from forced
+    photometry (``/api/v1/fp``, DiaForcedSource) at the object's position.
+    Here a measurement is a detection if flux/err >= ``snr_det`` (5), else a
+    non-detection with limit m = 31.4 - 2.5 log10(5 x err). Times are TAI
+    (``midpointMjdTai``) and are converted to UTC (TAI - 37 s). When both a
+    source and a forced measurement exist for a visit, the forced one is kept.
+
+    As of 2026-11, Fink's forced photometry covers the visits of the
+    object's own detections, not the months before its first detection:
+    pre-discovery limits for the t0 bracket may still have to come from
+    another archive (Rubin precovery, other surveys).
+    """
+
+    ZP_NJY = 31.4          # AB magnitude of 1 nJy
+    TAI_UTC_S = 37.0
+    COLUMNS = "r:midpointMjdTai,r:band,r:psfFlux,r:psfFluxErr,r:ra,r:dec,r:diaObjectId,r:visit"
+
+    def __init__(self, base_url: str = "https://api.lsst.fink-portal.org", session: Any = None,
+                 snr_det: float = 5.0):
+        self.base_url = base_url.rstrip("/")
+        self._session = session
+        self.snr_det = snr_det
+
+    @property
+    def session(self):
+        if self._session is None:
+            import requests
+            self._session = requests.Session()
+        return self._session
+
+    def _get(self, endpoint: str, **params) -> list[dict[str, Any]]:
+        r = self.session.get(f"{self.base_url}/api/v1/{endpoint}",
+                             params={**params, "output-format": "json"}, timeout=120)
+        r.raise_for_status()
+        return r.json()
+
+    def fetch_sources(self, dia_object_id: str | int) -> list[dict[str, Any]]:
+        return self._get("sources", diaObjectId=str(dia_object_id), columns=self.COLUMNS)
+
+    def fetch_forced(self, dia_object_id: str | int) -> list[dict[str, Any]]:
+        return self._get("fp", diaObjectId=str(dia_object_id))
+
+    def conesearch(self, ra: float, dec: float, radius_arcsec: float = 2.0) -> list[str]:
+        """diaObjectIds of Rubin objects within ``radius_arcsec``."""
+        rows = self._get("conesearch", ra=ra, dec=dec, radius=radius_arcsec,
+                         columns="r:diaObjectId")
+        return sorted({str(r["r:diaObjectId"]) for r in rows})
+
+    def _point(self, r: dict[str, Any]) -> Optional[PhotometryPoint]:
+        f, e = r.get("r:psfFlux"), r.get("r:psfFluxErr")
+        if f is None or e is None or not e > 0:
+            return None
+        mjd = float(r["r:midpointMjdTai"]) - self.TAI_UTC_S / 86400
+        band = str(r.get("r:band", "?"))
+        if f > 0 and f / e >= self.snr_det:
+            return PhotometryPoint(mjd, band, float(self.ZP_NJY - 2.5 * np.log10(f)),
+                                   float(2.5 / np.log(10) * e / f), survey="LSST")
+        return PhotometryPoint(mjd, band, float(self.ZP_NJY - 2.5 * np.log10(self.snr_det * e)),
+                               upper_limit=True, survey="LSST")
+
+    def parse(self, sources: list[dict[str, Any]], forced: list[dict[str, Any]]) -> list[PhotometryPoint]:
+        by_visit: dict = {}
+        for rows in (sources, forced):           # forced photometry overrides the alert source
+            for r in rows:
+                p = self._point(r)
+                if p is not None:
+                    key = r.get("r:visit") or (round(p.mjd, 5), p.band)
+                    by_visit[key] = p
+        return sorted(by_visit.values(), key=lambda p: p.mjd)
+
+    def candidate(self, dia_object_id: str | int, **extra) -> KNCandidate:
+        src = self.fetch_sources(dia_object_id)
+        if not src:
+            raise LookupError(f"Fink/LSST: no source for {dia_object_id}")
+        return KNCandidate(name=f"LSST-{dia_object_id}",
+                           ra=float(np.median([r["r:ra"] for r in src])),
+                           dec=float(np.median([r["r:dec"] for r in src])), source="Fink/LSST",
+                           photometry=self.parse(src, self.fetch_forced(dia_object_id)), **extra)
+
+    def add_to(self, kn: KNCandidate, dia_object_id: str | int) -> KNCandidate:
+        kn.add_photometry(self.parse(self.fetch_sources(dia_object_id),
+                                     self.fetch_forced(dia_object_id)))
         return kn
 
 
