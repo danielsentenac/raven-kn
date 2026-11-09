@@ -57,13 +57,45 @@ def write_bank_hdf(mchirps: Sequence[float], path: str | Path, f_lower: float) -
     return path
 
 
+def veto_free_subsegments(gps_start: float, gps_end: float, max_len: float,
+                          vetoes: Sequence[tuple[float, float]] = (), min_len: float = 16.0,
+                          guard_s: float = 1.0) -> list[tuple[float, float]]:
+    """Split [gps_start, gps_end] into on-source sub-segments of at most
+    ``max_len`` seconds that contain no vetoed time (PyGRB aborts otherwise).
+
+    ``vetoes``: (start, end) GPS intervals, all detectors merged (e.g. CAT1/
+    CAT2 from the veto definer via DQSegDB). Each is widened by ``guard_s``;
+    the veto-free stretches are cut into equal pieces of <= ``max_len``;
+    pieces shorter than ``min_len`` are dropped (their time is lost to the
+    search and should be reported).
+    """
+    vs = sorted((max(a - guard_s, gps_start), min(b + guard_s, gps_end))
+                for a, b in vetoes if b > gps_start and a < gps_end)
+    free, t = [], gps_start
+    for a, b in vs:
+        if a > t:
+            free.append((t, a))
+        t = max(t, b)
+    if t < gps_end:
+        free.append((t, gps_end))
+    out = []
+    for a, b in free:
+        if b - a < min_len:
+            continue
+        n = int(math.ceil((b - a) / max_len))
+        e = np.linspace(a, b, n + 1)
+        out += [(float(x), float(y)) for x, y in zip(e[:-1], e[1:])]
+    return out
+
+
 def write_pygrb_overrides(cfg: TargetedSearchConfig, out_dir: str | Path,
                           bank: Optional[Sequence[float]] = None,
                           offsource_factor: float = 6.0,
                           base_config: str | Sequence[str] = "pygrb_base.ini",
                           event_template: Optional[str | Path] = None,
                           bank_path: Optional[str] = None,
-                          extra_overrides: Sequence[str] = ()) -> list[Path]:
+                          extra_overrides: Sequence[str] = (),
+                          vetoes: Sequence[tuple[float, float]] = ()) -> list[Path]:
     """Per sub-segment of the t0 window: an event ini file and the
     ``pycbc_make_offline_grb_workflow`` command, in ``run_pygrb.sh``; one
     shared HDF bank.
@@ -81,7 +113,10 @@ def write_pygrb_overrides(cfg: TargetedSearchConfig, out_dir: str | Path,
     For a sub-segment of length L centred on T: trigger-time = T,
     on-before = on-after = L/2, off-source between 4 x L/2 and
     ``offsource_factor`` x L. ``bank_path``: path of the bank as seen where
-    the workflow runs (default: local path).
+    the workflow runs (default: local path). ``vetoes``: vetoed GPS
+    intervals; sub-segment edges are placed so that no on-source contains
+    them (:func:`veto_free_subsegments`). Integer GPS edges are used, so
+    each on-source is shrunk inward to whole seconds.
     """
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
@@ -90,13 +125,20 @@ def write_pygrb_overrides(cfg: TargetedSearchConfig, out_dir: str | Path,
     bank_file = write_bank_hdf(bank, out / f"{cfg.label}_bank.hdf", cfg.f_low)
     bank_ref = bank_path or str(bank_file.resolve())
     base = [base_config] if isinstance(base_config, str) else list(base_config)
-    edges = np.arange(cfg.gps_start, cfg.gps_end, cfg.subsegment_s).tolist() + [cfg.gps_end]
+    if vetoes:
+        pieces = veto_free_subsegments(cfg.gps_start, cfg.gps_end, cfg.subsegment_s, vetoes)
+    else:
+        edges = np.arange(cfg.gps_start, cfg.gps_end, cfg.subsegment_s).tolist() + [cfg.gps_end]
+        pieces = [(a, b) for a, b in zip(edges[:-1], edges[1:]) if b - a >= 16]
     files, cmds = [], []
-    for k, (a, b) in enumerate(zip(edges[:-1], edges[1:])):
-        if b - a < 16:
-            continue
-        t = int(round(0.5 * (a + b)))
-        half = int(math.ceil(0.5 * (b - a)))
+    for k, (a, b) in enumerate(pieces):
+        if vetoes:      # stay strictly inside the veto-free piece
+            a, b = math.ceil(a), math.floor(b)
+            half = int((b - a) // 2)
+            t = a + half
+        else:
+            t = int(round(0.5 * (a + b)))
+            half = int(math.ceil(0.5 * (b - a)))
         span = int(math.ceil(offsource_factor * 2 * half))
         name = f"{cfg.label}_seg{k:03d}"
         f = out / f"{name}.ini"

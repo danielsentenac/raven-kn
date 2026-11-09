@@ -164,3 +164,25 @@ def test_pygrb_overrides_and_bank(tmp_path):
     m = [x for x in run.split() if x.startswith("workflow-tmpltbank:tmpltbank-pregenerated-bank:")][0]
     bank = TemplateBank(m.split(":", 2)[2])
     assert len(bank.table) > 3 and np.allclose(bank.table.mass1, bank.table.mass2)
+
+
+def test_veto_free_subsegments(tmp_path):
+    from raven_kn.targeted.pygrb import veto_free_subsegments, write_pygrb_overrides
+    v = [(1187009326, 1187009328), (1187009900, 1187009905)]
+    segs = veto_free_subsegments(1187008000, 1187010048, 1024, v)
+    assert all(b - a <= 1024 for a, b in segs)
+    for a, b in segs:                      # no on-source overlaps a (guarded) veto
+        assert all(b <= va - 1 or a >= vb + 1 for va, vb in v)
+    assert sum(b - a for a, b in segs) == pytest.approx(2048 - 2 - 5 - 4)
+    cfg = TargetedSearchConfig(197.45, -23.38, 1187008000.0, 1187010048.0, mchirp_min=1.19,
+                               mchirp_max=1.21, f_low=30.0, subsegment_s=1024, label="GW170817")
+    files = write_pygrb_overrides(cfg, tmp_path, bank=[1.19, 1.2, 1.21], vetoes=v)
+    run = (tmp_path / "run_pygrb.sh").read_text()
+    import configparser
+    for f in files:
+        cp = configparser.ConfigParser(interpolation=None)
+        cp.read(f)
+        t = int(cp["workflow"]["trigger-time"])
+        name = cp["workflow"]["trigger-name"]
+        half = int(run.split(f"--workflow-name {name}")[1].split("on-before:")[1].split()[0])
+        assert all(t + half <= va or t - half >= vb for va, vb in v)

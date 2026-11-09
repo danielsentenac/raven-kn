@@ -19,6 +19,7 @@ candidates (joint FAR) and/or a targeted search of archived strain.**
 | `raven_kn.treatment.detectability` | expected network SNR over the window (LAL antenna patterns at the candidate position, Earth rotation, duty cycle/segments); decision: trigger or not | — (new) |
 | `raven_kn.treatment.far` | joint FARs: `(th−tl) R_KN FAR_GW` / sky overlap / **distance overlap**; targeted-search p-value, sub-segment trials, RAVEN "SubGRBTargeted" product formula | `search.coinc_far` |
 | `raven_kn.skymap` | kilonova 2D/3D HEALPix map (PROB, DISTMU, DISTSIGMA, DISTNORM), GW map reader, sky overlap (RAVEN's own function if installed), distance overlap | `search.skymap_overlap_integral` |
+| `raven_kn.listener` | GCN Kafka listener: `igwn.gwalert` (multi-order sky map decoded in the alert) and unified-schema GRB notices matched against a store of kilonova candidates, both ways in time | `listen` / `handle_*` |
 | `raven_kn.search` | `query`, `search`, `coinc_far`, `calc_signif_gracedb` (GraceDB logs `RAVEN-KN:`, tag `ext_coinc`, file `coincidence_far_kn.json`), `assess` | `search.*` |
 
 `KNCandidate.to_raven_event_dict()` gives a GraceDB-External-event-shaped dict
@@ -180,8 +181,32 @@ IGWN conda PyCBC 2.8.1; the CVMFS RHEL-8 PyCBC virtualenv does not run on CIT's 
 on-source window around GW170817 with the RAVEN-KN bank generates a complete workflow (29 jobs: coherent
 H1/L1/V1 matched filtering on O2 cleaned C02 frames over 4 bank splits, injections, clustering, results
 page). Not yet submitted. Lessons: PyGRB aborts if the on-source contains vetoed time (a CAT2 H1 second
-444 s after the merger stopped the first attempt), so sub-segment edges must avoid veto segments for long
-windows; the `--output` directory must exist before generation (`run_pygrb.sh` creates it).
+444 s after the merger stopped the first attempt), so for long windows pass the vetoed intervals
+(`--vetoes FILE`, all detectors merged): sub-segments are then placed in the veto-free stretches
+(`veto_free_subsegments`, 1 s guard, pieces < 16 s dropped); the `--output` directory must exist before generation (`run_pygrb.sh` creates it).
+
+## Real-time listener (`raven_kn.listener`, `raven-kn listen`)
+
+```
+export GCN_CLIENT_ID=... GCN_CLIENT_SECRET=...          # from gcn.nasa.gov; pip install gcn-kafka
+raven-kn listen --store kn_store/                        # igwn.gwalert + GRB topics
+raven-kn add candidate.json --store kn_store/            # a new or updated kilonova candidate
+```
+
+- **GW alert** (`igwn.gwalert`): the base64 multi-order FITS map is decoded (UNIQ → order, pixel;
+  flattened to NESTED nside 512 for the overlaps, exact row looked up at the candidate). Every stored
+  candidate whose t0 window contains the merger time gets the joint FAR (temporal / sky / distance), written
+  to `kn_store/coinc/<superevent>__<candidate>.json` with the GW conditional-distance parameters at the
+  candidate. Updates replace the stored alert (an alert without a map keeps the previous map); retractions
+  delete it.
+- **GRB notice** (GCN unified JSON: `trigger_time`, `ra`, `dec`, `ra_dec_error`; default topics Swift-BAT
+  GUANO, Einstein Probe WXT, SVOM ECLAIRs): attached to candidates inside the error circle whose first
+  detection follows within 3 days; their window becomes RAVEN's [−5, +1] s. Fermi-GBM classic VOEvent
+  notices are not parsed yet.
+- **Late candidate**: `raven-kn add` matches it against GW alerts of the last 14 days.
+
+Nothing is uploaded to GraceDB from the listener (use `calc_signif_gracedb` once results are vetted).
+Tested on synthetic alerts only (`tests/test_listener.py`); not yet run against the live Kafka stream.
 
 ## Real case: S250818k / AT2025ulz
 
@@ -233,11 +258,11 @@ SN 2025ulz was classified as a type IIb supernova; the physical link is still de
 
 ## Not yet done
 
-- Submit the generated PyGRB workflow on CIT and compare with the light search; choose sub-segment edges that avoid veto segments.
+- Compare the PyGRB result with the light search; fetch veto segments from DQSegDB automatically.
 - Off-source (non-slide) background and a coherent statistic in the light search.
 - Calibration of the model-systematic margin with cross-model injections (0.75 is fitted on two events).
 - ZTF forced photometry (IRSA ZFPS), GOTO, BlackGEM archive connectors; live test of the ATLAS connector.
-- GCN Kafka listener and live GraceDB/segment (DQSegDB) queries.
+- Listener: run on the live GCN stream (needs GCN credentials); Fermi-GBM VOEvent notices; live GraceDB/segment (DQSegDB) queries.
 
 ## License and credits
 

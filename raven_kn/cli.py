@@ -20,6 +20,17 @@ def _ranges(s: str | None) -> dict[str, float]:
     return {k: float(v) for k, v in (kv.split("=") for kv in s.split(","))}
 
 
+def _read_segments(path: str) -> list[tuple[float, float]]:
+    out = []
+    for line in open(path):
+        f = line.split("#")[0].split()
+        if len(f) >= 4:
+            f = f[1:3]
+        if len(f) >= 2:
+            out.append((float(f[0]), float(f[1])))
+    return out
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="raven-kn")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -101,8 +112,37 @@ def main(argv=None):
     y.add_argument("--bank-path", help="bank path as seen where the workflow runs")
     y.add_argument("--extra-override", nargs="*", default=[],
                    help="further section:option:value overrides")
+    y.add_argument("--vetoes", help="text file of vetoed GPS intervals 'start end' (all detectors; "
+                                    "segwizard columns 'id start end duration' also read); "
+                                    "sub-segments are placed between them")
+
+    li = sub.add_parser("listen", help="GCN Kafka listener: GW alerts and GRB notices vs stored "
+                                       "kilonova candidates (credentials: $GCN_CLIENT_ID, "
+                                       "$GCN_CLIENT_SECRET)")
+    li.add_argument("--store", required=True, help="candidate/alert/result directory")
+    li.add_argument("--grb-topics", nargs="*", default=None)
+    li.add_argument("--domain", default=None, help="e.g. test.gcn.nasa.gov")
+
+    ad = sub.add_parser("add", help="add a candidate to the listener store and match it against "
+                                    "GW alerts already received")
+    ad.add_argument("candidate")
+    ad.add_argument("--store", required=True)
 
     args = p.parse_args(argv)
+    if args.cmd in ("listen", "add"):
+        import logging
+        from .listener import GRB_TOPICS, CandidateStore, add_candidate, listen
+        store = CandidateStore(args.store)
+        if args.cmd == "add":
+            print(json.dumps(add_candidate(load_candidate(args.candidate), store),
+                             indent=2, default=float))
+            return
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+        listen(store, os.environ["GCN_CLIENT_ID"], os.environ["GCN_CLIENT_SECRET"],
+               grb_topics=args.grb_topics if args.grb_topics is not None else GRB_TOPICS,
+               domain=args.domain,
+               on_result=lambda r: print(json.dumps(r, default=float), flush=True))
+        return
     if args.cmd == "pygrb":
         from .targeted.pygrb import write_pygrb_overrides
         from .targeted.search import TargetedSearchConfig
@@ -112,7 +152,8 @@ def main(argv=None):
                                       base_config=args.base_config,
                                       event_template=args.event_template,
                                       bank_path=args.bank_path,
-                                      extra_overrides=args.extra_override)
+                                      extra_overrides=args.extra_override,
+                                      vetoes=_read_segments(args.vetoes) if args.vetoes else ())
         print(json.dumps({"n_subsegments": len(files), "out": args.out,
                           "run_script": f"{args.out}/run_pygrb.sh"}, indent=2))
         return
