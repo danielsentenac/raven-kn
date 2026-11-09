@@ -13,7 +13,7 @@ T_INJ = 1000000500.0          # geocentric merger time
 FS = 2048
 
 
-def synthetic_fetcher(inject: bool, distance_mpc: float = 120.0, seed: int = 1):
+def synthetic_fetcher(inject: bool, distance_mpc: float = 120.0, seed: int = 1, flip=()):
     import pycbc.noise
     import pycbc.psd
     from pycbc.detector import Detector
@@ -28,7 +28,7 @@ def synthetic_fetcher(inject: bool, distance_mpc: float = 120.0, seed: int = 1):
         n = int((end - start) * FS)
         df = 1.0 / 16
         psd = pycbc.psd.aLIGOZeroDetHighPower(int(FS / 2 / df) + 1, df, 10.0)
-        s = seed + (0 if ifo == "H1" else 7)
+        s = seed + {"H1": 0, "L1": 7}.get(ifo, 13)
         ts = pycbc.noise.noise_from_psd(n, 1.0 / FS, psd, seed=s)
         ts.start_time = start
         if inject:
@@ -37,7 +37,9 @@ def synthetic_fetcher(inject: bool, distance_mpc: float = 120.0, seed: int = 1):
                                      f_lower=35.0, distance=distance_mpc)
             hp.start_time += T_INJ
             hc.start_time += T_INJ
-            sig = Detector(ifo).project_wave(hp, hc, RA, DEC, PSI)
+            sig = Detector(ifo).project_wave(hp, hc, np.radians(RA), np.radians(DEC), PSI)
+            if ifo in flip:                    # not a signal from that direction
+                sig *= -1
             i0 = int(round((float(sig.start_time) - start) * FS))
             a, h = ts.numpy(), sig.numpy()
             lo, hi = max(i0, 0), min(i0 + len(h), n)      # overlap only (no wrap-around)
@@ -125,6 +127,46 @@ def test_chisq_keeps_real_signal():
     # TaylorT4 signal vs TaylorF2 templates: a few % mismatch raises chi-square at SNR ~25
     # (excess ~ 2 x mismatch x SNR^2), so newSNR loses 10-20 %; GW170817 keeps L1 24.5/26.4
     assert rw.loudest_rho_net > 0.8 * raw.loudest_rho_net
+
+
+def _coh_cfg(**kw):
+    return TargetedSearchConfig(**{**_cfg().__dict__, "ifos": ("H1", "L1", "V1"),
+                                   "statistic": "coherent", **kw})
+
+
+def test_coherent_projector_and_null_cut():
+    from raven_kn.targeted.search import coherent_projector, null_cut
+    P2 = coherent_projector([1.0, 2.0], [0.3, -0.5], [0.6, 0.2])
+    assert np.allclose(P2, np.eye(2))                   # 2 detectors: no null stream
+    P3 = coherent_projector([1.0, 1.0, 0.5], [0.3, -0.5, 0.1], [0.6, 0.2, -0.7])
+    assert np.allclose(P3 @ P3, P3) and np.trace(P3) == pytest.approx(2)
+    assert list(null_cut(np.array([10.0, 10.0, 30.0]), np.array([5.0, 6.0, 7.0]))) == \
+        [False, True, False]                            # 30: threshold 5.25 + 0.2 * 10
+
+
+def test_coherent_recovers_injection():
+    s = run(_coh_cfg(), synthetic_fetcher(inject=True), progress=False).subsegments[0]
+    assert s.statistic == "coherent" and abs(s.loudest_gps - T_INJ) < 0.01
+    assert abs(s.loudest_mchirp - 1.2) < 0.005
+    assert s.loudest_rho_coh > 10 and s.loudest_rho_null < 3
+    assert s.loudest_rho_coh == pytest.approx(s.loudest_rho_network, rel=0.05)
+    assert s.p_value == pytest.approx(1 / (len(s.background) + 1))
+
+
+def test_coherent_null_stream_rejects_inconsistent_phases():
+    """V1's signal sign-flipped: loud in every detector, but no source at that
+    sky position gives those relative phases, so the null stream vetoes it."""
+    ok = run(_coh_cfg(), synthetic_fetcher(inject=True, distance_mpc=60), progress=False).subsegments[0]
+    bad = run(_coh_cfg(), synthetic_fetcher(inject=True, distance_mpc=60, flip=("V1",)),
+              progress=False).subsegments[0]
+    assert ok.loudest_rho_coh > 20 and ok.loudest_rho_null < 4
+    assert "failed the null cut" in bad.notes
+    assert bad.loudest_rho_net < 0.6 * ok.loudest_rho_net
+
+
+def test_coherent_noise_only():
+    s = run(_coh_cfg(), synthetic_fetcher(inject=False), progress=False).subsegments[0]
+    assert s.loudest_rho_net < 9 and s.p_value > 0.05
 
 
 def test_slide_shifts():

@@ -399,6 +399,124 @@ class ALeRCEConnector:
         return kn
 
 
+class ANTARESConnector:
+    """Light curves from the NOIRLab ANTARES broker (public REST API, no
+    token): ZTF alerts with detections (``ztf_candidate``) and non-detections
+    (``ztf_upper_limit``, the difference-image limit), the same content as
+    ALeRCE, so either broker can stand in for the other; ANTARES also ingests
+    LSST alerts (records whose id is not ``ztf_*`` are read from the generic
+    ``ant_mag``/``ant_maglim``/``ant_passband`` fields and labelled with
+    their id prefix).
+
+    Loci are found by cone search (``elasticsearch_query[locus_listing]``,
+    an Elasticsearch ``sky_distance`` filter), alerts listed per locus. The
+    server returns all alerts in one page but still gives a ``next`` link:
+    paging stops at ``meta.count``, duplicates are dropped by id.
+    Negative-difference detections (``isdiffpos`` f) are skipped. ZTF bands
+    come from ``ztf_fid`` (ANTARES' ``ant_passband`` says "R" for ZTF r).
+    """
+
+    API = "https://api.antares.noirlab.edu/v1"
+
+    def __init__(self, base_url: str = API, session: Any = None, timeout: float = 60.0):
+        self.base_url = base_url.rstrip("/")
+        self._session = session
+        self.timeout = timeout
+
+    @property
+    def session(self):
+        if self._session is None:
+            import requests
+            self._session = requests.Session()
+        return self._session
+
+    def _get(self, url: str, params: Optional[dict] = None) -> dict:
+        r = self.session.get(url, params=params, timeout=self.timeout)
+        r.raise_for_status()
+        return r.json()
+
+    def cone(self, ra: float, dec: float, radius_arcsec: float = 2.0) -> list[dict[str, Any]]:
+        """Loci within ``radius_arcsec``: [{"locus_id", "ra", "dec", "ztf_object_id",
+        "num_alerts", "sep_arcsec"}], nearest first."""
+        q = {"query": {"bool": {"filter": {"sky_distance": {
+            "distance": f"{radius_arcsec / 3600:.7f} degree",
+            "htm16": {"center": f"{ra:.7f} {dec:+.7f}"}}}}}}
+        d = self._get(f"{self.base_url}/loci", {"elasticsearch_query[locus_listing]": json.dumps(q),
+                                                "page[limit]": 20})
+        out = []
+        for x in d.get("data", []):
+            a = x["attributes"]
+            p = a.get("properties", {})
+            sep = _sep_arcsec(ra, dec, a["ra"], a["dec"])
+            if sep > radius_arcsec * 1.01:     # guard against an ignored filter
+                continue
+            out.append({"locus_id": x["id"], "ra": a["ra"], "dec": a["dec"],
+                        "ztf_object_id": p.get("ztf_object_id"), "num_alerts": p.get("num_alerts"),
+                        "sep_arcsec": sep})
+        return sorted(out, key=lambda r: r["sep_arcsec"])
+
+    def alerts(self, locus_id: str, max_pages: int = 50) -> list[dict[str, Any]]:
+        url, seen, out = f"{self.base_url}/loci/{locus_id}/alerts", set(), []
+        params: Optional[dict] = {"page[limit]": 1000}
+        for _ in range(max_pages):
+            d = self._get(url, params)
+            for x in d.get("data", []):
+                if x["id"] not in seen:
+                    seen.add(x["id"])
+                    out.append(x)
+            count = (d.get("meta") or {}).get("count")
+            nxt = (d.get("links") or {}).get("next")
+            if not nxt or not d.get("data") or (count is not None and len(out) >= count):
+                break
+            url, params = nxt, None
+        return out
+
+    @staticmethod
+    def parse(alerts: list[dict[str, Any]]) -> list[PhotometryPoint]:
+        pts = []
+        for x in alerts:
+            kind = x["id"].split(":")[0]
+            p = x.get("attributes", {}).get("properties", {})
+            mjd, band = p.get("ant_mjd"), p.get("ant_passband")
+            if mjd is None or not band:
+                continue
+            survey = "ZTF" if kind.startswith("ztf") else kind.split("_")[0].upper()
+            if p.get("ztf_fid") is not None:       # ANTARES labels ZTF r as "R" (not Bessell R)
+                band = ALeRCEConnector.BANDS.get(int(p["ztf_fid"]), band)
+            if kind.endswith("upper_limit") or p.get("ant_mag") is None:
+                lim = p.get("ant_maglim")
+                if lim is not None:
+                    pts.append(PhotometryPoint(float(mjd), band, float(lim), upper_limit=True,
+                                               survey=survey))
+                continue
+            if str(p.get("ztf_isdiffpos", "t")).lower() in ("f", "0", "-1"):
+                continue
+            pts.append(PhotometryPoint(float(mjd), band, float(p["ant_mag"]),
+                                       float(p.get("ant_magerr") or 0.1), survey=survey))
+        return sorted(pts, key=lambda q: q.mjd)
+
+    def candidate(self, ra: float, dec: float, radius_arcsec: float = 2.0, **extra) -> KNCandidate:
+        loci = self.cone(ra, dec, radius_arcsec)
+        if not loci:
+            raise LookupError(f"ANTARES: no locus within {radius_arcsec}\" of {ra}, {dec}")
+        lo = loci[0]
+        return KNCandidate(name=lo["ztf_object_id"] or lo["locus_id"], ra=float(lo["ra"]),
+                           dec=float(lo["dec"]), source="ANTARES",
+                           photometry=self.parse(self.alerts(lo["locus_id"])), **extra)
+
+    def add_to(self, kn: KNCandidate, radius_arcsec: float = 2.0) -> KNCandidate:
+        loci = self.cone(kn.ra, kn.dec, radius_arcsec)
+        if loci:
+            kn.add_photometry(self.parse(self.alerts(loci[0]["locus_id"])))
+        return kn
+
+
+def _sep_arcsec(ra1: float, dec1: float, ra2: float, dec2: float) -> float:
+    r1, d1, r2, d2 = map(np.radians, (ra1, dec1, ra2, dec2))
+    c = np.sin(d1) * np.sin(d2) + np.cos(d1) * np.cos(d2) * np.cos(r1 - r2)
+    return float(np.degrees(np.arccos(np.clip(c, -1, 1))) * 3600)
+
+
 class ATLASForcedPhotometryConnector:
     """ATLAS forced photometry server (https://fallingstar-data.com/forcedphot/),
     queue-based REST API with a personal token. Gives forced flux at the

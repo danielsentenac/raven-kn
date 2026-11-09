@@ -1,0 +1,137 @@
+{
+  "name": "inj053_Ka2017",
+  "ra": 150.0,
+  "dec": 10.0,
+  "pos_err_arcsec": 0.5,
+  "source": "manual",
+  "kn_score": null,
+  "graceid": null,
+  "photometry": [
+    {
+      "mjd": 61062.91912411963,
+      "band": "g",
+      "mag": 21.5,
+      "mag_err": null,
+      "upper_limit": true,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 61062.94912411963,
+      "band": "r",
+      "mag": 20.998162765441187,
+      "mag_err": 0.1538378375838831,
+      "upper_limit": false,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 61062.97912411963,
+      "band": "i",
+      "mag": 21.34996721515064,
+      "mag_err": 0.17164595673881913,
+      "upper_limit": false,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 61063.91912411963,
+      "band": "g",
+      "mag": 21.5,
+      "mag_err": null,
+      "upper_limit": true,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 61063.94912411963,
+      "band": "r",
+      "mag": 21.5,
+      "mag_err": null,
+      "upper_limit": true,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 61063.97912411963,
+      "band": "i",
+      "mag": 21.5,
+      "mag_err": null,
+      "upper_limit": true,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 61064.17921522658,
+      "band": "g",
+      "mag": 23.640783546900828,
+      "mag_err": 0.0917156039561008,
+      "upper_limit": false,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 61064.209215226576,
+      "band": "i",
+      "mag": 22.035998086841982,
+      "mag_err": 0.03603337527420051,
+      "upper_limit": false,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 61065.91912411963,
+      "band": "g",
+      "mag": 21.5,
+      "mag_err": null,
+      "upper_limit": true,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 61065.94912411963,
+      "band": "r",
+      "mag": 21.5,
+      "mag_err": null,
+      "upper_limit": true,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 61065.97912411963,
+      "band": "i",
+      "mag": 21.5,
+      "mag_err": null,
+      "upper_limit": true,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 61066.91912411963,
+      "band": "g",
+      "mag": 21.5,
+      "mag_err": null,
+      "upper_limit": true,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 61066.94912411963,
+      "band": "r",
+      "mag": 21.5,
+      "mag_err": null,
+      "upper_limit": true,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 61066.97912411963,
+      "band": "i",
+      "mag": 21.5,
+      "mag_err": null,
+      "upper_limit": true,
+      "survey": "PS1"
+    }
+  ],
+  "redshift": {
+    "z": 0.02456942505463084,
+    "z_err": 0.0001,
+    "kind": "spectroscopic",
+    "source": "host"
+  },
+  "distance": null,
+  "viewing_angle": null,
+  "grb": null,
+  "t0_samples_gps": null,
+  "lc_fit_samples": null,
+  "lc_fit_informed": false,
+  "classification": null,
+  "notes": ""
+}

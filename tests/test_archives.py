@@ -4,8 +4,8 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from raven_kn.connection import (ALeRCEConnector, ATLASForcedPhotometryConnector, KNCandidate,
-                                 PhotometryPoint, last_nondetection)
+from raven_kn.connection import (ALeRCEConnector, ANTARESConnector, ATLASForcedPhotometryConnector,
+                                 KNCandidate, PhotometryPoint, last_nondetection)
 
 DATA = Path(__file__).parent / "data"
 
@@ -102,3 +102,47 @@ def test_fink_lsst_flux_to_mag_and_limits():
     # a faint forced point becomes a 5-sigma limit
     pt = c._point({"r:midpointMjdTai": 61000.0, "r:band": "g", "r:psfFlux": 300.0, "r:psfFluxErr": 200.0})
     assert pt.upper_limit and pt.mag == pytest.approx(31.4 - 2.5 * np.log10(1000.0))
+
+
+class _AntaresSess:
+    """Recorded ANTARES replies for ZTF21abdpqpq (2026-11-09); the alerts page
+    carries a 'next' link although it already holds all 94 alerts."""
+
+    def __init__(self):
+        self.calls = []
+
+    def get(self, url, params=None, timeout=None):
+        self.calls.append((url, params))
+        if url.endswith("/loci"):
+            return _Resp(json.loads((DATA / "antares_cone_ZTF21abdpqpq.json").read_text()))
+        return _Resp(json.loads((DATA / "antares_alerts_ANT2021owtei_p1.json").read_text()))
+
+
+def test_antares_matches_alerce():
+    sess = _AntaresSess()
+    kn = ANTARESConnector(session=sess).candidate(241.3264025, 13.9156065)
+    assert kn.name == "ZTF21abdpqpq" and kn.source == "ANTARES"
+    dets = [p for p in kn.photometry if not p.upper_limit]
+    uls = [p for p in kn.photometry if p.upper_limit]
+    assert len(dets) == 3 and len(uls) == 91 and all(p.survey == "ZTF" for p in kn.photometry)
+    assert len(sess.calls) == 2                      # stopped at meta.count, no 'next' loop
+    q = json.loads(sess.calls[0][1]["elasticsearch_query[locus_listing]"])
+    assert "sky_distance" in q["query"]["bool"]["filter"]
+    # same points as ALeRCE: merging the two adds nothing
+    alerce = ALeRCEConnector.parse(json.loads((DATA / "alerce_ZTF21abdpqpq_lightcurve.json").read_text()))
+    a = sorted((round(p.mjd, 4), p.band, p.upper_limit, p.mag) for p in alerce)
+    b = sorted((round(p.mjd, 4), p.band, p.upper_limit, p.mag) for p in kn.photometry)
+    assert [x[:3] for x in a] == [x[:3] for x in b]
+    assert max(abs(x[3] - y[3]) for x, y in zip(a, b)) < 0.02     # float32 storage in ANTARES
+    n = len(kn.photometry)
+    kn.add_photometry(alerce)
+    assert len(kn.photometry) == n
+
+
+def test_antares_cone_rejects_far_loci():
+    """If the server ignored the filter, unrelated loci must not be taken."""
+    class Far(_AntaresSess):
+        def get(self, url, params=None, timeout=None):
+            return _Resp({"data": [{"id": "ANTx", "attributes": {"ra": 37.28, "dec": 9.26,
+                                                                  "properties": {}}}]})
+    assert ANTARESConnector(session=Far()).cone(241.3264025, 13.9156065) == []

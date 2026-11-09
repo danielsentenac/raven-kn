@@ -92,6 +92,8 @@ def main(argv=None):
     g.add_argument("--n-slides", type=int, default=200)
     g.add_argument("--n-offsource", type=int, default=0,
                    help="off-source trials (same length, outside the window) per sub-segment")
+    g.add_argument("--statistic", choices=["network", "coherent"], default="network",
+                   help="incoherent network SNR, or coherent SNR with null-stream cut (as PyGRB)")
     g.add_argument("--no-gating", action="store_true")
     g.add_argument("--source", default="gwosc", choices=["gwosc", "files"])
     g.add_argument("--files", help="IFO=path[:channel],... (frame files need :channel); "
@@ -222,7 +224,8 @@ def main(argv=None):
         from .targeted.search import (TargetedSearchConfig, file_fetcher, gwosc_fetcher, run)
         kw = dict(ifos=tuple(args.ifos.split(",")), mchirp_min=args.mchirp_min,
                   mchirp_max=args.mchirp_max, f_low=args.f_low, subsegment_s=args.subsegment,
-                  n_slides=args.n_slides, n_offsource=args.n_offsource, gate_threshold=None if args.no_gating else 50.0)
+                  n_slides=args.n_slides, n_offsource=args.n_offsource, statistic=args.statistic,
+                  gate_threshold=None if args.no_gating else 50.0)
         if args.request:
             cfg = TargetedSearchConfig.from_request(args.request, **kw)
         else:

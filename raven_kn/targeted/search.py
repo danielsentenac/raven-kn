@@ -25,8 +25,25 @@ Signal consistency: where a detector's SNR exceeds ``chisq_threshold``, the
 power chi-square (``chisq_bins`` bins) is computed and the SNR replaced by
 PyCBC's reweighted SNR (newSNR, q = 6, n = 2), on-source and in the slides.
 
-Limitations: incoherent network statistic, zero-spin equal-mass templates. Use PyGRB for
-production; this is for fast assessment and validation.
+Coherent statistic (``statistic="coherent"``, as PyGRB): each detector's
+template is shifted by its exact (fractional-sample) delay, so the complex
+SNRs z_d line up at the geocentre sample by sample. At samples where at least
+two detectors exceed ``coinc_threshold``, z is projected onto the plane of
+the network's response to the two polarisations, w_+ = sigma_d F+_d and
+w_x = sigma_d Fx_d (sigma_d the template's sensitivity in detector d, F the
+antenna patterns at the known sky position; the plane does not depend on
+the polarisation angle): rho_coh^2 = z^H P z, rho_null^2 = |z|^2 -
+rho_coh^2. With two detectors P = 1 (rho_coh = rho_net, no null stream);
+with three, rho_null (2 degrees of freedom in noise) rejects candidates
+whose phases and amplitudes no astrophysical signal from that direction can
+produce. Candidates are cut, as in PyGRB, if rho_null > ``null_min`` (or
+``null_min + null_grad (rho_coh - null_step)`` above ``null_step``). Per
+detector newSNR reweighting scales z_d before projection. Time slides shift
+whole samples; the loudest on-source candidate is removed from them by 1 s
+blocks.
+
+Limitations: zero-spin equal-mass templates. Use PyGRB for production; this
+is for fast assessment and validation.
 """
 
 from __future__ import annotations
@@ -77,6 +94,10 @@ class TargetedSearchConfig:
     max_templates: int = 20000
     n_offsource: int = 0                     # off-source trials per sub-segment (0: slides only)
     offsource_gap_s: float = 64.0            # gap between the on-source window and off-source trials
+    statistic: str = "network"               # "network" (incoherent) or "coherent" (known sky position)
+    null_min: float = 5.25                   # coherent: null-SNR cut (PyGRB's --null-min/-grad/-step)
+    null_grad: float = 0.2
+    null_step: float = 20.0
     label: str = "targeted"
 
     @classmethod
@@ -253,6 +274,10 @@ class SubsegmentResult:
     extrapolation_reach: Optional[float] = None
     offsource: list[float] = field(default_factory=list)
     p_value_offsource: Optional[float] = None
+    statistic: str = "network"               # what loudest_rho_net ranks by
+    loudest_rho_coh: Optional[float] = None  # coherent statistic only
+    loudest_rho_null: Optional[float] = None
+    loudest_rho_network: Optional[float] = None
 
 
 @dataclass
@@ -398,6 +423,10 @@ def search_subsegment(cfg: TargetedSearchConfig, bank: Sequence[float], fetch: S
             psd.resize(len(stilde[ifo]))
         psds[ifo] = pycbc.psd.inverse_spectrum_truncation(psd, int(4 * fs),
                                                           low_frequency_cutoff=cfg.f_low)
+    if cfg.statistic == "coherent":
+        return _coherent_subsegment(cfg, bank, ifos, stilde, psds, delays, gates, start, end)
+    if cfg.statistic != "network":
+        raise ValueError(f"unknown statistic {cfg.statistic!r}")
 
     n_on = None
     n_chisq = {ifo: 0 for ifo in ifos}
@@ -476,6 +505,151 @@ def search_subsegment(cfg: TargetedSearchConfig, bank: Sequence[float], fetch: S
                                + ", ".join(f"{i}:{n_chisq[i]}" for i in ifos) + " points)")
                             + ", delays " + ", ".join(f"{i}:{delays[i] * 1e3:+.1f} ms" for i in ifos)
                             + (", loudest removed from background" if removed else ""))
+    res.p_value_extrapolated = p_ext
+    res.extrapolation_reach = reach
+    if reach is not None and reach > 3:
+        res.notes += (f"; loudest is {reach:.0f} background spreads beyond the loudest slide: "
+                      "extrapolated p-value only formal, quote p < 1/(n_slides+1)")
+    return res
+
+
+def _antenna(ifos, ra_deg, dec_deg, gps):
+    import lal
+    gmst = lal.GreenwichMeanSiderealTime(lal.LIGOTimeGPS(float(gps)))
+    ra, dec = math.radians(ra_deg), math.radians(dec_deg)
+    return {i: lal.ComputeDetAMResponse(lal.cached_detector_by_prefix[i].response, ra, dec, 0.0, gmst)
+            for i in ifos}
+
+
+def coherent_projector(sigmas: Sequence[float], fplus: Sequence[float],
+                       fcross: Sequence[float]) -> np.ndarray:
+    """Real projector onto span{sigma F+, sigma Fx} (detector space)."""
+    w = np.stack([np.asarray(sigmas) * np.asarray(fplus), np.asarray(sigmas) * np.asarray(fcross)], 1)
+    return w @ np.linalg.pinv(w.T @ w) @ w.T
+
+
+def null_cut(rho_coh: np.ndarray, rho_null: np.ndarray, null_min: float = 5.25,
+             null_grad: float = 0.2, null_step: float = 20.0) -> np.ndarray:
+    """True where the candidate fails PyGRB's null-SNR cut."""
+    thr = np.where(rho_coh < null_step, null_min, null_min + null_grad * (rho_coh - null_step))
+    return rho_null > thr
+
+
+def _coherent_subsegment(cfg, bank, ifos, stilde, psds, delays, gates, start, end):
+    from pycbc.events.ranking import newsnr
+    from pycbc.filter import matched_filter_core
+    from pycbc.vetoes import power_chisq_at_points_from_precomputed, power_chisq_bins
+    from pycbc.waveform import get_fd_waveform
+
+    fs = cfg.sample_rate
+    L = int(round((end - start) * fs))
+    ant = _antenna(ifos, cfg.ra_deg, cfg.dec_deg, 0.5 * (start + end))
+    fp = np.array([ant[i][0] for i in ifos])
+    fx = np.array([ant[i][1] for i in ifos])
+    step = max(int(round(cfg.slide_step_s * fs)), 1)
+    shifts = [(0,) * len(ifos)] + slide_shifts(len(ifos), L // step, cfg.n_slides)
+    sh = np.array(shifts, dtype=np.int64) * step                       # (n_slides+1, n_ifos) samples
+    blk = max(int(round(cfg.removal_window_s * fs)), 1)
+    n_blk = -(-L // blk)
+    blockmax = np.zeros((len(shifts), n_blk))
+    best = {"stat": 0.0}
+    min_coinc = 2 if cfg.coinc_threshold > 0 else 1
+    thr = cfg.coinc_threshold if cfg.coinc_threshold > 0 else cfg.chisq_threshold
+    n_chisq = {i: 0 for i in ifos}
+    n_null_cut = 0
+    t0 = None
+    for it, mc in enumerate(bank):
+        m = _mass_equal(mc)
+        z, sig = [], []
+        for ifo in ifos:
+            st = stilde[ifo]
+            hp, _ = get_fd_waveform(approximant="TaylorF2", mass1=m, mass2=m,
+                                    delta_f=st.delta_f, f_lower=cfg.f_low)
+            hp.resize(len(st))
+            t0 = float(st.start_time)
+            x = (start + delays[ifo] - t0) * fs
+            i0 = int(round(x))
+            tau = (x - i0) / fs                     # fractional delay: shift the template
+            hp = hp * np.exp(-2j * np.pi * hp.sample_frequencies.numpy() * tau)
+            snr_u, corr, norm = matched_filter_core(hp, st, psd=psds[ifo],
+                                                    low_frequency_cutoff=cfg.f_low)
+            su = snr_u.numpy()
+            zi = (su[i0:i0 + L] * norm).astype(np.complex64)
+            if cfg.chisq_bins:
+                a = np.abs(zi)
+                idx = np.flatnonzero(a > cfg.chisq_threshold)
+                if len(idx) > cfg.max_chisq_points:
+                    idx = idx[np.argsort(a[idx])[-cfg.max_chisq_points:]]
+                if len(idx):
+                    bins = power_chisq_bins(hp, cfg.chisq_bins, psds[ifo], cfg.f_low)
+                    gidx = (idx + i0).astype(np.uint32)
+                    chisq = power_chisq_at_points_from_precomputed(corr, su[gidx], norm, bins, gidx)
+                    red = np.asarray(chisq) / (2 * cfg.chisq_bins - 2)
+                    zi[idx] *= (newsnr(a[idx], red) / a[idx]).astype(np.float32)
+                    n_chisq[ifo] += len(idx)
+            z.append(zi)
+            sig.append(4 * st.delta_f / norm)       # sqrt(sigmasq): matched_filter_core's norm
+        P = coherent_projector(sig, fp, fx)
+        above = [np.flatnonzero(np.abs(zi) >= thr) for zi in z]
+        for k in range(len(shifts)):
+            pos = np.concatenate([(a + sh[k, d]) % L for d, a in enumerate(above)])
+            if not len(pos):
+                continue
+            u, c = np.unique(pos, return_counts=True)
+            cand = u[c >= min_coinc]
+            if not len(cand):
+                continue
+            Z = np.stack([z[d][(cand - sh[k, d]) % L] for d in range(len(ifos))])   # (n_ifo, n_cand)
+            net2 = np.sum(np.abs(Z) ** 2, axis=0)
+            coh2 = np.real(np.einsum("ic,ij,jc->c", Z.conj(), P, Z))
+            coh = np.sqrt(np.clip(coh2, 0, None))
+            null = np.sqrt(np.clip(net2 - coh2, 0, None))
+            stat = coh.copy()
+            if len(ifos) >= 3:
+                cut = null_cut(coh, null, cfg.null_min, cfg.null_grad, cfg.null_step)
+                stat[cut] = 0.0
+                if k == 0:
+                    n_null_cut += int(cut.sum())
+            np.maximum.at(blockmax[k], cand // blk, stat)
+            if k == 0:
+                j = int(np.argmax(stat))
+                if stat[j] > best["stat"]:
+                    best = {"stat": float(stat[j]), "it": it, "ib": int(cand[j]),
+                            "coh": float(coh[j]), "null": float(null[j]),
+                            "net": float(np.sqrt(net2[j])),
+                            "rho_ifo": {i: float(abs(Z[d, j])) for d, i in enumerate(ifos)}}
+    loud = best["stat"]
+    if loud > 0:
+        ib, rho_ifo = best["ib"], best["rho_ifo"]
+        loud_gps, loud_mc = start + ib / fs, float(bank[best["it"]])
+    else:
+        ib, rho_ifo, loud_gps, loud_mc = 0, {}, start, 0.0
+    second = sorted(rho_ifo.values())[-2] if len(rho_ifo) > 1 else 0.0
+    removed = loud > 0 and cfg.hierarchical_removal and second >= cfg.removal_min_second_snr
+    bkg = []
+    for k in range(1, len(shifts)):
+        b = blockmax[k].copy()
+        if removed:
+            for d in range(len(ifos)):
+                c = ((ib + sh[k, d]) % L) // blk
+                b[max(c - 1, 0):c + 2] = 0.0
+        bkg.append(float(b.max()))
+    p = targeted_pvalue(loud, bkg) if bkg else 1.0
+    p_ext = extrapolated_pvalue(loud, bkg) if len(bkg) >= 50 else None
+    reach = extrapolation_reach(loud, bkg) if bkg else None
+    res = SubsegmentResult(start, end, ifos, loud, loud_gps, loud_mc, rho_ifo, bkg, p, gates,
+                           f"coherent, {len(bank)} templates, {len(bkg)} slides, "
+                           + ("no chi-square" if not cfg.chisq_bins else
+                              f"newSNR ({cfg.chisq_bins}-bin chi-square at "
+                              + ", ".join(f"{i}:{n_chisq[i]}" for i in ifos) + " points)")
+                           + (f", {n_null_cut} zero-lag samples failed the null cut"
+                              if len(ifos) >= 3 else ", 2 detectors: no null stream")
+                           + ", delays " + ", ".join(f"{i}:{delays[i] * 1e3:+.1f} ms" for i in ifos)
+                           + (", loudest removed from background" if removed else ""),
+                           statistic="coherent")
+    if loud > 0:
+        res.loudest_rho_coh, res.loudest_rho_null = best["coh"], best["null"]
+        res.loudest_rho_network = best["net"]
     res.p_value_extrapolated = p_ext
     res.extrapolation_reach = reach
     if reach is not None and reach > 3:

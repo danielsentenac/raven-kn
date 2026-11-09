@@ -12,7 +12,7 @@ candidates (joint FAR) and/or a targeted search of archived strain.**
 
 | RAVEN-KN | Role | RAVEN analogue |
 |---|---|---|
-| `raven_kn.connection` | `KNCandidate` (photometry incl. non-detections, redshift, distance, viewing angle, GRB, light-curve-fit samples, spectroscopic class); connectors: Fink, ALeRCE, ATLAS, GraceDB, GCN JSON, NED/NED-D, GLADE+, DES Y6, TNS, local JSON | `gracedb_events.ExtTrig` / `SE` |
+| `raven_kn.connection` | `KNCandidate` (photometry incl. non-detections, redshift, distance, viewing angle, GRB, light-curve-fit samples, spectroscopic class); connectors: Fink, ALeRCE, ANTARES, ATLAS, GraceDB, GCN JSON, NED/NED-D, GLADE+, DES Y6, TNS, local JSON | `gracedb_events.ExtTrig` / `SE` |
 | `raven_kn.treatment.t0` | merger-time window [tl, th]: GRB (seconds) > light-curve-fit t0 posterior ∩ photometric bracket (last *constraining* non-detection → first detection) | fixed `tl, th` |
 | `raven_kn.treatment.lightcurve_fit` | NMMA wrapper: candidate → NMMA data/prior files and `lightcurve-analysis` command → posterior read back as `t0_samples_gps` (+ D_L, ι) | — (new) |
 | `raven_kn.treatment.distance_inclination` | joint (D_L, cos ι) posterior from spectroscopic redshift, host distance, VLBI/afterglow viewing angle, prompt GRB, light-curve-fit samples; search priors | — (new) |
@@ -113,6 +113,9 @@ volume, known host redshift), observed with a ZTF-like survey (nightly g/r/i epo
 | *Rubin-like (`--survey rubin`: depth 24.5, revisit 3 d, 2 of g/r/i, 40–300 Mpc, fit 6.5 d), 27 injections:* | | | |
 | same model as the truth | 26/27 | 27/27 | 27/27, 83 h |
 | other model | 19/27 (70 %) | 27/27 / 27/27 / 27/27 | 27/27, 83 h |
+| *ZTF + Rubin on the same field (`--survey mixed`: both cadences, independent phases and lost nights, each limit at its own depth, 40–300 Mpc, fit 6.5 d), 30 injections:* | | | |
+| same model as the truth | 26/30 | 30/30 / 30/30 / 30/30 | 30/30, 66 h |
+| other model | 20/30 (67 %) | 28/30 / 30/30 / 30/30 | 30/30, 101 h |
 
 - Self-model posteriors are well calibrated; the margin is a model-systematic correction, as intended. The
   one cross-model case needing more than 0.75 (0.86) is a Ka2017 kilonova fitted with Bu2019lm, first seen
@@ -126,8 +129,14 @@ volume, known host redshift), observed with a ZTF-like survey (nightly g/r/i epo
   *wider* than at ZTF depth (83 h): with a 3-day revisit the last non-detection is typically 3 days before
   discovery. Depth helps only with recency: a narrow window needs a deep limit hours before the merger
   (Jamsin et al.), i.e. Rubin combined with nightly surveys (ZTF, ATLAS) or deep-drilling fields.
+- Rubin + ZTF confirms it. Median window (margin 0.75) when the field was observed before the merger:
+  ZTF alone 35 h (but only to 150 Mpc), Rubin alone 83 h, **both 50 h** (first detection at +20 h instead
+  of +41 h); for late discoveries all three stay at 130–140 h. Margin 0.75 still covers 60/60 fits (largest
+  needed fraction 0.62, cross-model); shallow ZTF limits taken after the merger, before Rubin's first
+  detection, are correctly ignored by the bracket (not deeper than the first detection).
 
-Reports: `examples/injections/runs_inj/report.json` (ZTF-like), `runs_inj_rubin/report.json` (Rubin-like).
+Reports: `examples/injections/runs_inj/report.json` (ZTF-like), `runs_inj_rubin/report.json` (Rubin-like),
+`runs_inj_mixed/report.json` (ZTF + Rubin).
 
 Environment notes: NMMA runs from the conda env `nmma` (`--executable` or `$RAVEN_KN_NMMA_EXE`);
 models in `~/nmma_models` (`python -c "from nmma.core.gitlab import main; main()" --model Bu2019lm --filters ...`,
@@ -173,6 +182,23 @@ network SNR 22.6 (H1 / L1 / V1 = 18.5 / 12.6 / 3.2), still p < 1/1001 against a 
 the noise window gives p = 0.48. Before hierarchical removal was added, the H1 signal leaked into every
 slide (background median 18.7). Tests use synthetic Gaussian noise
 with injections and a sine-Gaussian glitch. Results: `examples/targeted_gw170817/`.
+
+**Coherent statistic** (`--statistic coherent`, as PyGRB): templates shifted by each detector's exact
+delay, complex SNRs projected on the network's response to the two polarisations at the known sky position
+(coherent SNR), the remainder is the null stream, cut as in PyGRB (`null_min` 5.25, `null_grad` 0.2,
+`null_step` 20). Same GWOSC data, 181 templates, 1000 slides:
+
+| window | coherent SNR (null) | network SNR | p-value | background max / median |
+|---|---|---|---|---|
+| containing the merger | 22.4 (3.1) at 1187008882.429, Mc 1.1976 | 22.6 | < 1/1001 | 7.5 / 6.6 (network: 8.3 / 7.5) |
+| 15 min earlier (noise) | 6.6 (2.1) | 7.5 | 0.34 (network 0.48) | 7.5 / 6.5 (network: 8.8 / 7.5) |
+
+The signal keeps its SNR while the noise background drops by about one unit (null cut, exact-sample
+coincidence instead of 8 ms pooling). On synthetic data a 3-detector injection gives coherent SNR 29.5 with
+null 1.1, and the same injection with V1's sign flipped (loud everywhere, but no source at that position
+gives those phases) falls from 57 to 8 through the null cut. Writing these tests showed that the synthetic
+injections had used degrees where `project_wave` expects radians (wrong injected sky position, hidden by the
+incoherent statistic's pooling); fixed.
 Remaining limitations: incoherent statistic, zero-spin equal-mass templates. Production: PyGRB.
 
 ## Redshift, distance and inclination: spectroscopy and host galaxies (`raven-kn host`, `raven-kn tns`)
@@ -222,6 +248,9 @@ The t0 window depends most on the latest deep image of the position before the f
 `connection.py` merges photometry from several sources into one candidate:
 - `ALeRCEConnector` — ZTF detections and non-detections (`diffmaglim`) from the public ALeRCE API
   (tested live: ZTF21abdpqpq, last non-detection r > 20.5 1.98 d before the first detection);
+- `ANTARESConnector` — the NOIRLab ANTARES broker (public, no token), found by cone search: the same ZTF
+  detections and limits as ALeRCE (ZTF21abdpqpq: identical 3 + 91 points, merged without duplicates), so
+  either can stand in when the other is down; LSST records are read from ANTARES' generic fields;
 - `ATLASForcedPhotometryConnector` — ATLAS forced photometry (cyan/orange, 5σ limits) via the
   fallingstar-data.com queue API; needs a personal token (written from the API guide, tested on mocked
   responses only);

@@ -19,7 +19,12 @@ apart, 5-sigma depth 21.5, nights lost with probability 0.3, epochs from
 coverage (late discovery, as AT2017gfo). Distances uniform in volume in
 40-150 Mpc; host redshift known (informed distance prior, as in practice).
 
-  python calibrate_margin.py make   --out runs_inj [--n 12 --seed 1 --survey ztf|rubin]
+Presets (``--survey``): ``ztf`` (above), ``rubin`` (depth 24.5, a field every
+~3 nights, 2 bands per night, 40-300 Mpc) and ``mixed`` (both surveys on the
+same field, independent phases and lost nights, each non-detection at its own
+survey's depth: a shallow ZTF limit after the merger must not cut the window).
+
+  python calibrate_margin.py make   --out runs_inj [--n 12 --seed 1 --survey ztf|rubin|mixed]
   python calibrate_margin.py run    --out runs_inj [--workers 6]
   python calibrate_margin.py report --out runs_inj
 """
@@ -62,25 +67,44 @@ PRESETS = {
     # Rubin WFD-like: deeper, a field revisited every ~3 nights, 2 filters per night
     "rubin": {"depth": 24.5, "cadence_d": 3.0, "lost": 0.2, "bands_per_epoch": 2, "d_max": 300.0,
               "fit_days": 6.5},
+    # ZTF and Rubin on the same field
+    "mixed": {"d_max": 300.0, "fit_days": 6.5, "components": [
+        {"name": "ZTF", "depth": 21.5, "cadence_d": 1.0, "lost": 0.3, "bands_per_epoch": 3},
+        {"name": "Rubin", "depth": 24.5, "cadence_d": 3.0, "lost": 0.2, "bands_per_epoch": 2}]},
 }
 
 
-def survey_times(rng, pre_merger):
-    cad = SURVEY["cadence_d"]
+def _component_times(rng, pre_merger, c, first_k):
+    cad = c["cadence_d"]
     phase = rng.uniform(0, cad)
-    first = -3 if pre_merger else int(rng.integers(0, 2))
+    first = -int(np.ceil(3 / cad)) if pre_merger else first_k
     epochs = [k * cad + phase for k in range(first, int(6 / cad) + 2) if k * cad + phase <= 6.0]
-    epochs = [t for t in epochs if rng.uniform() > SURVEY["lost"]]
+    epochs = [t for t in epochs if rng.uniform() > c["lost"]]
     times, bands = [], []
     for t in epochs:
         fs = list(FILTERS)
-        if SURVEY["bands_per_epoch"] < len(fs):
-            fs = sorted(rng.choice(fs, SURVEY["bands_per_epoch"], replace=False),
+        if c["bands_per_epoch"] < len(fs):
+            fs = sorted(rng.choice(fs, c["bands_per_epoch"], replace=False),
                         key=list(FILTERS).index)
         for j, f in enumerate(fs):
             times.append(t + 0.03 * j)
             bands.append(f)
-    return np.array(times), bands
+    return times, bands
+
+
+def survey_times(rng, pre_merger):
+    """Observation times (days from merger), bands and 5-sigma depths; with
+    several components (``mixed``), their union in time order."""
+    comps = SURVEY.get("components") or [SURVEY]
+    first_k = int(rng.integers(0, 2))      # late discovery: shared start (field not observable)
+    t, b, dep = [], [], []
+    for c in comps:
+        ti, bi = _component_times(rng, pre_merger, c, first_k)
+        t += ti
+        b += bi
+        dep += [c["depth"]] * len(ti)
+    order = np.argsort(t, kind="stable")
+    return (np.asarray(t)[order], [b[i] for i in order], [dep[i] for i in order])
 
 
 def make(out: Path, n: int, seed: int):
@@ -93,9 +117,9 @@ def make(out: Path, n: int, seed: int):
         d = (lo ** 3 + rng.uniform() * (hi ** 3 - lo ** 3)) ** (1 / 3)
         par = dict(draw_params(model, rng), luminosity_distance=d)
         pre = bool(rng.uniform() < 0.5)
-        t, b = survey_times(rng, pre)
+        t, b, dep = survey_times(rng, pre)
         meta.append({"truth_model": model, "params": par, "pre_merger_coverage": pre,
-                     "t": t.tolist(), "bands": b})
+                     "t": t.tolist(), "bands": b, "depths": dep})
         jobs.append({"model": model, "params": par, "filters": list(FILTERS), "t_days": t.tolist()})
     fin, fout = out / "truth_in.json", out / "truth_out.json"
     fin.write_text(json.dumps(jobs))
@@ -106,16 +130,16 @@ def make(out: Path, n: int, seed: int):
     for i, (m, lc) in enumerate(zip(meta, mags)):
         t0_gps = T_BASE + i * 1e6
         phot, ndet = [], 0
-        for k, (t, f) in enumerate(zip(m["t"], m["bands"])):
+        for k, (t, f, depth) in enumerate(zip(m["t"], m["bands"], m["depths"])):
             mag = lc[f][k] if t > 0 else np.inf
             mjd = gps_to_mjd(t0_gps + t * 86400)
-            if np.isfinite(mag) and mag < SURVEY["depth"]:
-                sig = float(np.hypot(0.03, 0.2 * 10 ** (0.4 * (mag - SURVEY["depth"]))))
+            if np.isfinite(mag) and mag < depth:
+                sig = float(np.hypot(0.03, 0.2 * 10 ** (0.4 * (mag - depth))))
                 phot.append(PhotometryPoint(mjd, FILTERS[f], float(mag + rng.normal(0, sig)), sig,
                                             survey="PS1"))
                 ndet += 1
             else:
-                phot.append(PhotometryPoint(mjd, FILTERS[f], SURVEY["depth"], upper_limit=True,
+                phot.append(PhotometryPoint(mjd, FILTERS[f], depth, upper_limit=True,
                                             survey="PS1"))
         first = min((p.mjd for p in phot if not p.upper_limit), default=None)
         n_early = sum(1 for p in phot if not p.upper_limit and first is not None and p.mjd < first + SURVEY["fit_days"])
