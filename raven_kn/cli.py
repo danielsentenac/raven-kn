@@ -130,11 +130,15 @@ def main(argv=None):
     li.add_argument("--store", required=True, help="candidate/alert/result directory")
     li.add_argument("--grb-topics", nargs="*", default=None)
     li.add_argument("--domain", default=None, help="e.g. test.gcn.nasa.gov")
+    li.add_argument("--use-combined-skymap", action="store_true",
+                    help="when an alert carries a RAVEN coincidence (external_coinc), use its "
+                         "combined GW x GRB map for the sky factor instead of the GW-only map")
 
     ad = sub.add_parser("add", help="add a candidate to the listener store and match it against "
                                     "GW alerts already received")
     ad.add_argument("candidate")
     ad.add_argument("--store", required=True)
+    ad.add_argument("--use-combined-skymap", action="store_true")
 
     args = p.parse_args(argv)
     if args.cmd in ("listen", "add"):
@@ -142,13 +146,14 @@ def main(argv=None):
         from .listener import GRB_TOPICS, CandidateStore, add_candidate, listen
         store = CandidateStore(args.store)
         if args.cmd == "add":
-            print(json.dumps(add_candidate(load_candidate(args.candidate), store),
+            print(json.dumps(add_candidate(load_candidate(args.candidate), store,
+                                           use_combined=args.use_combined_skymap),
                              indent=2, default=float))
             return
         logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
         listen(store, os.environ["GCN_CLIENT_ID"], os.environ["GCN_CLIENT_SECRET"],
                grb_topics=args.grb_topics if args.grb_topics is not None else GRB_TOPICS,
-               domain=args.domain,
+               domain=args.domain, use_combined=args.use_combined_skymap,
                on_result=lambda r: print(json.dumps(r, default=float), flush=True))
         return
     if args.cmd == "pygrb":

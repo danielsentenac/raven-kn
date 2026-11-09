@@ -78,6 +78,47 @@ def test_gw_alert_in_window_gives_joint_far(tmp_path):
     assert (tmp_path / "coinc" / "S170817a__test.json").exists()
 
 
+def _moc_b64(moc):
+    buf = io.BytesIO()
+    moc.write(buf, format="fits")
+    return base64.b64encode(buf.getvalue()).decode()
+
+
+def external_coinc(moc=None):
+    return {"gcn_notice_id": 524666471, "ivorn": "ivo://nasa.gsfc.gcn/Fermi#GBM_x",
+            "observatory": "Fermi", "search": "GRB", "time_difference": -1.74,
+            "time_coincidence_far": 5.3e-11, "time_sky_position_coincidence_far": 1.2e-12,
+            "combined_skymap": _moc_b64(moc if moc is not None else make_moc(mu=42.0))}
+
+
+def test_external_coinc_parsed_kept_and_reported(tmp_path):
+    from raven_kn.listener import parse_gw_alert
+    msg = {**gw_alert(far=1e-6), "external_coinc": external_coinc()}
+    a = parse_gw_alert(msg)
+    assert a["external_coinc"]["observatory"] == "Fermi"
+    assert a["external_coinc"]["raven_joint_far"] == 1.2e-12
+    assert "combined_skymap" not in a["external_coinc"] and a["combined_skymap"] is not None
+    assert parse_gw_alert(gw_alert())["external_coinc"] is None
+
+    store = CandidateStore(tmp_path)
+    store.save(make_kn())
+    res = handle_gw_alert(msg, store)[0]
+    assert res["raven_external_coinc"]["time_difference"] == -1.74
+    assert res["skymap_used"] == "gw" and res["combined_map_at_kn"]["DISTMU"] == 42.0
+    assert (tmp_path / "gw" / "S170817a.combined.multiorder.fits").exists()
+
+    # a later update without external_coinc keeps the coincidence
+    res2 = handle_gw_alert(gw_alert(far=1e-6, alert_type="UPDATE"), store)[0]
+    assert res2["raven_external_coinc"]["raven_joint_far"] == 1.2e-12
+    assert store.gw_alerts()[0]["external_coinc_from"] == "previous alert"
+
+    # combined map for the sky factor on request
+    res3 = handle_gw_alert(msg, store, use_combined=True)[0]
+    assert res3["skymap_used"] == "combined"
+    late = add_candidate(make_kn(), store, now_gps=T0 + 86400, use_combined=True)[0]
+    assert late["skymap_used"] == "combined" and late["raven_external_coinc"]["observatory"] == "Fermi"
+
+
 def test_gw_alert_outside_window_ignored_and_retraction(tmp_path):
     store = CandidateStore(tmp_path)
     store.save(make_kn())

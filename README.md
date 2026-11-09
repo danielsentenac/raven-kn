@@ -212,6 +212,11 @@ raven-kn add candidate.json --store kn_store/            # a new or updated kilo
   first detection follows within 3 days; their window becomes RAVEN's [−5, +1] s. With 1× the radius the
   GW170817 GBM ground position (24° from NGC 4993) would be missed. Test notices are ignored.
 - **Late candidate**: `raven-kn add` matches it against GW alerts of the last 14 days.
+- **LVK RAVEN coincidence**: when an alert carries `external_coinc` (LVK's own GW + GRB coincidence:
+  observatory, time difference, temporal and sky-position joint FARs, combined GW × GRB map), it is kept
+  with the superevent, also across later updates that omit it, and copied into every RAVEN-KN result as
+  `raven_external_coinc`, with the combined map at the candidate (`combined_map_at_kn`). The sky factor
+  uses the GW-only map unless `--use-combined-skymap` is given.
 
 Nothing is uploaded to GraceDB from the listener (use `calc_signif_gracedb` once results are vetted).
 Tested on synthetic alerts only (`tests/test_listener.py`); not yet run against the live Kafka stream.

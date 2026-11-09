@@ -7,7 +7,11 @@ candidates, whose merger-time windows are hours to days long:
 * ``igwn.gwalert`` (LVK JSON alerts): for each kilonova candidate in the
   store whose t0 window contains the GW merger time, compute the joint FAR
   (temporal x sky x distance, :func:`raven_kn.search.coinc_far`) from the
-  multi-order sky map carried in the alert;
+  multi-order sky map carried in the alert. When LVK's own RAVEN found a
+  GW + GRB coincidence, the alert's ``external_coinc`` section (observatory,
+  time difference, temporal and sky-position joint FARs, combined sky map)
+  is kept with the superevent and copied into every RAVEN-KN result; the
+  combined map is used for the sky factor only on request (``use_combined``);
 * GRB notices in GCN's unified JSON schema (``trigger_time``, ``ra``,
   ``dec``, ``ra_dec_error``): attach the GRB to candidates at a compatible
   position whose first detection follows it, which narrows their window to
@@ -154,9 +158,37 @@ def parse_gw_alert(msg: dict | bytes | str) -> dict[str, Any]:
     if ev.get("far") is not None:
         out["far"] = float(ev["far"])
     if ev.get("skymap"):
-        sm = ev["skymap"]
-        out["skymap"] = read_moc_bytes(base64.b64decode(sm) if isinstance(sm, str) else sm)
+        out["skymap"] = _decode_moc(ev["skymap"])
+    out["external_coinc"], out["combined_skymap"] = parse_external_coinc(msg.get("external_coinc"))
     return out
+
+
+def _decode_moc(sm: bytes | str) -> Table:
+    return read_moc_bytes(base64.b64decode(sm) if isinstance(sm, str) else sm)
+
+
+# fields of the alert's ``external_coinc`` section (LVK alert schema)
+EXTERNAL_COINC_KEYS = ("gcn_notice_id", "ivorn", "observatory", "search", "time_difference",
+                       "time_coincidence_far", "time_sky_position_coincidence_far")
+
+
+def parse_external_coinc(ec: Optional[dict]) -> tuple[Optional[dict], Optional[Table]]:
+    """RAVEN coincidence block of an LVK alert -> (metadata, combined MOC map).
+
+    The metadata keeps every field except the map and adds ``raven_joint_far``,
+    the sky-position FAR if given, else the temporal one."""
+    if not ec:
+        return None, None
+    meta = {k: v for k, v in ec.items() if k != "combined_skymap"}
+    for k in ("time_difference", "time_coincidence_far", "time_sky_position_coincidence_far"):
+        if meta.get(k) is not None:
+            meta[k] = float(meta[k])
+    meta["raven_joint_far"] = (meta.get("time_sky_position_coincidence_far")
+                               if meta.get("time_sky_position_coincidence_far") is not None
+                               else meta.get("time_coincidence_far"))
+    combined = _decode_moc(ec["combined_skymap"]) if ec.get("combined_skymap") else None
+    meta["has_combined_skymap"] = combined is not None
+    return meta, combined
 
 
 def parse_voevent(xml: bytes | str) -> dict[str, Any]:
@@ -225,18 +257,30 @@ class CandidateStore:
     def gw_alerts(self) -> list[dict]:
         return [json.loads(p.read_text()) for p in sorted((self.root / "gw").glob("*.json"))]
 
-    def gw_skymap(self, superevent_id: str) -> Optional[Table]:
-        p = self.root / "gw" / f"{superevent_id}.multiorder.fits"
+    def gw_skymap(self, superevent_id: str, combined: bool = False) -> Optional[Table]:
+        """GW-only map, or with ``combined`` the RAVEN GW x external map."""
+        kind = "combined.multiorder" if combined else "multiorder"
+        p = self.root / "gw" / f"{superevent_id}.{kind}.fits"
         return Table.read(p) if p.exists() else None
 
     def save_gw(self, alert: dict) -> None:
+        """Latest alert per superevent. A RAVEN coincidence (``external_coinc``)
+        seen in an earlier alert is kept when a later one omits it."""
         sid = alert["superevent_id"]
-        meta = {k: v for k, v in alert.items() if k != "skymap"}
+        jpath = self.root / "gw" / f"{sid}.json"
+        prev = json.loads(jpath.read_text()) if jpath.exists() else {}
+        meta = {k: v for k, v in alert.items() if k not in ("skymap", "combined_skymap")}
         if alert.get("skymap") is not None:
             alert["skymap"].write(self.root / "gw" / f"{sid}.multiorder.fits", overwrite=True)
-        elif (self.root / "gw" / f"{sid}.json").exists():
+        elif prev:
             meta.setdefault("skymap_from", "previous alert")
-        (self.root / "gw" / f"{sid}.json").write_text(json.dumps(meta, indent=1, default=str))
+        if alert.get("combined_skymap") is not None:
+            alert["combined_skymap"].write(self.root / "gw" / f"{sid}.combined.multiorder.fits",
+                                           overwrite=True)
+        if not meta.get("external_coinc") and prev.get("external_coinc"):
+            meta["external_coinc"] = prev["external_coinc"]
+            meta["external_coinc_from"] = "previous alert"
+        jpath.write_text(json.dumps(meta, indent=1, default=str))
 
     def forget_gw(self, superevent_id: str) -> None:
         for p in (self.root / "gw").glob(f"{superevent_id}.*"):
@@ -248,14 +292,21 @@ class CandidateStore:
         return p
 
 
-def _evaluate(kn: KNCandidate, gw: dict, moc: Optional[Table], **coinc_kw) -> Optional[dict]:
-    """Joint FAR if the GW time is inside the kilonova window, else None."""
+def _evaluate(kn: KNCandidate, gw: dict, moc: Optional[Table], combined: Optional[Table] = None,
+              use_combined: bool = False, **coinc_kw) -> Optional[dict]:
+    """Joint FAR if the GW time is inside the kilonova window, else None.
+
+    ``combined`` is RAVEN's GW x external-trigger map. It is looked up at the
+    kilonova position and reported; it is used for the FAR only with
+    ``use_combined`` (it already folds in the GRB localisation, so the
+    sky factor is then no longer GW-only)."""
     if gw.get("gpstime") is None or gw.get("far") is None:
         return None
     window = estimate_window(kn)
     if not window.gps_start <= gw["gpstime"] <= window.gps_end:
         return None
-    flat = moc_to_flat(moc) if moc is not None else None
+    far_map = combined if (use_combined and combined is not None) else moc
+    flat = moc_to_flat(far_map) if far_map is not None else None
     post = None
     if flat is not None and (kn.redshift or kn.distance or kn.lc_fit_samples):
         post = posterior_for(kn)
@@ -265,15 +316,19 @@ def _evaluate(kn: KNCandidate, gw: dict, moc: Optional[Table], **coinc_kw) -> Op
                window=asdict(window), dt_from_first_detection_h=None)
     if kn.first_detection is not None:
         res["dt_from_first_detection_h"] = (kn.first_detection.gps - gw["gpstime"]) / 3600
-    if moc is not None:
-        try:
-            res["gw_map_at_kn"] = moc_lookup(moc, kn.ra, kn.dec)
-        except ValueError:
-            pass
+    for key, m in (("gw_map_at_kn", moc), ("combined_map_at_kn", combined)):
+        if m is not None:
+            try:
+                res[key] = moc_lookup(m, kn.ra, kn.dec)
+            except ValueError:
+                pass
+    res["skymap_used"] = "combined" if far_map is combined and combined is not None else "gw"
+    res["raven_external_coinc"] = gw.get("external_coinc")
     return res
 
 
-def handle_gw_alert(msg: dict | bytes | str, store: CandidateStore, **coinc_kw) -> list[dict]:
+def handle_gw_alert(msg: dict | bytes | str, store: CandidateStore, use_combined: bool = False,
+                    **coinc_kw) -> list[dict]:
     alert = parse_gw_alert(msg)
     sid = alert["superevent_id"]
     if alert["alert_type"] == "RETRACTION":
@@ -282,9 +337,16 @@ def handle_gw_alert(msg: dict | bytes | str, store: CandidateStore, **coinc_kw) 
         return []
     moc = alert["skymap"] if alert["skymap"] is not None else store.gw_skymap(sid)
     store.save_gw(alert)
+    ec = alert["external_coinc"]
+    if ec:
+        log.info("%s: RAVEN coincidence with %s %s, dt %s s, joint FAR %s Hz", sid,
+                 ec.get("observatory"), ec.get("search"), ec.get("time_difference"),
+                 ec.get("raven_joint_far"))
+    gw = json.loads((store.root / "gw" / f"{sid}.json").read_text())   # with carried-over coinc
+    combined = store.gw_skymap(sid, combined=True)
     out = []
     for kn in store.candidates():
-        res = _evaluate(kn, alert, moc, **coinc_kw)
+        res = _evaluate(kn, gw, moc, combined, use_combined, **coinc_kw)
         if res is not None:
             store.save_coinc(res)
             log.info("RAVEN-KN: %s in the window of %s, FAR %.3g Hz", sid, kn.name,
@@ -325,7 +387,7 @@ def handle_grb_notice(msg: dict | bytes | str, store: CandidateStore,
 
 
 def add_candidate(kn: KNCandidate, store: CandidateStore, now_gps: Optional[float] = None,
-                  **coinc_kw) -> list[dict]:
+                  use_combined: bool = False, **coinc_kw) -> list[dict]:
     """Store a new or updated candidate and match it against GW alerts
     received in the last ``gw_memory_days``."""
     store.save(kn)
@@ -334,7 +396,9 @@ def add_candidate(kn: KNCandidate, store: CandidateStore, now_gps: Optional[floa
     for gw in store.gw_alerts():
         if gw.get("gpstime") is None or now - gw["gpstime"] > store.gw_memory_s:
             continue
-        res = _evaluate(kn, gw, store.gw_skymap(gw["superevent_id"]), **coinc_kw)
+        sid = gw["superevent_id"]
+        res = _evaluate(kn, gw, store.gw_skymap(sid), store.gw_skymap(sid, combined=True),
+                        use_combined, **coinc_kw)
         if res is not None:
             store.save_coinc(res)
             out.append(res)
