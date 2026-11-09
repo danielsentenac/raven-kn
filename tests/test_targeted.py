@@ -137,20 +137,30 @@ def test_slide_shifts():
 def test_pygrb_overrides_and_bank(tmp_path):
     import configparser
     from raven_kn.targeted.pygrb import write_pygrb_overrides
+    from pycbc.types import angle_as_radians
     from pycbc.waveform.bank import TemplateBank
+    tpl = tmp_path / "GRB170817A.ini"
+    tpl.write_text("[workflow]\ntrigger-name = 170817A\ntrigger-time = 1187008884\n"
+                   "ra = 3.44 rad\ndec = -0.41 rad\nsky-error = 0.0 rad\n"
+                   "[workflow-injections]\nnsns-config-files = nsns.ini, GRB170817A.ini\n"
+                   "[prior-ra+dec]\nmean_ra = ${workflow|ra}\n")
     cfg = TargetedSearchConfig(197.45, -23.38, 1187008000.0, 1187010048.0, mchirp_min=1.19,
                                mchirp_max=1.21, f_low=30.0, subsegment_s=1024, label="GW170817")
-    files = write_pygrb_overrides(cfg, tmp_path)
-    assert len(files) == 2 and (tmp_path / "run_pygrb.sh").exists()
-    cp = configparser.ConfigParser()
+    files = write_pygrb_overrides(cfg, tmp_path / "out", base_config=["analysis.ini", "data.ini"],
+                                  event_template=tpl)
+    assert len(files) == 2
+    cp = configparser.ConfigParser(interpolation=None)
     cp.optionxform = str
     cp.read(files[0])
     w = cp["workflow"]
-    assert w["trigger-time"] == "1187008512" and w["ra"] == "197.450000deg"
-    e = cp["workflow-exttrig_segments"]
-    assert int(e["on-before"]) + int(e["on-after"]) == 1024
-    assert int(e["max-duration"]) > int(e["min-duration"]) > 1024
-    assert cp["workflow-tmpltbank"]["tmpltbank-method"] == "PREGENERATED_BANK"
-    bank = TemplateBank(cp["workflow-tmpltbank"]["tmpltbank-pregenerated-bank"])
-    assert len(bank.table) > 3
-    assert np.allclose(bank.table.mass1, bank.table.mass2)
+    assert w["trigger-time"] == "1187008512" and w["sky-error"] == "0.0 rad"
+    assert angle_as_radians(w["ra"]) == pytest.approx(np.radians(197.45))
+    assert angle_as_radians(w["dec"]) == pytest.approx(np.radians(-23.38))
+    assert cp["workflow-injections"]["nsns-config-files"] == "nsns.ini, GW170817_seg000.ini"
+    assert cp["prior-ra+dec"]["mean_ra"] == "${workflow|ra}"
+    run = (tmp_path / "out" / "run_pygrb.sh").read_text()
+    assert "--config-files analysis.ini data.ini GW170817_seg000.ini" in run
+    assert "workflow-exttrig_segments:on-before:512" in run
+    m = [x for x in run.split() if x.startswith("workflow-tmpltbank:tmpltbank-pregenerated-bank:")][0]
+    bank = TemplateBank(m.split(":", 2)[2])
+    assert len(bank.table) > 3 and np.allclose(bank.table.mass1, bank.table.mass2)

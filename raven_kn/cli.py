@@ -94,8 +94,13 @@ def main(argv=None):
     y.add_argument("--subsegment", type=float, default=1024.0)
     y.add_argument("--f-low", type=float, default=30.0)
     y.add_argument("--offsource-factor", type=float, default=6.0)
-    y.add_argument("--base-config", default="pygrb_base.ini",
-                   help="LVK PyGRB base configuration the overrides are layered on")
+    y.add_argument("--base-config", nargs="+", default=["pygrb_base.ini"],
+                   help="LVK PyGRB base configuration files, without the per-GRB file")
+    y.add_argument("--event-template", help="per-GRB ini to adapt (e.g. LVK GRB170817A.ini); "
+                                            "its [workflow] event options are replaced")
+    y.add_argument("--bank-path", help="bank path as seen where the workflow runs")
+    y.add_argument("--extra-override", nargs="*", default=[],
+                   help="further section:option:value overrides")
 
     args = p.parse_args(argv)
     if args.cmd == "pygrb":
@@ -104,7 +109,10 @@ def main(argv=None):
         cfg = TargetedSearchConfig.from_request(args.request, subsegment_s=args.subsegment,
                                                 f_low=args.f_low)
         files = write_pygrb_overrides(cfg, args.out, offsource_factor=args.offsource_factor,
-                                      base_config=args.base_config)
+                                      base_config=args.base_config,
+                                      event_template=args.event_template,
+                                      bank_path=args.bank_path,
+                                      extra_overrides=args.extra_override)
         print(json.dumps({"n_subsegments": len(files), "out": args.out,
                           "run_script": f"{args.out}/run_pygrb.sh"}, indent=2))
         return

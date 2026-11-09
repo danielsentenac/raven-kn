@@ -14,8 +14,10 @@ from the LVK PyGRB base configuration. It writes, per sub-segment, an
     pycbc_make_offline_grb_workflow --config-files base.ini <override>.ini ...
 
 Option names checked against PyCBC 2.8 (``pycbc.workflow.segment``,
-``matched_filter``, ``tmpltbank``): ``[workflow] trigger-name, trigger-time,
-ra, dec, start-time, end-time``; ``[workflow-exttrig_segments] on-before,
+``matched_filter``, ``tmpltbank``) and LVK's O4 PyGRB test configuration
+(pycbc-config ``O4/pygrb/dev/o2_tests/GRB170817A.ini``): ``[workflow]
+trigger-name, trigger-time, ra, dec ("<value> rad"), sky-error, start-time,
+end-time``; ``[workflow-exttrig_segments] on-before,
 on-after, min-duration, max-duration``; ``[workflow-tmpltbank]
 tmpltbank-method = PREGENERATED_BANK, tmpltbank-pregenerated-bank``.
 ``pad-data`` and ``quanta`` stay in the base file: the off-source length must
@@ -58,19 +60,36 @@ def write_bank_hdf(mchirps: Sequence[float], path: str | Path, f_lower: float) -
 def write_pygrb_overrides(cfg: TargetedSearchConfig, out_dir: str | Path,
                           bank: Optional[Sequence[float]] = None,
                           offsource_factor: float = 6.0,
-                          base_config: str = "pygrb_base.ini") -> list[Path]:
-    """One override ini per sub-segment of the t0 window, a shared HDF bank,
-    and ``run_pygrb.sh`` with the workflow-generation commands.
+                          base_config: str | Sequence[str] = "pygrb_base.ini",
+                          event_template: Optional[str | Path] = None,
+                          bank_path: Optional[str] = None,
+                          extra_overrides: Sequence[str] = ()) -> list[Path]:
+    """Per sub-segment of the t0 window: an event ini file and the
+    ``pycbc_make_offline_grb_workflow`` command, in ``run_pygrb.sh``; one
+    shared HDF bank.
+
+    PyCBC's config parser rejects an option defined in two files, so the
+    event file *replaces* the per-GRB file of the base configuration
+    (``event_template``, e.g. LVK's ``GRB170817A.ini``: its ``[workflow]``
+    event options are replaced, its other sections, e.g. injection
+    settings, kept, and references to the template's own path pointed to
+    the new file), and the options that live in the base analysis file are
+    passed as ``--config-overrides``:
+    ``workflow-exttrig_segments:on-before / on-after / min-duration /
+    max-duration`` and ``workflow-tmpltbank:tmpltbank-pregenerated-bank``.
 
     For a sub-segment of length L centred on T: trigger-time = T,
-    on-before = on-after = L/2, off-source between ``2 L`` and
-    ``offsource_factor`` x L around it (start/end-time bound the data used).
+    on-before = on-after = L/2, off-source between 4 x L/2 and
+    ``offsource_factor`` x L. ``bank_path``: path of the bank as seen where
+    the workflow runs (default: local path).
     """
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
     bank = list(bank) if bank is not None else build_bank(
         cfg.mchirp_min, cfg.mchirp_max, cfg.f_low, cfg.min_match, cfg.sample_rate, cfg.max_templates)
     bank_file = write_bank_hdf(bank, out / f"{cfg.label}_bank.hdf", cfg.f_low)
+    bank_ref = bank_path or str(bank_file.resolve())
+    base = [base_config] if isinstance(base_config, str) else list(base_config)
     edges = np.arange(cfg.gps_start, cfg.gps_end, cfg.subsegment_s).tolist() + [cfg.gps_end]
     files, cmds = [], []
     for k, (a, b) in enumerate(zip(edges[:-1], edges[1:])):
@@ -80,28 +99,46 @@ def write_pygrb_overrides(cfg: TargetedSearchConfig, out_dir: str | Path,
         half = int(math.ceil(0.5 * (b - a)))
         span = int(math.ceil(offsource_factor * 2 * half))
         name = f"{cfg.label}_seg{k:03d}"
-        cp = configparser.ConfigParser()
-        cp.optionxform = str
-        cp["workflow"] = {"trigger-name": name, "trigger-time": str(t),
-                          "ra": f"{cfg.ra_deg:.6f}deg", "dec": f"{cfg.dec_deg:.6f}deg",
-                          "start-time": str(t - span // 2 - 64), "end-time": str(t + span // 2 + 64)}
-        cp["workflow-exttrig_segments"] = {"on-before": str(half), "on-after": str(half),
-                                           "min-duration": str(4 * half),
-                                           "max-duration": str(span)}
-        cp["workflow-tmpltbank"] = {"tmpltbank-method": "PREGENERATED_BANK",
-                                    "tmpltbank-pregenerated-bank": str(bank_file.resolve())}
         f = out / f"{name}.ini"
+        cp = configparser.ConfigParser(interpolation=None)
+        cp.optionxform = str
+        if event_template is not None:
+            cp.read(event_template)
+            tpl = str(event_template)
+            for sec in cp.sections():
+                for opt, val in cp[sec].items():
+                    if tpl in val or Path(tpl).name in val:
+                        cp[sec][opt] = val.replace(tpl, str(f.name)).replace(Path(tpl).name, f.name)
+        if not cp.has_section("workflow"):
+            cp.add_section("workflow")
+        # "<value> <unit>" with a space, as in LVK's PyGRB configs: a negative
+        # "<value><unit>" is misparsed by argparse (pycbc.types.angle_as_radians)
+        cp["workflow"].update({"trigger-name": name, "trigger-time": str(t),
+                               "ra": f"{math.radians(cfg.ra_deg):.12f} rad",
+                               "dec": f"{math.radians(cfg.dec_deg):.12f} rad",
+                               "sky-error": "0.0 rad",
+                               "start-time": str(t - span // 2 - 64),
+                               "end-time": str(t + span // 2 + 64)})
         with open(f, "w") as fh:
-            fh.write(f"; RAVEN-KN override for PyGRB, sub-segment {k} of {cfg.label}\n"
-                     f"; on-source [{a:.1f}, {b:.1f}] GPS ({b - a:.0f} s); layer on the LVK "
-                     f"PyGRB base configuration\n")
+            fh.write(f"; RAVEN-KN event file for PyGRB, sub-segment {k} of {cfg.label}\n"
+                     f"; on-source [{a:.1f}, {b:.1f}] GPS ({b - a:.0f} s)"
+                     + (f"; from template {Path(event_template).name}" if event_template else "")
+                     + "\n")
             cp.write(fh)
         files.append(f)
-        cmds.append(f"pycbc_make_offline_grb_workflow --config-files {base_config} {f.name} "
-                    f"--output-dir {name}")
+        overrides = [f"workflow-exttrig_segments:on-before:{half}",
+                     f"workflow-exttrig_segments:on-after:{half}",
+                     f"workflow-exttrig_segments:min-duration:{4 * half}",
+                     f"workflow-exttrig_segments:max-duration:{span}",
+                     f"workflow-tmpltbank:tmpltbank-pregenerated-bank:{bank_ref}",
+                     *extra_overrides]
+        cmds.append(f"mkdir -p {name}\n"   # PyGRB saves its config into --output
+                    "pycbc_make_offline_grb_workflow \\\n  --config-files " + " ".join(base)
+                    + f" {f.name} \\\n  --workflow-name {name} --output {name} \\\n"
+                    "  --config-overrides " + " ".join(overrides))
     script = out / "run_pygrb.sh"
     script.write_text("#!/bin/sh\n# Generated by RAVEN-KN: one PyGRB workflow per sub-segment.\n"
-                      f"# {base_config}: LVK PyGRB base configuration (not provided here).\n"
-                      "set -e\n" + "\n".join(cmds) + "\n")
+                      f"# Base configuration files: {' '.join(base)} (LVK, not provided here).\n"
+                      "set -e\n" + "\n\n".join(cmds) + "\n")
     script.chmod(0o755)
     return files

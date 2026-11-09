@@ -156,20 +156,32 @@ The t0 window depends most on the latest deep image of the position before the f
 ## PyGRB configuration (`raven-kn pygrb`)
 
 The production targeted search is PyGRB (coherent SNR, chi-square and null-stream vetoes). It is built for
-on-source windows of seconds to minutes, so the kilonova window is split into sub-segments and one
-override file is written per sub-segment, with a shared HDF template bank (loads with PyCBC in the igwn
-environment) and `run_pygrb.sh`:
+on-source windows of seconds to minutes, so the kilonova window is split into sub-segments; per
+sub-segment RAVEN-KN writes an event file and a `pycbc_make_offline_grb_workflow` command
+(`run_pygrb.sh`), with one shared HDF template bank. PyCBC's config parser rejects an option defined in two
+files, so:
+- the event file *replaces* the per-GRB file of the LVK base configuration: it is built from a template
+  (e.g. LVK's `GRB170817A.ini`) whose `[workflow]` event options (trigger name/time, ra/dec as
+  `"<value> rad"`, sky-error, start/end time) are replaced and whose other sections (injection settings)
+  are kept, self-references pointed to the new file;
+- on-/off-source durations and the bank are passed as `--config-overrides`
+  (`workflow-exttrig_segments:on-before/on-after/min-duration/max-duration`,
+  `workflow-tmpltbank:tmpltbank-pregenerated-bank`).
 
 ```bash
 raven-kn pygrb --request out/<name>_targeted_search_request.json --out pygrb_configs \
-    --base-config pygrb_base.ini        # LVK PyGRB base configuration, not provided here
+    --base-config analysis.ini executables_common.ini executables_condorpool.ini injections.ini \
+                  postprocessing.ini cats.ini o2-data.ini \
+    --event-template GRB170817A.ini --bank-path /path/on/cluster/<name>_bank.hdf
 ```
 
-Overrides: `[workflow] trigger-name, trigger-time, ra, dec (deg), start-time, end-time`,
-`[workflow-exttrig_segments] on-before, on-after, min-duration, max-duration`,
-`[workflow-tmpltbank] PREGENERATED_BANK` (option names checked against PyCBC 2.8). `pad-data` and
-`quanta` stay in the base configuration and must be compatible with the off-source length. Not run here
-(needs the LVK base configuration, frame access and HTCondor).
+**Tested on CIT** (2026-11-06) with LVK's O2 test configuration (pycbc-config `O4/pygrb/dev/o2_tests`,
+IGWN conda PyCBC 2.8.1; the CVMFS RHEL-8 PyCBC virtualenv does not run on CIT's AlmaLinux 10): a 1024 s
+on-source window around GW170817 with the RAVEN-KN bank generates a complete workflow (29 jobs: coherent
+H1/L1/V1 matched filtering on O2 cleaned C02 frames over 4 bank splits, injections, clustering, results
+page). Not yet submitted. Lessons: PyGRB aborts if the on-source contains vetoed time (a CAT2 H1 second
+444 s after the merger stopped the first attempt), so sub-segment edges must avoid veto segments for long
+windows; the `--output` directory must exist before generation (`run_pygrb.sh` creates it).
 
 ## Real case: S250818k / AT2025ulz
 
@@ -221,7 +233,7 @@ SN 2025ulz was classified as a type IIb supernova; the physical link is still de
 
 ## Not yet done
 
-- Run the PyGRB configurations end to end on a cluster with the LVK base configuration.
+- Submit the generated PyGRB workflow on CIT and compare with the light search; choose sub-segment edges that avoid veto segments.
 - Off-source (non-slide) background and a coherent statistic in the light search.
 - Calibration of the model-systematic margin with cross-model injections (0.75 is fitted on two events).
 - ZTF forced photometry (IRSA ZFPS), GOTO, BlackGEM archive connectors; live test of the ATLAS connector.
