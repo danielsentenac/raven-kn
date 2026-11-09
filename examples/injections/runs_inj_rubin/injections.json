@@ -1,0 +1,343 @@
+[
+ {
+  "name": "inj008_Bu2019lm",
+  "t0_gps": 1408000000.0,
+  "truth_model": "Bu2019lm",
+  "params": {
+   "log10_mej_dyn": -2.5145673944607045,
+   "log10_mej_wind": -1.081330290924022,
+   "KNphi": 72.7121974918846,
+   "inclination_EM": 1.1797812340457312,
+   "luminosity_distance": 255.01650178456782
+  },
+  "pre_merger_coverage": true
+ },
+ {
+  "name": "inj016_Bu2019lm",
+  "t0_gps": 1416000000.0,
+  "truth_model": "Bu2019lm",
+  "params": {
+   "log10_mej_dyn": -2.6096191131230118,
+   "log10_mej_wind": -1.4737136784916374,
+   "KNphi": 25.897819620685514,
+   "inclination_EM": 0.5201372430306824,
+   "luminosity_distance": 212.73528287303807
+  },
+  "pre_merger_coverage": false
+ },
+ {
+  "name": "inj017_Ka2017",
+  "t0_gps": 1417000000.0,
+  "truth_model": "Ka2017",
+  "params": {
+   "log10_mej": -1.428860948040235,
+   "log10_vej": -0.7261500918450225,
+   "log10_Xlan": -5.319087666328036,
+   "luminosity_distance": 72.48678377050285
+  },
+  "pre_merger_coverage": true
+ },
+ {
+  "name": "inj018_Bu2019lm",
+  "t0_gps": 1418000000.0,
+  "truth_model": "Bu2019lm",
+  "params": {
+   "log10_mej_dyn": -2.177093726307827,
+   "log10_mej_wind": -1.456555168120508,
+   "KNphi": 29.613180185993656,
+   "inclination_EM": 0.8115885300879222,
+   "luminosity_distance": 108.20025729133458
+  },
+  "pre_merger_coverage": true
+ },
+ {
+  "name": "inj024_Bu2019lm",
+  "t0_gps": 1424000000.0,
+  "truth_model": "Bu2019lm",
+  "params": {
+   "log10_mej_dyn": -2.669214966281982,
+   "log10_mej_wind": -1.1673014427680477,
+   "KNphi": 70.05465458462417,
+   "inclination_EM": 0.4962698475666004,
+   "luminosity_distance": 275.7993957584504
+  },
+  "pre_merger_coverage": true
+ },
+ {
+  "name": "inj026_Bu2019lm",
+  "t0_gps": 1426000000.0,
+  "truth_model": "Bu2019lm",
+  "params": {
+   "log10_mej_dyn": -2.615174342999755,
+   "log10_mej_wind": -1.196869072321185,
+   "KNphi": 57.95253845008429,
+   "inclination_EM": 0.8751544222711358,
+   "luminosity_distance": 152.81900375189196
+  },
+  "pre_merger_coverage": true
+ },
+ {
+  "name": "inj028_Bu2019lm",
+  "t0_gps": 1428000000.0,
+  "truth_model": "Bu2019lm",
+  "params": {
+   "log10_mej_dyn": -2.6048082210958907,
+   "log10_mej_wind": -1.887857406960046,
+   "KNphi": 69.42242489548676,
+   "inclination_EM": 1.0499553804419837,
+   "luminosity_distance": 71.38496905258899
+  },
+  "pre_merger_coverage": true
+ },
+ {
+  "name": "inj030_Bu2019lm",
+  "t0_gps": 1430000000.0,
+  "truth_model": "Bu2019lm",
+  "params": {
+   "log10_mej_dyn": -2.0543834736398456,
+   "log10_mej_wind": -1.8776677823210168,
+   "KNphi": 17.918292727611714,
+   "inclination_EM": 0.6851594082004554,
+   "luminosity_distance": 207.63484371033286
+  },
+  "pre_merger_coverage": false
+ },
+ {
+  "name": "inj031_Ka2017",
+  "t0_gps": 1431000000.0,
+  "truth_model": "Ka2017",
+  "params": {
+   "log10_mej": -1.3912300787033691,
+   "log10_vej": -0.91122935590861,
+   "log10_Xlan": -5.623245162542124,
+   "luminosity_distance": 159.54050970137612
+  },
+  "pre_merger_coverage": true
+ },
+ {
+  "name": "inj032_Bu2019lm",
+  "t0_gps": 1432000000.0,
+  "truth_model": "Bu2019lm",
+  "params": {
+   "log10_mej_dyn": -2.75259317293963,
+   "log10_mej_wind": -1.3201467236290694,
+   "KNphi": 16.541474915450202,
+   "inclination_EM": 1.1609125107876521,
+   "luminosity_distance": 228.81283189023688
+  },
+  "pre_merger_coverage": true
+ },
+ {
+  "name": "inj034_Bu2019lm",
+  "t0_gps": 1434000000.0,
+  "truth_model": "Bu2019lm",
+  "params": {
+   "log10_mej_dyn": -2.4558539654757823,
+   "log10_mej_wind": -1.2654618535670175,
+   "KNphi": 17.703639600563434,
+   "inclination_EM": 0.6847959759310333,
+   "luminosity_distance": 249.59049888672357
+  },
+  "pre_merger_coverage": false
+ },
+ {
+  "name": "inj039_Ka2017",
+  "t0_gps": 1439000000.0,
+  "truth_model": "Ka2017",
+  "params": {
+   "log10_mej": -1.6694293954895163,
+   "log10_vej": -0.987445520512293,
+   "log10_Xlan": -5.355006497404938,
+   "luminosity_distance": 283.2512895082474
+  },
+  "pre_merger_coverage": false
+ },
+ {
+  "name": "inj040_Bu2019lm",
+  "t0_gps": 1440000000.0,
+  "truth_model": "Bu2019lm",
+  "params": {
+   "log10_mej_dyn": -1.9881623596094284,
+   "log10_mej_wind": -1.3287410760206102,
+   "KNphi": 61.92437347013874,
+   "inclination_EM": 0.847602686765383,
+   "luminosity_distance": 278.4741232371594
+  },
+  "pre_merger_coverage": false
+ },
+ {
+  "name": "inj046_Bu2019lm",
+  "t0_gps": 1446000000.0,
+  "truth_model": "Bu2019lm",
+  "params": {
+   "log10_mej_dyn": -2.755254017179783,
+   "log10_mej_wind": -1.1923316054646307,
+   "KNphi": 55.39501427123067,
+   "inclination_EM": 0.26483695744131064,
+   "luminosity_distance": 140.97181487958204
+  },
+  "pre_merger_coverage": true
+ },
+ {
+  "name": "inj050_Bu2019lm",
+  "t0_gps": 1450000000.0,
+  "truth_model": "Bu2019lm",
+  "params": {
+   "log10_mej_dyn": -2.252949109522424,
+   "log10_mej_wind": -1.418012727849903,
+   "KNphi": 74.580995652556,
+   "inclination_EM": 0.144689521471538,
+   "luminosity_distance": 252.05589862783427
+  },
+  "pre_merger_coverage": true
+ },
+ {
+  "name": "inj051_Ka2017",
+  "t0_gps": 1451000000.0,
+  "truth_model": "Ka2017",
+  "params": {
+   "log10_mej": -2.387555090048842,
+   "log10_vej": -0.7733484298509593,
+   "log10_Xlan": -5.565095927651079,
+   "luminosity_distance": 75.48854883491582
+  },
+  "pre_merger_coverage": false
+ },
+ {
+  "name": "inj054_Bu2019lm",
+  "t0_gps": 1454000000.0,
+  "truth_model": "Bu2019lm",
+  "params": {
+   "log10_mej_dyn": -2.6050391818058105,
+   "log10_mej_wind": -1.3270825559035921,
+   "KNphi": 38.15032001253737,
+   "inclination_EM": 0.5042697479181442,
+   "luminosity_distance": 164.321922019073
+  },
+  "pre_merger_coverage": true
+ },
+ {
+  "name": "inj065_Ka2017",
+  "t0_gps": 1465000000.0,
+  "truth_model": "Ka2017",
+  "params": {
+   "log10_mej": -1.7252605488115997,
+   "log10_vej": -1.1855359675772958,
+   "log10_Xlan": -4.342138545685996,
+   "luminosity_distance": 291.4162674739917
+  },
+  "pre_merger_coverage": true
+ },
+ {
+  "name": "inj066_Bu2019lm",
+  "t0_gps": 1466000000.0,
+  "truth_model": "Bu2019lm",
+  "params": {
+   "log10_mej_dyn": -2.2496169862181024,
+   "log10_mej_wind": -1.180663789068094,
+   "KNphi": 39.73613927958641,
+   "inclination_EM": 0.8315242850736788,
+   "luminosity_distance": 247.91903781209697
+  },
+  "pre_merger_coverage": true
+ },
+ {
+  "name": "inj067_Ka2017",
+  "t0_gps": 1467000000.0,
+  "truth_model": "Ka2017",
+  "params": {
+   "log10_mej": -1.342018235428296,
+   "log10_vej": -0.7255742606391994,
+   "log10_Xlan": -4.225198431520949,
+   "luminosity_distance": 254.10052372583002
+  },
+  "pre_merger_coverage": true
+ },
+ {
+  "name": "inj068_Bu2019lm",
+  "t0_gps": 1468000000.0,
+  "truth_model": "Bu2019lm",
+  "params": {
+   "log10_mej_dyn": -2.383043223858297,
+   "log10_mej_wind": -1.3682404613481782,
+   "KNphi": 70.44316737938567,
+   "inclination_EM": 0.8836976059316752,
+   "luminosity_distance": 294.106115719686
+  },
+  "pre_merger_coverage": true
+ },
+ {
+  "name": "inj071_Ka2017",
+  "t0_gps": 1471000000.0,
+  "truth_model": "Ka2017",
+  "params": {
+   "log10_mej": -1.764747594888771,
+   "log10_vej": -1.1164748473103914,
+   "log10_Xlan": -5.1482249173395225,
+   "luminosity_distance": 297.01258255322654
+  },
+  "pre_merger_coverage": true
+ },
+ {
+  "name": "inj075_Ka2017",
+  "t0_gps": 1475000000.0,
+  "truth_model": "Ka2017",
+  "params": {
+   "log10_mej": -2.0376507833863586,
+   "log10_vej": -0.8623072187795515,
+   "log10_Xlan": -4.619979274187152,
+   "luminosity_distance": 116.25971954720531
+  },
+  "pre_merger_coverage": true
+ },
+ {
+  "name": "inj077_Ka2017",
+  "t0_gps": 1477000000.0,
+  "truth_model": "Ka2017",
+  "params": {
+   "log10_mej": -1.4623971280400692,
+   "log10_vej": -0.9942392425719326,
+   "log10_Xlan": -5.923423273254263,
+   "luminosity_distance": 190.60675817627813
+  },
+  "pre_merger_coverage": false
+ },
+ {
+  "name": "inj082_Bu2019lm",
+  "t0_gps": 1482000000.0,
+  "truth_model": "Bu2019lm",
+  "params": {
+   "log10_mej_dyn": -2.680462193308613,
+   "log10_mej_wind": -1.0923870184846654,
+   "KNphi": 16.00647982449908,
+   "inclination_EM": 1.0374369356028403,
+   "luminosity_distance": 182.8093069148542
+  },
+  "pre_merger_coverage": true
+ },
+ {
+  "name": "inj093_Ka2017",
+  "t0_gps": 1493000000.0,
+  "truth_model": "Ka2017",
+  "params": {
+   "log10_mej": -2.237604536312415,
+   "log10_vej": -0.9249753871925311,
+   "log10_Xlan": -3.2984217081999736,
+   "luminosity_distance": 144.74469480386216
+  },
+  "pre_merger_coverage": true
+ },
+ {
+  "name": "inj094_Bu2019lm",
+  "t0_gps": 1494000000.0,
+  "truth_model": "Bu2019lm",
+  "params": {
+   "log10_mej_dyn": -1.9615148335916557,
+   "log10_mej_wind": -1.415123147751506,
+   "KNphi": 61.93317165856414,
+   "inclination_EM": 0.6071292107262554,
+   "luminosity_distance": 202.322740872131
+  },
+  "pre_merger_coverage": true
+ }
+]

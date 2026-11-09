@@ -1,0 +1,104 @@
+{
+  "name": "inj068_Bu2019lm",
+  "ra": 150.0,
+  "dec": 10.0,
+  "pos_err_arcsec": 0.5,
+  "source": "manual",
+  "kn_score": null,
+  "graceid": null,
+  "photometry": [
+    {
+      "mjd": 61227.442279435665,
+      "band": "g",
+      "mag": 24.5,
+      "mag_err": null,
+      "upper_limit": true,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 61227.472279435664,
+      "band": "i",
+      "mag": 24.5,
+      "mag_err": null,
+      "upper_limit": true,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 61230.442279435665,
+      "band": "g",
+      "mag": 24.5,
+      "mag_err": null,
+      "upper_limit": true,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 61230.472279435664,
+      "band": "r",
+      "mag": 24.5,
+      "mag_err": null,
+      "upper_limit": true,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 61233.442279435665,
+      "band": "g",
+      "mag": 24.5,
+      "mag_err": null,
+      "upper_limit": true,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 61233.472279435664,
+      "band": "i",
+      "mag": 24.5,
+      "mag_err": null,
+      "upper_limit": true,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 61236.442279435665,
+      "band": "g",
+      "mag": 24.454115064250928,
+      "mag_err": 0.1601298258700634,
+      "upper_limit": false,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 61236.472279435664,
+      "band": "i",
+      "mag": 21.349406506504042,
+      "mag_err": 0.031977602965570576,
+      "upper_limit": false,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 61239.442279435665,
+      "band": "r",
+      "mag": 24.5,
+      "mag_err": null,
+      "upper_limit": true,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 61239.472279435664,
+      "band": "i",
+      "mag": 23.7284821788513,
+      "mag_err": 0.11700888425783011,
+      "upper_limit": false,
+      "survey": "PS1"
+    }
+  ],
+  "redshift": {
+    "z": 0.06336917288228,
+    "z_err": 0.0001,
+    "kind": "spectroscopic",
+    "source": "host"
+  },
+  "distance": null,
+  "viewing_angle": null,
+  "grb": null,
+  "t0_samples_gps": null,
+  "lc_fit_samples": null,
+  "lc_fit_informed": false,
+  "notes": ""
+}

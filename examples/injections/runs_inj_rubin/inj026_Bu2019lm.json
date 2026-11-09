@@ -1,0 +1,104 @@
+{
+  "name": "inj026_Bu2019lm",
+  "ra": 150.0,
+  "dec": 10.0,
+  "pos_err_arcsec": 0.5,
+  "source": "manual",
+  "kn_score": null,
+  "graceid": null,
+  "photometry": [
+    {
+      "mjd": 60741.70603522302,
+      "band": "r",
+      "mag": 24.5,
+      "mag_err": null,
+      "upper_limit": true,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 60741.73603522302,
+      "band": "i",
+      "mag": 24.5,
+      "mag_err": null,
+      "upper_limit": true,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 60744.70603522302,
+      "band": "g",
+      "mag": 24.5,
+      "mag_err": null,
+      "upper_limit": true,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 60744.73603522302,
+      "band": "r",
+      "mag": 24.5,
+      "mag_err": null,
+      "upper_limit": true,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 60747.70603522302,
+      "band": "r",
+      "mag": 24.5,
+      "mag_err": null,
+      "upper_limit": true,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 60747.73603522302,
+      "band": "i",
+      "mag": 24.5,
+      "mag_err": null,
+      "upper_limit": true,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 60750.70603522302,
+      "band": "r",
+      "mag": 21.3077193979651,
+      "mag_err": 0.03178543949562065,
+      "upper_limit": false,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 60750.73603522302,
+      "band": "i",
+      "mag": 19.506921973322296,
+      "mag_err": 0.03006902621570412,
+      "upper_limit": false,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 60753.70603522302,
+      "band": "g",
+      "mag": 24.5,
+      "mag_err": null,
+      "upper_limit": true,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 60753.73603522302,
+      "band": "r",
+      "mag": 23.88618792180311,
+      "mag_err": 0.09961556141782107,
+      "upper_limit": false,
+      "survey": "PS1"
+    }
+  ],
+  "redshift": {
+    "z": 0.0336330906505538,
+    "z_err": 0.0001,
+    "kind": "spectroscopic",
+    "source": "host"
+  },
+  "distance": null,
+  "viewing_angle": null,
+  "grb": null,
+  "t0_samples_gps": null,
+  "lc_fit_samples": null,
+  "lc_fit_informed": false,
+  "notes": ""
+}

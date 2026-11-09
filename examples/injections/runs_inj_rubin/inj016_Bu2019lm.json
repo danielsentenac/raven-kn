@@ -1,0 +1,56 @@
+{
+  "name": "inj016_Bu2019lm",
+  "ra": 150.0,
+  "dec": 10.0,
+  "pos_err_arcsec": 0.5,
+  "source": "manual",
+  "kn_score": null,
+  "graceid": null,
+  "photometry": [
+    {
+      "mjd": 60633.73807281406,
+      "band": "g",
+      "mag": 20.646181223615145,
+      "mag_err": 0.030565906319787534,
+      "upper_limit": false,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 60633.76807281406,
+      "band": "i",
+      "mag": 20.669749151747645,
+      "mag_err": 0.0306182294595502,
+      "upper_limit": false,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 60636.73807281406,
+      "band": "r",
+      "mag": 23.852708826538297,
+      "mag_err": 0.10925341900200579,
+      "upper_limit": false,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 60636.76807281406,
+      "band": "i",
+      "mag": 22.61703021614451,
+      "mag_err": 0.0472985190773569,
+      "upper_limit": false,
+      "survey": "PS1"
+    }
+  ],
+  "redshift": {
+    "z": 0.04639020003362392,
+    "z_err": 0.0001,
+    "kind": "spectroscopic",
+    "source": "host"
+  },
+  "distance": null,
+  "viewing_angle": null,
+  "grb": null,
+  "t0_samples_gps": null,
+  "lc_fit_samples": null,
+  "lc_fit_informed": false,
+  "notes": ""
+}

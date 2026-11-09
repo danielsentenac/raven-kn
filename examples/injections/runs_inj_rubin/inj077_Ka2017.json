@@ -1,0 +1,56 @@
+{
+  "name": "inj077_Ka2017",
+  "ra": 150.0,
+  "dec": 10.0,
+  "pos_err_arcsec": 0.5,
+  "source": "manual",
+  "kn_score": null,
+  "graceid": null,
+  "photometry": [
+    {
+      "mjd": 61341.868542857395,
+      "band": "r",
+      "mag": 20.79690511920047,
+      "mag_err": 0.03078179432612838,
+      "upper_limit": false,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 61341.898542857394,
+      "band": "i",
+      "mag": 20.805428050339927,
+      "mag_err": 0.030768781652204247,
+      "upper_limit": false,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 61344.868542857395,
+      "band": "r",
+      "mag": 21.723963696198574,
+      "mag_err": 0.03384223633329844,
+      "upper_limit": false,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 61344.898542857394,
+      "band": "i",
+      "mag": 21.962492501145967,
+      "mag_err": 0.03562778387321174,
+      "upper_limit": false,
+      "survey": "PS1"
+    }
+  ],
+  "redshift": {
+    "z": 0.041704833668454185,
+    "z_err": 0.0001,
+    "kind": "spectroscopic",
+    "source": "host"
+  },
+  "distance": null,
+  "viewing_angle": null,
+  "grb": null,
+  "t0_samples_gps": null,
+  "lc_fit_samples": null,
+  "lc_fit_informed": false,
+  "notes": ""
+}

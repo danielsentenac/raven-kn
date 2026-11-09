@@ -1,0 +1,9 @@
+{
+ "depth": 24.5,
+ "cadence_d": 3.0,
+ "lost": 0.2,
+ "bands_per_epoch": 2,
+ "d_min": 40.0,
+ "d_max": 300.0,
+ "fit_days": 6.5
+}

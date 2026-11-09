@@ -1,0 +1,104 @@
+{
+  "name": "inj075_Ka2017",
+  "ra": 150.0,
+  "dec": 10.0,
+  "pos_err_arcsec": 0.5,
+  "source": "manual",
+  "kn_score": null,
+  "graceid": null,
+  "photometry": [
+    {
+      "mjd": 61309.168280010716,
+      "band": "r",
+      "mag": 24.5,
+      "mag_err": null,
+      "upper_limit": true,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 61309.198280010714,
+      "band": "i",
+      "mag": 24.5,
+      "mag_err": null,
+      "upper_limit": true,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 61312.168280010716,
+      "band": "g",
+      "mag": 24.5,
+      "mag_err": null,
+      "upper_limit": true,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 61312.198280010714,
+      "band": "r",
+      "mag": 24.5,
+      "mag_err": null,
+      "upper_limit": true,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 61315.168280010716,
+      "band": "g",
+      "mag": 24.5,
+      "mag_err": null,
+      "upper_limit": true,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 61315.198280010714,
+      "band": "r",
+      "mag": 24.5,
+      "mag_err": null,
+      "upper_limit": true,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 61318.168280010716,
+      "band": "r",
+      "mag": 21.52618203414592,
+      "mag_err": 0.03270987931455799,
+      "upper_limit": false,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 61318.198280010714,
+      "band": "i",
+      "mag": 21.357197370479614,
+      "mag_err": 0.031744864617329095,
+      "upper_limit": false,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 61321.168280010716,
+      "band": "g",
+      "mag": 24.2742588572638,
+      "mag_err": 0.18482505651410397,
+      "upper_limit": false,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 61321.198280010714,
+      "band": "i",
+      "mag": 22.649260571478898,
+      "mag_err": 0.047989963596808065,
+      "upper_limit": false,
+      "survey": "PS1"
+    }
+  ],
+  "redshift": {
+    "z": 0.025735615307911547,
+    "z_err": 0.0001,
+    "kind": "spectroscopic",
+    "source": "host"
+  },
+  "distance": null,
+  "viewing_angle": null,
+  "grb": null,
+  "t0_samples_gps": null,
+  "lc_fit_samples": null,
+  "lc_fit_informed": false,
+  "notes": ""
+}

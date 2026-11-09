@@ -110,6 +110,9 @@ volume, known host redshift), observed with a ZTF-like survey (nightly g/r/i epo
 |---|---|---|---|
 | same model as the truth | 29/29 | 29/29 | 29/29, 59 h |
 | other model | 23/29 (79 %) | 28/29 / 28/29 / 29/29 | 28/29, 59 h |
+| *Rubin-like (`--survey rubin`: depth 24.5, revisit 3 d, 2 of g/r/i, 40–300 Mpc, fit 6.5 d), 27 injections:* | | | |
+| same model as the truth | 26/27 | 27/27 | 27/27, 83 h |
+| other model | 19/27 (70 %) | 27/27 / 27/27 / 27/27 | 27/27, 83 h |
 
 - Self-model posteriors are well calibrated; the margin is a model-systematic correction, as intended. The
   one cross-model case needing more than 0.75 (0.86) is a Ka2017 kilonova fitted with Bu2019lm, first seen
@@ -118,9 +121,13 @@ volume, known host redshift), observed with a ZTF-like survey (nightly g/r/i epo
   red kilonova was taken as "before the merger", and two faint kilonovae were not yet at M = −15 after 6 h;
   9/29 brackets excluded the true merger, by up to 65 h. Fixed (same-night rule, 0.5 d), 29/29 now.
 - At ZTF depth, the fit with its margin is about as wide as the bracket (median 59 h); without margin it
-  would be 36 h but miss 10 % of mergers. Deep, recent non-detections (Rubin) are what narrow the window.
+  would be 36 h but miss 10 % of mergers.
+- At Rubin depth the margin 0.75 covers everything (largest needed fraction 0.37), but the window is
+  *wider* than at ZTF depth (83 h): with a 3-day revisit the last non-detection is typically 3 days before
+  discovery. Depth helps only with recency: a narrow window needs a deep limit hours before the merger
+  (Jamsin et al.), i.e. Rubin combined with nightly surveys (ZTF, ATLAS) or deep-drilling fields.
 
-Report: `examples/injections/runs_inj/report.json` (per fit: bias, widths, needed fraction, coverage).
+Reports: `examples/injections/runs_inj/report.json` (ZTF-like), `runs_inj_rubin/report.json` (Rubin-like).
 
 Environment notes: NMMA runs from the conda env `nmma` (`--executable` or `$RAVEN_KN_NMMA_EXE`);
 models in `~/nmma_models` (`python -c "from nmma.core.gitlab import main; main()" --model Bu2019lm --filters ...`,
@@ -340,7 +347,7 @@ SN 2025ulz was classified as a type IIb supernova; the physical link is still de
 
 - Compare the PyGRB result with the light search; live DQSegDB test of the veto query.
 - Coherent statistic and null stream are left to PyGRB: the light search is a fast first pass on coincident network SNR (a coherent statistic through the time slides would keep the complex SNR of every template and detector, ~9 GB for the GW170817 bank). PyGRB run on GW170817 at CC-IN2P3 (Slurm) pending.
-- Injection calibration at Rubin depth and cadence, and with a third model (e.g. Bu2026).
+- Injection calibration with mixed surveys (Rubin + nightly ZTF/ATLAS) and a third model (e.g. Bu2026).
 - ZTF forced photometry (IRSA ZFPS), GOTO, BlackGEM archive connectors; live test of the ATLAS connector.
 - Listener: run on the live GCN stream (needs GCN credentials); live GraceDB/segment (DQSegDB) queries.
 
