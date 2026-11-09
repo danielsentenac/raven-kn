@@ -24,7 +24,7 @@ from .skymap import (distance_overlap, distance_overlap_valid, kn_skymap_3d, rea
 from .treatment.detectability import (DEFAULT_RANGES_MPC, HORIZON_OVER_RANGE,
                                       assess_detectability, scale_ranges)
 from .treatment.distance_inclination import DistanceInclinationPosterior, posterior_for
-from .treatment.far import DEFAULT_KN_CANDIDATE_RATE, coinc_far_kn
+from .treatment.far import candidate_rate, coinc_far_kn
 from .treatment.t0 import MergerTimeWindow, estimate_window
 
 TAGS = ["ext_coinc"]
@@ -60,10 +60,16 @@ def search(kn: KNCandidate, window: MergerTimeWindow, gracedb: GraceDbConnector,
 def coinc_far(kn: KNCandidate, superevent: dict, window: MergerTimeWindow,
               gw_skymap: Optional[dict | str | Path] = None,
               post: Optional[DistanceInclinationPosterior] = None,
-              kn_rate: float = DEFAULT_KN_CANDIDATE_RATE,
+              kn_rate: Optional[float] = None,
               ranges_mpc: dict[str, float] = DEFAULT_RANGES_MPC,
-              chirp_mass_msun: Optional[float] = None) -> dict:
+              chirp_mass_msun: Optional[float] = None,
+              score_survival=None) -> dict:
     """Joint FAR of a superevent and a kilonova candidate (RAVEN keys + distance).
+
+    ``kn_rate``: rate of external triggers like this one; default from the
+    candidate (:func:`raven_kn.treatment.far.candidate_rate`: spectroscopic
+    kilonova 5/yr, else classifier score with ``score_survival``, else the
+    filter rate 30/month).
 
     The distance factor is referenced to the network horizon (2.264 x the
     largest range), for the superevent's chirp mass if given (else BNS).
@@ -82,7 +88,11 @@ def coinc_far(kn: KNCandidate, superevent: dict, window: MergerTimeWindow,
             d_ref = HORIZON_OVER_RANGE * max(scale_ranges(ranges_mpc, chirp_mass_msun).values())
             dist = distance_overlap(gw, kn.ra, kn.dec, post, d_ref_mpc=d_ref)
             dist_valid = distance_overlap_valid(post, d_ref)
+    rate_note = "given"
+    if kn_rate is None:     # from the candidate: spectroscopic class, classifier score, filter
+        kn_rate, rate_note = candidate_rate(kn, score_survival=score_survival)
     out = coinc_far_kn(window.duration, far_gw, kn_rate, sky, dist)
+    out["kn_rate_note"] = rate_note
     out["distance_overlap_valid"] = dist_valid
     if dist_valid is False:
         out["distance_overlap_note"] = ("kilonova beyond the reference horizon: distance factor "

@@ -226,3 +226,23 @@ def test_conditional_distance_is_not_ansatz_parameters():
     assert c["likelihood_ratio_to_peak"] == pytest.approx(np.exp(-0.5 * (182 / 80) ** 2))
     post = posterior_for(make_kn(z=0.0848, theta=None))      # ~400 Mpc
     assert not distance_overlap_valid(post, 362.0) and distance_overlap_valid(post, 500.0)
+
+
+def test_candidate_rate_from_class_and_score():
+    from raven_kn.treatment.far import (DEFAULT_KN_CANDIDATE_RATE, SPEC_KN_RATE,
+                                        candidate_rate)
+    kn = make_kn()
+    assert candidate_rate(kn)[0] == DEFAULT_KN_CANDIDATE_RATE
+    kn.kn_score = 0.9
+    surv = [(0.0, 1.0), (0.5, 0.2), (0.9, 0.02), (1.0, 0.0)]
+    r, note = candidate_rate(kn, score_survival=surv)
+    assert r == pytest.approx(0.02 * DEFAULT_KN_CANDIDATE_RATE) and "0.9" in note
+    kn.kn_score = 1.0      # floor: at least one candidate per year
+    assert candidate_rate(kn, score_survival=surv)[0] * 3.15576e7 == pytest.approx(1.0)
+    kn.classification = "Kilonova"
+    assert candidate_rate(kn, score_survival=surv)[0] == SPEC_KN_RATE
+    w = window_from_grb(T0 + 1.74)
+    a = coinc_far(make_kn(), {"superevent_id": "S1", "far": 1e-7}, w)
+    b = coinc_far(kn, {"superevent_id": "S1", "far": 1e-7}, w)
+    assert b["temporal_coinc_far"] == pytest.approx(a["temporal_coinc_far"] * 5 / 360)
+    assert "spectroscopically" in b["kn_rate_note"]

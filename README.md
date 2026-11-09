@@ -321,8 +321,13 @@ SN 2025ulz was classified as a type IIb supernova; the physical link is still de
 - **Prompt GRB → θ_obs ≲ 30°** soft cut; jet-structure model would be better.
 - **Redshift → distance** at fixed Planck18 cosmology with 300 km/s peculiar
   velocity (do not use it for an H0 measurement).
-- **Kilonova candidate rate** R_KN = 30/month (rate of filter candidates, incl.
-  contaminants): set from the actual broker filter.
+- **Kilonova candidate rate** R_KN, the analogue of RAVEN's GRB rate (`candidate_rate`): RAVEN-KN applies no
+  kilonova classifier itself; it takes what upstream filters pass. R_KN = 5/yr for a spectroscopically
+  classified kilonova (`classification`, e.g. from TNS); else, with a classifier score `kn_score` and the
+  filter's score distribution (`score_survival`), 30/month x the fraction of filter candidates scoring at
+  least as high (floor 1/yr); else 30/month, the rate of everything the filter passes (incl. contaminants).
+  Both numbers are placeholders to set from the actual filter and from TNS statistics. A spectroscopic
+  classification lowers the joint FAR by 72x.
 - **Distance overlap** referenced to the network horizon; meaningful only for
   GW maps with distance layers.
 - Fink LSST endpoint/schema not checked; ZTF API column names used.

@@ -28,6 +28,40 @@ import numpy as np
 
 SECONDS_PER_YEAR = 365.25 * 86400
 DEFAULT_KN_CANDIDATE_RATE = 30 * 12 / SECONDS_PER_YEAR      # Hz
+# Transients spectroscopically classified as kilonovae (TNS "Kilonova" or a
+# circular): a handful per year at most (AT2017gfo, AT2025ulz, a few GRB
+# kilonovae). 5 / yr is a conservative upper value.
+SPEC_KN_RATE = 5 / SECONDS_PER_YEAR                          # Hz
+SPEC_KN_CLASSES = ("kilonova", "kn")
+
+
+def candidate_rate(kn, base_rate: float = DEFAULT_KN_CANDIDATE_RATE,
+                   spec_kn_rate: float = SPEC_KN_RATE,
+                   score_survival: Optional[Sequence[tuple[float, float]]] = None) -> tuple[float, str]:
+    """Rate R_KN of external triggers at least as kilonova-like as ``kn``,
+    the analogue of RAVEN's GRB rate in the temporal FAR.
+
+    * spectroscopically classified kilonova (``kn.classification``):
+      ``spec_kn_rate``;
+    * else, with a classifier score and the filter's score distribution
+      ``score_survival`` = [(score, fraction of filter candidates scoring
+      >= score), ...]: ``base_rate`` x that fraction (interpolated; this is
+      the ``far_kn`` of :func:`targeted_far`);
+    * else ``base_rate``, the rate of everything the filter passes.
+
+    Returns (rate in Hz, explanation).
+    """
+    cls = (getattr(kn, "classification", None) or "").strip().lower()
+    if cls in SPEC_KN_CLASSES:
+        return spec_kn_rate, f"spectroscopically classified kilonova: {spec_kn_rate * SECONDS_PER_YEAR:g}/yr"
+    score = getattr(kn, "kn_score", None)
+    if score is not None and score_survival:
+        sc, fr = np.array(sorted(score_survival)).T
+        frac = float(np.clip(np.interp(score, sc, fr), 0.0, 1.0))
+        frac = max(frac, 1.0 / (base_rate * SECONDS_PER_YEAR))     # at least one candidate per year
+        return base_rate * frac, (f"filter rate x fraction scoring >= {score:g} ({frac:.3g}): "
+                                  f"{base_rate * frac * SECONDS_PER_YEAR:.3g}/yr")
+    return base_rate, f"filter candidate rate {base_rate * SECONDS_PER_YEAR:.3g}/yr"
 
 
 def coinc_far_kn(window_s: float, far_gw: float, kn_rate: float = DEFAULT_KN_CANDIDATE_RATE,
