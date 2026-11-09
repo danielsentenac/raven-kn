@@ -138,15 +138,51 @@ def main(argv=None):
                                     "GW alerts already received")
     ad.add_argument("candidate")
     ad.add_argument("--store", required=True)
+    ad.add_argument("--find-host", action="store_true",
+                    help="look up the host redshift/distance (NED, GLADE+) before matching")
     ad.add_argument("--use-combined-skymap", action="store_true")
 
+    h = sub.add_parser("host", help="host galaxy, redshift and redshift-independent distance "
+                                    "(NED, then GLADE+; NED-D for nearby hosts)")
+    h.add_argument("candidate")
+    h.add_argument("--max-offset-kpc", type=float, default=50.0)
+    h.add_argument("--overwrite", action="store_true",
+                   help="replace a spectroscopic redshift already in the candidate")
+    h.add_argument("--save", help="write the updated candidate JSON here")
+
+    t = sub.add_parser("tns", help="TNS classification, redshift and spectra "
+                                   "($TNS_BOT_ID, $TNS_BOT_NAME, $TNS_API_KEY)")
+    t.add_argument("candidate")
+    t.add_argument("--objname", required=True, help="e.g. AT2025ulz")
+    t.add_argument("--save")
+
     args = p.parse_args(argv)
+    if args.cmd in ("host", "tns"):
+        from .connection import TNSConnector, find_host, save_candidate
+        kn = load_candidate(args.candidate)
+        if args.cmd == "host":
+            res = find_host(kn, max_offset_kpc=args.max_offset_kpc, overwrite=args.overwrite)
+        else:
+            res = TNSConnector(os.environ["TNS_BOT_ID"], os.environ["TNS_BOT_NAME"],
+                               os.environ["TNS_API_KEY"]).add_to(kn, args.objname)
+        res["redshift"] = kn.redshift.__dict__ if kn.redshift else None
+        res["distance"] = kn.distance.__dict__ if kn.distance else None
+        res["classification"] = kn.classification
+        if args.save:
+            save_candidate(kn, args.save)
+            res["saved"] = args.save
+        print(json.dumps(res, indent=2, default=float))
+        return
     if args.cmd in ("listen", "add"):
         import logging
         from .listener import GRB_TOPICS, CandidateStore, add_candidate, listen
         store = CandidateStore(args.store)
         if args.cmd == "add":
-            print(json.dumps(add_candidate(load_candidate(args.candidate), store,
+            kn = load_candidate(args.candidate)
+            if args.find_host:
+                from .connection import find_host
+                find_host(kn)
+            print(json.dumps(add_candidate(kn, store,
                                            use_combined=args.use_combined_skymap),
                              indent=2, default=float))
             return

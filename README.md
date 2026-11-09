@@ -12,7 +12,7 @@ candidates (joint FAR) and/or a targeted search of archived strain.**
 
 | RAVEN-KN | Role | RAVEN analogue |
 |---|---|---|
-| `raven_kn.connection` | `KNCandidate` (photometry incl. non-detections, redshift, distance, viewing angle, GRB, light-curve-fit samples); connectors: Fink (ZTF API), GraceDB, GCN JSON, local JSON | `gracedb_events.ExtTrig` / `SE` |
+| `raven_kn.connection` | `KNCandidate` (photometry incl. non-detections, redshift, distance, viewing angle, GRB, light-curve-fit samples, spectroscopic class); connectors: Fink, ALeRCE, ATLAS, GraceDB, GCN JSON, NED/NED-D, GLADE+, TNS, local JSON | `gracedb_events.ExtTrig` / `SE` |
 | `raven_kn.treatment.t0` | merger-time window [tl, th]: GRB (seconds) > light-curve-fit t0 posterior ∩ photometric bracket (last *constraining* non-detection → first detection) | fixed `tl, th` |
 | `raven_kn.treatment.lightcurve_fit` | NMMA wrapper: candidate → NMMA data/prior files and `lightcurve-analysis` command → posterior read back as `t0_samples_gps` (+ D_L, ι) | — (new) |
 | `raven_kn.treatment.distance_inclination` | joint (D_L, cos ι) posterior from spectroscopic redshift, host distance, VLBI/afterglow viewing angle, prompt GRB, light-curve-fit samples; search priors | — (new) |
@@ -167,6 +167,40 @@ the noise window gives p = 0.48. Before hierarchical removal was added, the H1 s
 slide (background median 18.7). Tests use synthetic Gaussian noise
 with injections and a sine-Gaussian glitch. Results: `examples/targeted_gw170817/`.
 Remaining limitations: incoherent statistic, zero-spin equal-mass templates. Production: PyGRB.
+
+## Redshift, distance and inclination: spectroscopy and host galaxies (`raven-kn host`, `raven-kn tns`)
+
+The "is a search worth it" cut (500 Mpc) and the GW distance/inclination priors rest on the EM distance.
+A kilonova spectrum rarely gives a precise redshift by itself (broad features); the redshift comes from the
+host galaxy's spectrum. The connection module now fetches it:
+
+| source | gives | access |
+|---|---|---|
+| **NED** (TAP `NEDTAP.objdir`) | galaxies with redshift around the candidate: SDSS, DESI, 6dF, literature; spectroscopic/photometric flag | public |
+| **NED-D** | redshift-independent distances of the host (SBF, TRGB, Cepheids, SNe Ia, FP, Tully-Fisher); GW-based entries are dropped | public |
+| **GLADE+** (VizieR VII/291, mirrors with fallback) | LVK's galaxy catalogue: CMB-frame z (spec. or photometric), B/K magnitudes, chance-coincidence probability | public |
+| **TNS** | spectroscopic classification (e.g. "Kilonova"), transient/host redshift, list of spectra (ASCII/FITS) | bot ID + API key |
+
+`find_host` keeps a spectroscopic redshift already in the candidate (from TNS, a GCN circular or a spectrum);
+otherwise takes NED's nearest galaxy with a spectroscopic redshift within 50 kpc projected, else GLADE+ (lowest
+chance-coincidence probability, may be photometric); for a host at z < 0.03 it adds the best NED-D distance.
+Redshifts are converted to the CMB frame; the 300 km/s peculiar-velocity error is added downstream.
+
+| event | result | truth |
+|---|---|---|
+| AT2017gfo | NGC 4993 (NED), z_cmb 0.0109 spec., 2.2 kpc; SBF 40.7 ± 1.5 Mpc (NED-D) | 40.7 Mpc (SBF) |
+| GRB 211211A | WISEA J140910.48+275320.6 (NED), z 0.0763 spec. | z 0.0763 (not in GLADE+) |
+| AT2025ulz | GLADE+ 15877920, 0.9″, **photometric** z 0.102 ± 0.036 (NED has no host redshift yet) | DESI/Keck z 0.0848 |
+
+So: NED first (spectroscopic completeness beyond 100 Mpc), GLADE+ as a fallback; for a new event the
+spectroscopic host redshift typically arrives hours to days later through TNS or GCN circulars, and replaces
+a photometric one.
+
+**Inclination.** Spectra constrain the viewing angle only through radiative-transfer models (blue/red
+component ratio, line velocities, polarisation), and model-dependently. The constraints that matter come from
+the afterglow (VLBI centroid motion, light-curve modelling: GW170817 θ_obs ≈ 15–25°) or from kilonova
+light-curve/spectral fits. RAVEN-KN takes them as `ViewingAngleMeasurement(mean, std, method)`; nothing is
+extracted automatically from spectra.
 
 ## Last non-detection from survey archives
 
