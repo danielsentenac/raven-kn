@@ -86,9 +86,11 @@ def window_from_samples(t0_gps_samples: Sequence[float],
     AT2017gfo light curve (first point +17 h, no pre-merger limit) the
     median t0 is 40 h early and the 90 % interval misses the merger; on
     GRB 211211A (first point +6 h) it is 28 h early. 0.75 is the smallest
-    round fraction recovering both (0.5 misses GRB 211211A by 0.5 h). Two
-    events, one model: to be revisited with cross-model injections (Jamsin
-    et al., arXiv:2610.28775).
+    round fraction recovering both (0.5 misses GRB 211211A by 0.5 h).
+    Injections (``examples/injections``, 29 Bu2019lm/Ka2017 kilonovae at
+    ZTF depth, each fitted with both models): self-model 90 % intervals
+    cover all; cross-model fits need 0 (79 %), <= 0.5 (97 %), <= 0.86
+    (all) -- 0.75 covers 97 %, 1.0 all.
     """
     s = np.asarray(t0_gps_samples, float)
     a = (1 - credible_level) / 2
@@ -115,8 +117,9 @@ def distance_modulus(d_mpc: float | np.ndarray) -> float | np.ndarray:
 def window_from_bracket(kn: KNCandidate,
                         d_mpc_upper: Optional[float] = None,
                         early_abs_mag: float = -15.0,
-                        t_visible_d: float = 0.25,
-                        max_age_d: float = 7.0) -> MergerTimeWindow:
+                        t_visible_d: float = 0.5,
+                        max_age_d: float = 7.0,
+                        same_night_d: float = 0.25) -> MergerTimeWindow:
     """Bracket the merger between the last *constraining* non-detection and
     the first detection.
 
@@ -135,6 +138,18 @@ def window_from_bracket(kn: KNCandidate,
     ``d_mpc_upper`` should be a conservative (e.g. 95th percentile)
     distance; if unknown, any limit deeper than the first detection
     magnitude is taken as constraining.
+
+    A non-detection in another band less than ``same_night_d`` before the
+    first detection is ignored: it measures the colour, not the age (a red
+    kilonova is often below a g limit minutes before its r detection).
+
+    Calibration (``examples/injections``, 29 Bu2019lm/Ka2017 injections,
+    40-150 Mpc, ZTF-like depth 21.5): with the earlier defaults (no
+    same-night rule, ``t_visible_d`` 0.25) the bracket excluded the true
+    merger in 9/29 cases, 7 of them by a same-night bluer non-detection and
+    2 by kilonovae fainter than M = -15 at 6-8 h; with the same-night rule
+    and 0.5 d all 29 are covered (median bracket 59 h). A fainter bound
+    (M = -14) also covers them but makes ZTF-depth limits useless (7 d).
     """
     fd = kn.first_detection
     if fd is None:
@@ -144,6 +159,8 @@ def window_from_bracket(kn: KNCandidate,
     used = None
     for ul in reversed(kn.upper_limits):          # latest first
         if ul.gps >= t_det:
+            continue
+        if ul.band != fd.band and t_det - ul.gps < same_night_d * DAY:
             continue
         if d_mpc_upper is not None:
             needed = early_abs_mag + distance_modulus(d_mpc_upper)

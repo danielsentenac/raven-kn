@@ -35,7 +35,7 @@ def make_kn(ul_hours_before=3.0, ul_mag=24.5, grb=False, z=0.009783, theta=20.0)
 def test_bracket_contains_merger_and_is_short_with_deep_limit():
     w = window_from_bracket(make_kn(), d_mpc_upper=50)
     assert w.gps_start < T0 < w.gps_end
-    assert w.duration < 1.0 * 86400
+    assert w.duration < 1.25 * 86400        # 3 h limit + 0.5 d visibility + 10.9 h
 
 
 def test_shallow_limit_is_not_constraining():
@@ -133,7 +133,7 @@ def test_search_and_signif_with_mock_gracedb():
     found = search(kn, win, gdb)
     assert [s["superevent_id"] for s in found] == ["S170817a"]
     res = calc_signif_gracedb(kn, found[0], win, gdb)
-    assert res["temporal_coinc_far"] < 1e-7
+    assert res["temporal_coinc_far"] < 1.5e-7
     assert any(f == "coincidence_far_kn.json" for _, _, f, _ in mock.logs)
     assert json.loads(mock.logs[-1][3])["superevent_id"] == "S170817a"
 

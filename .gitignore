@@ -15,3 +15,7 @@ examples/**/nmma.log
 examples/**/nmma_out/pm_*/
 examples/**/nmma_out/*.log
 examples/**/nmma_out/*_result.json
+
+# injection campaign: keep posterior samples and setup, not per-fit plots
+examples/injections/runs_inj/fits/**/*.png
+examples/injections/runs_inj/run.log

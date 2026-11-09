@@ -1,0 +1,50 @@
+{
+  "workdir": "runs_inj/fits/inj041_Ka2017__Ka2017",
+  "label": "inj041_Ka2017",
+  "model": "Ka2017",
+  "trigger_mjd": 60917.65994643076,
+  "timeshift_bounds": [
+    0.000999999996565748,
+    6.896330945608448
+  ],
+  "informed": true,
+  "data_file": "runs_inj/fits/inj041_Ka2017__Ka2017/inj041_Ka2017.dat",
+  "prior_file": "runs_inj/fits/inj041_Ka2017__Ka2017/inj041_Ka2017.prior",
+  "command": [
+    "~/miniforge3/envs/nmma/bin/python",
+    "~/ACME/RAVEN-Kilonova/raven_kn/treatment/nmma_launcher.py",
+    "--em-model",
+    "Ka2017",
+    "--light-curve-data",
+    "runs_inj/fits/inj041_Ka2017__Ka2017/inj041_Ka2017.dat",
+    "--trigger-time",
+    "60917.659946",
+    "--prior-file",
+    "runs_inj/fits/inj041_Ka2017__Ka2017/inj041_Ka2017.prior",
+    "--outdir",
+    "runs_inj/fits/inj041_Ka2017__Ka2017/nmma_out",
+    "--label",
+    "inj041_Ka2017",
+    "--em-tmin",
+    "0.1",
+    "--em-tmax",
+    "14.0",
+    "--interpolation-type",
+    "sklearn_gp",
+    "--sampler",
+    "pymultinest",
+    "--em-error-budget",
+    "1.0",
+    "--plot",
+    "--svd-path",
+    "~/nmma_models",
+    "--nlive",
+    "512",
+    "--local-only"
+  ],
+  "n_detections": 6,
+  "n_limits": 3,
+  "notes": [
+    "distance prior from EM data: 135.9 +- 4.6 Mpc"
+  ]
+}

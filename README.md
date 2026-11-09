@@ -99,6 +99,29 @@ Findings:
 
 Reports: `examples/validation/report*.json`, `examples/validation_grb211211a/report*.json`.
 
+### Injection calibration of the t0 window (`examples/injections/calibrate_margin.py`)
+
+29 synthetic kilonovae (Bu2019lm and Ka2017, parameters inside the training ranges, 40–150 Mpc uniform in
+volume, known host redshift), observed with a ZTF-like survey (nightly g/r/i epochs at a random phase,
+5σ depth 21.5, 30 % of nights lost, pre-merger coverage in half of the cases), each fitted with both models
+(58 NMMA fits, `--nlive 512`, first 3 days):
+
+| fits | statistical 90 % interval covers t0 | with margin 0.5 / 0.75 / 1.0 | final window (fit ∩ bracket), 0.75: coverage, median width |
+|---|---|---|---|
+| same model as the truth | 29/29 | 29/29 | 29/29, 59 h |
+| other model | 23/29 (79 %) | 28/29 / 28/29 / 29/29 | 28/29, 59 h |
+
+- Self-model posteriors are well calibrated; the margin is a model-systematic correction, as intended. The
+  one cross-model case needing more than 0.75 (0.86) is a Ka2017 kilonova fitted with Bu2019lm, first seen
+  at +31 h with no pre-merger coverage.
+- The injections exposed a **bracket bug**: a g non-detection minutes before the first r detection of a
+  red kilonova was taken as "before the merger", and two faint kilonovae were not yet at M = −15 after 6 h;
+  9/29 brackets excluded the true merger, by up to 65 h. Fixed (same-night rule, 0.5 d), 29/29 now.
+- At ZTF depth, the fit with its margin is about as wide as the bracket (median 59 h); without margin it
+  would be 36 h but miss 10 % of mergers. Deep, recent non-detections (Rubin) are what narrow the window.
+
+Report: `examples/injections/runs_inj/report.json` (per fit: bias, widths, needed fraction, coverage).
+
 Environment notes: NMMA runs from the conda env `nmma` (`--executable` or `$RAVEN_KN_NMMA_EXE`);
 models in `~/nmma_models` (`python -c "from nmma.core.gitlab import main; main()" --model Bu2019lm --filters ...`,
 the `svdmodel-download` entry point is broken in v1.0.2); some sncosmo bandpasses redirect to SVO's dead
@@ -244,16 +267,17 @@ SN 2025ulz was classified as a type IIb supernova; the physical link is still de
 ## Assumptions to revisit (all are parameters)
 
 - **Model-systematic margin** on a light-curve t0 (`window_from_samples`, `--model-sys-frac`, default 0.75):
-  the 90 % interval is widened by 0.5 x the extrapolation gap from the median t0 to the data that anchor it
+  the 90 % interval is widened by 0.75 x the extrapolation gap from the median t0 to the data that anchor it
   (first detection on the late side; last constraining non-detection, else the same gap, on the early side),
   at least 1 h, then intersected with the photometric bracket. 0.75 is the smallest round value recovering
-  the merger in all the real-data fits above (two events, two models); to be redone with cross-model injections.
+  the merger in all the real-data fits above (two events, two models), and covers 97 % of cross-model
+  injections (below); 1.0 covers all of them.
 - **Bracket model** (`window_from_bracket`): kilonova at least as bright as
-  M = −15 from 0.25 d after merger; a non-detection constrains only if deeper
-  than that at the 95th-percentile distance; 7 d default early edge. To be
-  calibrated on the Jamsin et al. (arXiv:2610.28775) injections; the
-  light-curve fit (NMMA/Redback t0 samples, `t0_samples_gps`) should replace
-  it when available.
+  M = −15 from 0.5 d after merger; a non-detection constrains only if deeper
+  than that at the 95th-percentile distance; a non-detection in another band
+  less than 0.25 d before the first detection is ignored (colour, not age);
+  7 d default early edge. Calibrated on the injections below (it was 0.25 d
+  and had no same-night rule: 9/29 brackets excluded the merger).
 - **BNS ranges**: defaults H1 150, L1 160, V1 55 Mpc are approximate O4 values;
   pass the live ranges and science segments of the window. Horizon = 2.264 × range.
 - **Thresholds**: targeted network SNR 6, P_min 0.1, hard cut 500 Mpc.
@@ -273,7 +297,7 @@ SN 2025ulz was classified as a type IIb supernova; the physical link is still de
 
 - Compare the PyGRB result with the light search; live DQSegDB test of the veto query.
 - Coherent statistic (and null stream) in the light search; it uses coincident network SNR.
-- Calibration of the model-systematic margin with cross-model injections (0.75 is fitted on two events).
+- Injection calibration at Rubin depth and cadence, and with a third model (e.g. Bu2026).
 - ZTF forced photometry (IRSA ZFPS), GOTO, BlackGEM archive connectors; live test of the ATLAS connector.
 - Listener: run on the live GCN stream (needs GCN credentials); live GraceDB/segment (DQSegDB) queries.
 

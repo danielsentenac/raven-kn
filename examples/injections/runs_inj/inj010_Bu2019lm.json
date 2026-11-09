@@ -1,0 +1,96 @@
+{
+  "name": "inj010_Bu2019lm",
+  "ra": 150.0,
+  "dec": 10.0,
+  "pos_err_arcsec": 0.5,
+  "source": "manual",
+  "kn_score": null,
+  "graceid": null,
+  "photometry": [
+    {
+      "mjd": 60565.96986563427,
+      "band": "g",
+      "mag": 21.5,
+      "mag_err": null,
+      "upper_limit": true,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 60565.99986563427,
+      "band": "r",
+      "mag": 21.37873541543416,
+      "mag_err": 0.20138207078718817,
+      "upper_limit": false,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 60566.02986563427,
+      "band": "i",
+      "mag": 19.731606468254764,
+      "mag_err": 0.05070265934259954,
+      "upper_limit": false,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 60566.96986563427,
+      "band": "g",
+      "mag": 21.5,
+      "mag_err": null,
+      "upper_limit": true,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 60566.99986563427,
+      "band": "r",
+      "mag": 21.5,
+      "mag_err": null,
+      "upper_limit": true,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 60567.02986563427,
+      "band": "i",
+      "mag": 20.512135434232718,
+      "mag_err": 0.10503982047694095,
+      "upper_limit": false,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 60568.96986563427,
+      "band": "g",
+      "mag": 21.5,
+      "mag_err": null,
+      "upper_limit": true,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 60568.99986563427,
+      "band": "r",
+      "mag": 21.5,
+      "mag_err": null,
+      "upper_limit": true,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 60569.02986563427,
+      "band": "i",
+      "mag": 21.5,
+      "mag_err": null,
+      "upper_limit": true,
+      "survey": "PS1"
+    }
+  ],
+  "redshift": {
+    "z": 0.020358739955204735,
+    "z_err": 0.0001,
+    "kind": "spectroscopic",
+    "source": "host"
+  },
+  "distance": null,
+  "viewing_angle": null,
+  "grb": null,
+  "t0_samples_gps": null,
+  "lc_fit_samples": null,
+  "lc_fit_informed": false,
+  "notes": ""
+}

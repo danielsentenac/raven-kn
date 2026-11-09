@@ -1,0 +1,192 @@
+{
+  "name": "inj030_Bu2019lm",
+  "ra": 150.0,
+  "dec": 10.0,
+  "pos_err_arcsec": 0.5,
+  "source": "manual",
+  "kn_score": null,
+  "graceid": null,
+  "photometry": [
+    {
+      "mjd": 60792.029800627766,
+      "band": "g",
+      "mag": 21.5,
+      "mag_err": null,
+      "upper_limit": true,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 60792.05980062777,
+      "band": "r",
+      "mag": 21.5,
+      "mag_err": null,
+      "upper_limit": true,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 60792.08980062777,
+      "band": "i",
+      "mag": 21.5,
+      "mag_err": null,
+      "upper_limit": true,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 60794.029800627766,
+      "band": "g",
+      "mag": 21.5,
+      "mag_err": null,
+      "upper_limit": true,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 60794.05980062777,
+      "band": "r",
+      "mag": 21.5,
+      "mag_err": null,
+      "upper_limit": true,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 60794.08980062777,
+      "band": "i",
+      "mag": 21.5,
+      "mag_err": null,
+      "upper_limit": true,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 60795.029800627766,
+      "band": "g",
+      "mag": 21.5,
+      "mag_err": null,
+      "upper_limit": true,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 60795.05980062777,
+      "band": "r",
+      "mag": 21.5,
+      "mag_err": null,
+      "upper_limit": true,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 60795.08980062777,
+      "band": "i",
+      "mag": 21.683696243800853,
+      "mag_err": 0.18609084884991842,
+      "upper_limit": false,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 60797.029800627766,
+      "band": "g",
+      "mag": 20.45987315021934,
+      "mag_err": 0.08407467811708987,
+      "upper_limit": false,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 60797.05980062777,
+      "band": "r",
+      "mag": 19.876342924772885,
+      "mag_err": 0.05264420525577397,
+      "upper_limit": false,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 60797.08980062777,
+      "band": "i",
+      "mag": 19.589485074650955,
+      "mag_err": 0.04642670534238483,
+      "upper_limit": false,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 60798.029800627766,
+      "band": "g",
+      "mag": 21.5,
+      "mag_err": null,
+      "upper_limit": true,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 60798.05980062777,
+      "band": "r",
+      "mag": 20.886486599489153,
+      "mag_err": 0.1305862486622529,
+      "upper_limit": false,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 60798.08980062777,
+      "band": "i",
+      "mag": 20.476106517776778,
+      "mag_err": 0.09386563748987087,
+      "upper_limit": false,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 60799.029800627766,
+      "band": "g",
+      "mag": 21.5,
+      "mag_err": null,
+      "upper_limit": true,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 60799.05980062777,
+      "band": "r",
+      "mag": 21.5,
+      "mag_err": null,
+      "upper_limit": true,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 60799.08980062777,
+      "band": "i",
+      "mag": 21.544582192969393,
+      "mag_err": 0.179148924064897,
+      "upper_limit": false,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 60800.029800627766,
+      "band": "g",
+      "mag": 21.5,
+      "mag_err": null,
+      "upper_limit": true,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 60800.05980062777,
+      "band": "r",
+      "mag": 21.5,
+      "mag_err": null,
+      "upper_limit": true,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 60800.08980062777,
+      "band": "i",
+      "mag": 21.5,
+      "mag_err": null,
+      "upper_limit": true,
+      "survey": "PS1"
+    }
+  ],
+  "redshift": {
+    "z": 0.02604182481239738,
+    "z_err": 0.0001,
+    "kind": "spectroscopic",
+    "source": "host"
+  },
+  "distance": null,
+  "viewing_angle": null,
+  "grb": null,
+  "t0_samples_gps": null,
+  "lc_fit_samples": null,
+  "lc_fit_informed": false,
+  "notes": ""
+}

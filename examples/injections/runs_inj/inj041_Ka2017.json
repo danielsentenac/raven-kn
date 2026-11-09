@@ -1,0 +1,96 @@
+{
+  "name": "inj041_Ka2017",
+  "ra": 150.0,
+  "dec": 10.0,
+  "pos_err_arcsec": 0.5,
+  "source": "manual",
+  "kn_score": null,
+  "graceid": null,
+  "photometry": [
+    {
+      "mjd": 60924.63094643075,
+      "band": "g",
+      "mag": 21.5,
+      "mag_err": null,
+      "upper_limit": true,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 60924.660946430755,
+      "band": "r",
+      "mag": 20.374716897960603,
+      "mag_err": 0.07603526346823293,
+      "upper_limit": false,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 60924.690946430754,
+      "band": "i",
+      "mag": 20.22024104382293,
+      "mag_err": 0.06832950162721935,
+      "upper_limit": false,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 60925.63094643075,
+      "band": "g",
+      "mag": 21.5,
+      "mag_err": null,
+      "upper_limit": true,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 60925.660946430755,
+      "band": "r",
+      "mag": 20.925190349542774,
+      "mag_err": 0.11948222726765573,
+      "upper_limit": false,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 60925.690946430754,
+      "band": "i",
+      "mag": 20.640966550988452,
+      "mag_err": 0.10729691034481718,
+      "upper_limit": false,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 60926.63094643075,
+      "band": "g",
+      "mag": 21.5,
+      "mag_err": null,
+      "upper_limit": true,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 60926.660946430755,
+      "band": "r",
+      "mag": 21.350754657152585,
+      "mag_err": 0.1664642916608893,
+      "upper_limit": false,
+      "survey": "PS1"
+    },
+    {
+      "mjd": 60926.690946430754,
+      "band": "i",
+      "mag": 21.461052995574857,
+      "mag_err": 0.16229593476310877,
+      "upper_limit": false,
+      "survey": "PS1"
+    }
+  ],
+  "redshift": {
+    "z": 0.029902992269576913,
+    "z_err": 0.0001,
+    "kind": "spectroscopic",
+    "source": "host"
+  },
+  "distance": null,
+  "viewing_angle": null,
+  "grb": null,
+  "t0_samples_gps": null,
+  "lc_fit_samples": null,
+  "lc_fit_informed": false,
+  "notes": ""
+}

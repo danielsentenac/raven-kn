@@ -1,0 +1,6 @@
+KNphi = Uniform(name='KNphi', minimum=15., maximum=75.)
+log10_mej_dyn = Uniform(name='log10_mej_dyn', minimum=-3., maximum=-1.699)
+log10_mej_wind = Uniform(name='log10_mej_wind', minimum=-2, maximum=-0.886057)
+timeshift = Uniform(minimum=0.00100, maximum=6.89638, name='timeshift')
+luminosity_distance = TruncatedGaussian(mu=133.784, sigma=4.640, minimum=105.946, maximum=161.621, name='luminosity_distance')
+inclination_EM = Sine(minimum=0., maximum=1.570796, name='inclination_EM')
