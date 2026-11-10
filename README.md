@@ -327,7 +327,7 @@ IGWN conda PyCBC 2.8.1; the CVMFS RHEL-8 PyCBC virtualenv does not run on CIT's 
 on-source window around GW170817 with the RAVEN-KN bank generates a complete workflow (29 jobs: coherent
 H1/L1/V1 matched filtering on O2 cleaned C02 frames over 4 bank splits, injections, clustering, results
 page). The Pegasus workflow sat idle; the inspiral step was then run as plain HTCondor jobs (result in the
-targeted-search section). CIT job lessons: jobs from `CIT login node` need `+flock_local = True` and
+targeted-search section). CIT job lessons: jobs submitted from the CIT login nodes need `+flock_local = True` and
 `MY.POOLS = "IGWN,CIT"` to run on CIT's own nodes (else only IGWN glideins); jobs start without `HOME`, so
 numba (imported by PyCBC's dependencies) needs `HOME`/`NUMBA_CACHE_DIR` set to the scratch directory. Lessons: PyGRB aborts if the on-source contains vetoed time (a CAT2 H1 second
 444 s after the merger stopped the first attempt), so for long windows pass the vetoed intervals
