@@ -111,6 +111,27 @@ def gw170817_background():
     plt.close(fig)
 
 
+def gw170817_reverse():
+    d = ROOT / "examples" / "gw170817_reverse"
+    m = json.loads((d / "offsource_merged.json").read_text())
+    off = np.asarray(m["offsource"])
+    on = m["onsource_loudest"]
+    fig, ax = plt.subplots(figsize=(7.5, 3.4))
+    ax.hist(off, bins=np.arange(5, 25, 0.25), color=SERIES[0], edgecolor=SURFACE, linewidth=0.5)
+    ax.axvline(on, color=TEXT, lw=1.5)
+    top = ax.get_ylim()[1]
+    ax.text(on - 0.3, top * 0.75, f"GW170817 in the GRB window\ncoherent SNR {on:.1f}", ha="right",
+            color=TEXT)
+    ax.text(off.max() + 0.4, top * 0.45, f"{len(off)} off-source trials\nmax {off.max():.1f}",
+            color=MUTED, fontsize=10)
+    ax.set_xlabel("loudest coherent SNR in a 6 s window")
+    ax.set_ylabel("trials")
+    ax.set_title("GW170817 found from the GRB and the kilonova alone")
+    fig.tight_layout()
+    fig.savefig(OUT / "gw170817_reverse_offsource.png", dpi=150)
+    plt.close(fig)
+
+
 def copy_fits():
     pairs = {
         "examples/validation/runs_fit3_Bu2019lm/A/nmma_out/AT2017gfo_A_bestfit_lightcurves.png":
@@ -127,5 +148,6 @@ if __name__ == "__main__":
     margin_coverage()
     window_widths()
     gw170817_background()
+    gw170817_reverse()
     copy_fits()
     print("written to", OUT)

@@ -82,7 +82,7 @@ def test_noise_only_not_significant():
 def test_config_from_assess_request(tmp_path):
     from raven_kn.search import assess
     from test_pipeline import make_kn
-    assess(make_kn(), tmp_path, chirp_mass_msun=1.2)
+    assess(make_kn(), tmp_path, chirp_mass_msun=1.2, require_kn_evidence=False)
     cfg = TargetedSearchConfig.from_request(tmp_path / "test_targeted_search_request.json")
     assert cfg.mchirp_min == pytest.approx(1.08) and cfg.mchirp_max == pytest.approx(1.32)
     assert cfg.gps_start < cfg.gps_end and cfg.ra_deg == pytest.approx(197.450374)
@@ -241,3 +241,13 @@ def test_offsource_trials():
     s = run(cfg, synthetic_fetcher(inject=True), progress=False).subsegments[0]
     assert len(s.offsource) == 4 and max(s.offsource) < 9
     assert s.p_value_offsource == pytest.approx(1 / 5)
+
+
+def test_short_window_uses_offsource_pvalue():
+    from raven_kn.targeted.search import SubsegmentResult, subsegment_pvalue
+    r = SubsegmentResult(0.0, 6.0, ["H1", "L1"], 9.0, 3.0, 1.2, {}, [5.0], 0.5, {}, "")
+    assert subsegment_pvalue(r) == 0.5                       # no off-source trials: slides
+    r.p_value_offsource = 0.01
+    assert subsegment_pvalue(r) == 0.01                      # 1 slide only: off-source alone
+    r.background = [5.0] * 50
+    assert subsegment_pvalue(r) == 0.5                       # enough slides: the larger

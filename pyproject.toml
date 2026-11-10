@@ -13,6 +13,8 @@ dependencies = ["numpy", "scipy", "astropy", "healpy"]
 [project.optional-dependencies]
 lvk = ["lalsuite", "ligo-gracedb", "ligo-raven", "ligo.skymap"]
 brokers = ["requests"]
+fink = ["fink-client>=12"]
+gcn = ["gcn-kafka"]
 test = ["pytest"]
 
 [project.scripts]

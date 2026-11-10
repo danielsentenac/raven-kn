@@ -21,6 +21,7 @@ import numpy as np
 from .connection import GraceDbConnector, KNCandidate
 from .skymap import (distance_overlap, distance_overlap_valid, kn_skymap_3d, read_gw_skymap,
                      skymap_overlap_integral, write_skymap)
+from .treatment.kilonova_evidence import kilonova_evidence
 from .treatment.detectability import (DEFAULT_RANGES_MPC, HORIZON_OVER_RANGE,
                                       assess_detectability, scale_ranges)
 from .treatment.distance_inclination import DistanceInclinationPosterior, posterior_for
@@ -120,12 +121,17 @@ def assess(kn: KNCandidate, out_dir: Optional[str | Path] = None,
            d_max_useful_mpc: Optional[float] = 500.0,
            segments=None, duty_cycle=None, d_max_prior: float = 1500.0,
            nside: int = 512, model_sys_frac: float = 0.75,
-           chirp_mass_msun: Optional[float] = None) -> dict:
+           chirp_mass_msun: Optional[float] = None, require_kn_evidence: bool = True,
+           kn_evidence_kw: Optional[dict] = None) -> dict:
     """Targeted-search trigger decision for one kilonova candidate.
 
     Steps: (1) distance/inclination posterior from EM data; (2) t0 window,
     with the distance used to decide which non-detections constrain it;
-    (3) expected GW network SNR over the window; (4) decision.
+    (3) expected GW network SNR over the window; (4) evidence that the
+    transient is a kilonova (spectrum, light curve or classifier score,
+    :func:`raven_kn.treatment.kilonova_evidence.kilonova_evidence`);
+    (5) decision: search if detectable and (with ``require_kn_evidence``)
+    confirmed as a kilonova.
     If ``out_dir`` is given, write the decision, the 3D sky map, the
     posterior samples and the targeted-search request there.
     """
@@ -135,13 +141,17 @@ def assess(kn: KNCandidate, out_dir: Optional[str | Path] = None,
     det = assess_detectability(post, window, kn.ra, kn.dec, ranges_mpc, snr_threshold,
                                p_min, d_max_useful_mpc, segments, duty_cycle,
                                chirp_mass_msun=chirp_mass_msun)
+    d_med = float(np.median(post.d_mpc)) if post.constraints else None
+    ev = kilonova_evidence(kn, d_med, **(kn_evidence_kw or {}))
+    trigger = det.worth_search and (ev.confirmed or not require_kn_evidence)
     decision = {
         "candidate": kn.name, "ra": kn.ra, "dec": kn.dec,
         "t0_window": {**asdict(window), "duration_h": window.duration / 3600},
         "distance_inclination": post.summary(),
         "search_priors": post.search_priors(),
         "detectability": det.to_dict(),
-        "trigger_targeted_search": det.worth_search,
+        "kilonova_evidence": {**ev.to_dict(), "required": require_kn_evidence},
+        "trigger_targeted_search": trigger,
     }
     if out_dir is not None:
         out = Path(out_dir)
@@ -163,7 +173,7 @@ def assess(kn: KNCandidate, out_dir: Optional[str | Path] = None,
             "note": "split windows longer than a few hours into sub-segments (Earth rotation)",
         }
         decision["files"] = {"skymap": fits.name, "samples": request["samples"]}
-        if det.worth_search:
+        if trigger:
             (out / f"{stem}_targeted_search_request.json").write_text(json.dumps(request, indent=2))
             decision["files"]["targeted_search_request"] = f"{stem}_targeted_search_request.json"
         (out / f"{stem}_decision.json").write_text(json.dumps(decision, indent=2))

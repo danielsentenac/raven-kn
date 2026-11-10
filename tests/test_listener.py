@@ -1,6 +1,7 @@
 """GCN listener handlers on synthetic igwn.gwalert and GRB unified-schema messages."""
 import base64
 import io
+import json
 from pathlib import Path
 
 import healpy as hp
@@ -9,7 +10,8 @@ import pytest
 from astropy.table import Table
 from astropy.time import Time
 
-from raven_kn.listener import (parse_grb_notice, CandidateStore, add_candidate, handle_grb_notice,
+from raven_kn.listener import (parse_grb_notice, parse_neutrino_notice, handle_neutrino_notice,
+                               CandidateStore, add_candidate, handle_grb_notice,
                                handle_gw_alert, moc_lookup, moc_to_flat, uniq_to_order_ipix)
 from test_pipeline import T0, make_kn
 
@@ -166,6 +168,22 @@ def test_grb_notice_attached_and_narrows_window(tmp_path):
     assert w["test"]["gps_end"] - w["test"]["gps_start"] == pytest.approx(6.0)
 
 
+
+def test_grb_before_candidate_is_stored_and_attached_later(tmp_path):
+    """Usual order: the GRB notice arrives hours before the optical counterpart."""
+    store = CandidateStore(tmp_path)
+    notice = {"trigger_time": Time(T0 + 1.74, format="gps").utc.isot + "Z",
+              "instrument": "BAT", "id": ["x"], "ra": RA + 1.0, "dec": DEC, "ra_dec_error": 3.0}
+    assert handle_grb_notice(notice, store) == []            # nothing to attach to yet
+    assert len(store.grb_notices()) == 1
+    add_candidate(make_kn(), store, now_gps=T0 + 86400)
+    kn = store.candidates()[0]
+    assert kn.grb is not None and kn.grb.gps == pytest.approx(T0 + 1.74, abs=1e-3)
+    assert "GRB before candidate" in kn.notes
+    other = make_kn(); other.name = "far"; other.ra = RA + 60
+    add_candidate(other, store, now_gps=T0 + 86400)
+    assert next(c for c in store.candidates() if c.name == "far").grb is None
+
 GBM_VOEVENT = """<?xml version='1.0' encoding='UTF-8'?>
 <voe:VOEvent xmlns:voe="http://www.ivoa.net/xml/VOEvent/v2.0" role="{role}" version="2.0"
   ivorn="ivo://nasa.gsfc.gcn/Fermi#GBM_Gnd_Pos_2017-08-17T12:41:06.47_524666471_0-002">
@@ -213,3 +231,76 @@ def test_live_grb_notices_parse(fname, instrument, max_err):
     assert g["grb"].gps > 1.4e9
     if instrument == "Fermi-GBM":
         assert g["err_deg"] >= 3.7                     # systematic added in quadrature
+
+
+
+# ---------------- neutrino alerts (IceCube) ----------------
+
+LIVE = Path(__file__).parent / "data" / "gcn_live"
+
+
+def test_live_icecube_notices_parse_and_formats_agree():
+    j = parse_neutrino_notice((LIVE / "gcn.notices.icecube.gold_bronze_track_alerts.001.json").read_bytes())
+    x = parse_neutrino_notice((LIVE / "gcn.classic.voevent.ICECUBE_ASTROTRACK_BRONZE.001.xml").read_bytes())
+    assert j["nu"].event_name == "IceCube-261020A" and j["alert_type"] == "initial"
+    assert j["nu"].gps == pytest.approx(x["nu"].gps, abs=0.2)
+    assert (j["nu"].ra, j["nu"].dec) == pytest.approx((x["nu"].ra, x["nu"].dec), abs=0.01)
+    assert j["nu"].err_deg == pytest.approx(x["nu"].err_deg, abs=0.01)
+    assert j["nu"].far_hz == pytest.approx(x["nu"].far_hz, rel=0.01)
+    assert j["nu"].p_astro == pytest.approx(0.3798)
+    upd = parse_neutrino_notice((LIVE / "gcn.notices.icecube.gold_bronze_track_alerts.002.json").read_bytes())
+    assert upd["alert_type"] == "update" and upd["nu"].err_deg > j["nu"].err_deg   # systematics added
+
+
+def _nu_notice(dt_s=-100.0, dra=0.3, err=0.5, alert_type="initial", name="IceCube-170817A"):
+    d = json.loads((LIVE / "gcn.notices.icecube.gold_bronze_track_alerts.001.json").read_text())
+    d.update(trigger_time=Time(T0 + dt_s, format="gps").utc.isot + "Z", ra=RA + dra, dec=DEC,
+             ra_dec_error=err, alert_type=alert_type, event_name=[name])
+    return d
+
+
+def test_neutrino_before_candidate_sets_500s_window(tmp_path):
+    store = CandidateStore(tmp_path)
+    assert handle_neutrino_notice(_nu_notice(), store) == []        # stored, nothing to attach yet
+    add_candidate(make_kn(), store, now_gps=T0 + 86400)
+    kn = store.candidates()[0]
+    assert kn.neutrino is not None and kn.neutrino.event_name == "IceCube-170817A"
+    from raven_kn.treatment.t0 import estimate_window
+    w = estimate_window(kn)
+    assert w.method == "neutrino" and w.duration == pytest.approx(1000.0)
+    assert w.gps_start < T0 < w.gps_end
+    far = make_kn(); far.name = "far"; far.ra = RA + 5     # 5 deg away: outside 1.4 x 0.5 deg
+    add_candidate(far, store, now_gps=T0 + 86400)
+    assert next(c for c in store.candidates() if c.name == "far").neutrino is None
+
+
+def test_grb_window_wins_over_neutrino():
+    from raven_kn.connection import GRBAssociation, NeutrinoAssociation
+    from raven_kn.treatment.t0 import estimate_window
+    kn = make_kn()
+    kn.neutrino = NeutrinoAssociation(T0 - 100)
+    kn.grb = GRBAssociation(T0 + 1.74, "Fermi-GBM")
+    assert estimate_window(kn).duration == pytest.approx(6.0)
+
+
+def test_neutrino_after_candidate_update_and_retraction(tmp_path):
+    store = CandidateStore(tmp_path)
+    store.save(make_kn())
+    assert handle_neutrino_notice(_nu_notice(), store) == ["test"]
+    upd = _nu_notice(dt_s=-90.0, alert_type="update")
+    assert handle_neutrino_notice(upd, store) == ["test"]
+    assert store.candidates()[0].neutrino.gps == pytest.approx(T0 - 90.0, abs=1e-3)
+    other = _nu_notice(name="IceCube-170817B", dt_s=-50)       # a second event leaves the first alone
+    assert handle_neutrino_notice(other, store) == []
+    assert handle_neutrino_notice(_nu_notice(alert_type="retraction"), store) == ["test"]
+    kn = store.candidates()[0]
+    assert kn.neutrino is None and "retracted" in kn.notes
+    assert [n["nu"].event_name for n in store.nu_notices()] == ["IceCube-170817B"]
+
+
+def test_test_neutrino_notices_ignored(tmp_path):
+    store = CandidateStore(tmp_path)
+    store.save(make_kn())
+    d = _nu_notice()
+    d["$schema"] = d["$schema"].replace("/icecube/", "/icecube/test/")
+    assert handle_neutrino_notice(d, store) == [] and store.nu_notices() == []

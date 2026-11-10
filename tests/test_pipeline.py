@@ -62,7 +62,7 @@ def test_posterior_recovers_ngc4993_distance_and_angle():
 # ---------------- decision ----------------
 
 def test_nearby_is_worth_far_is_not(tmp_path):
-    near = assess(make_kn(), tmp_path)
+    near = assess(make_kn(), tmp_path, require_kn_evidence=False)   # detectability alone
     assert near["trigger_targeted_search"]
     assert (tmp_path / "test_targeted_search_request.json").exists()
     far = assess(make_kn(z=0.15, theta=None))
@@ -71,7 +71,7 @@ def test_nearby_is_worth_far_is_not(tmp_path):
 
 
 def test_detector_off_means_no_search():
-    res = assess(make_kn(), segments={"H1": [], "L1": [], "V1": []})
+    res = assess(make_kn(), segments={"H1": [], "L1": [], "V1": []}, require_kn_evidence=False)
     assert not res["trigger_targeted_search"]
 
 

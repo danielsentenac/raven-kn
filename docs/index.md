@@ -38,7 +38,7 @@ Optional pieces:
 | PyCBC, LALSuite | targeted GW search | the IGWN conda env on LIGO clusters has both |
 | `gcn-kafka` + GCN client credentials | real-time listener | from [gcn.nasa.gov](https://gcn.nasa.gov) |
 | IGWN SciToken | DQSegDB veto queries | `htgettoken -a vault.ligo.org -i igwn` |
-| ATLAS token, TNS bot | ATLAS forced photometry, TNS classifications | personal credentials |
+| ATLAS token, TNS bot, IPAC ZFPS account | ATLAS and ZTF forced photometry, TNS classifications | personal credentials |
 
 ## Quick try
 

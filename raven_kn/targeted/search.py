@@ -95,6 +95,7 @@ class TargetedSearchConfig:
     removal_min_second_snr: float = 6.0      # remove only if the 2nd-loudest detector is this loud
     max_templates: int = 20000
     n_offsource: int = 0                     # off-source trials per sub-segment (0: slides only)
+    min_slides: int = 20                     # fewer slides fit (short window): off-source p-value only
     offsource_gap_s: float = 64.0            # gap between the on-source window and off-source trials
     statistic: str = "network"               # "network" (incoherent) or "coherent" (known sky position)
     null_min: float = 5.25                   # coherent: null-SNR cut (PyGRB's --null-min/-grad/-step)
@@ -693,14 +694,27 @@ def offsource_background(cfg: TargetedSearchConfig, bank: Sequence[float], fetch
     return out
 
 
+def subsegment_pvalue(r: "SubsegmentResult", min_slides: int = 20) -> float:
+    """p-value of one sub-segment. With off-source trials, the more
+    conservative of the slide and off-source p-values; when the window is too
+    short for ``min_slides`` time slides (a GRB window of a few seconds), the
+    off-source trials alone, as in PyGRB."""
+    if r.p_value_offsource is None:
+        return r.p_value
+    if len(r.background) < min_slides:
+        return r.p_value_offsource
+    return max(r.p_value, r.p_value_offsource)
+
+
 def run(cfg: TargetedSearchConfig, fetch: StrainFetcher, out_dir: Optional[str | Path] = None,
         bank: Optional[Sequence[float]] = None, progress: bool = True) -> TargetedSearchResult:
     bank = list(bank) if bank is not None else build_bank(
         cfg.mchirp_min, cfg.mchirp_max, cfg.f_low, cfg.min_match, cfg.sample_rate, cfg.max_templates)
     edges = np.arange(cfg.gps_start, cfg.gps_end, cfg.subsegment_s).tolist() + [cfg.gps_end]
     subs = []
+    short = cfg.gps_end - cfg.gps_start < 16       # e.g. a GRB window [-5, +1] s: search it whole
     for a, b in zip(edges[:-1], edges[1:]):
-        if b - a < 16:
+        if b - a < 16 and not short:               # leftover piece of a long window
             continue
         r = search_subsegment(cfg, bank, fetch, a, b)
         if cfg.n_offsource > 0 and len(r.ifos) >= 2:
@@ -714,9 +728,8 @@ def run(cfg: TargetedSearchConfig, fetch: StrainFetcher, out_dir: Optional[str |
                   f"Mc={r.loudest_mchirp:.4f} p={r.p_value:.4f}"
                   + (f" p_off={r.p_value_offsource:.3f}" if r.p_value_offsource is not None else "")
                   + f" {r.notes}", flush=True)
-    valid = [s for s in subs if s.background]
-    # with off-source trials, the more conservative of the two p-values per sub-segment
-    p_all = combine_subsegments([max(s.p_value, s.p_value_offsource or 0.0) for s in valid]) \
+    valid = [s for s in subs if s.background or s.offsource]
+    p_all = combine_subsegments([subsegment_pvalue(s, cfg.min_slides) for s in valid]) \
         if valid else 1.0
     best = max(subs, key=lambda s: s.loudest_rho_net) if subs else None
     loudest = asdict(best) if best else {}

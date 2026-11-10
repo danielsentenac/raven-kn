@@ -59,6 +59,16 @@ class MergerTimeWindow:
 GRB_WINDOW = (-5.0, 1.0)
 
 
+# Neutrino: +-500 s, the standard GW / high-energy-neutrino coincidence window
+# (Baret et al. 2011, Astropart. Phys. 35, 1; used by IceCube's LVK follow-up).
+NEUTRINO_WINDOW = (-500.0, 500.0)
+
+
+def window_from_neutrino(nu_gps: float, tl: float = NEUTRINO_WINDOW[0],
+                         th: float = NEUTRINO_WINDOW[1]) -> MergerTimeWindow:
+    return MergerTimeWindow(nu_gps + tl, nu_gps + th, "neutrino", 1.0)
+
+
 def window_from_grb(grb_gps: float, tl: float = GRB_WINDOW[0],
                     th: float = GRB_WINDOW[1]) -> MergerTimeWindow:
     return MergerTimeWindow(grb_gps + tl, grb_gps + th, "GRB", 1.0)
@@ -181,9 +191,12 @@ def window_from_bracket(kn: KNCandidate,
 def estimate_window(kn: KNCandidate, d_mpc_upper: Optional[float] = None,
                     credible_level: float = 0.9, model_sys_frac: float = 0.75,
                     model_sys_min_h: float = 1.0, **bracket_kw) -> MergerTimeWindow:
-    """Best available window: GRB > (light-curve fit + model margin) & bracket > bracket."""
+    """Best available window: GRB > neutrino > (light-curve fit + model margin)
+    & bracket > bracket."""
     if kn.grb is not None:
         return window_from_grb(kn.grb.gps)
+    if getattr(kn, "neutrino", None) is not None:
+        return window_from_neutrino(kn.neutrino.gps)
     win = None
     if kn.first_detection is not None:
         win = window_from_bracket(kn, d_mpc_upper=d_mpc_upper, **bracket_kw)

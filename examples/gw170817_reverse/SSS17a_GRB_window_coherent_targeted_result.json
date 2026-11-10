@@ -1,0 +1,119 @@
+{
+  "config": {
+    "ra_deg": 197.450371,
+    "dec_deg": -23.381486,
+    "gps_start": 1187008879.47,
+    "gps_end": 1187008885.47,
+    "ifos": [
+      "H1",
+      "L1",
+      "V1"
+    ],
+    "mchirp_min": 1.0,
+    "mchirp_max": 1.5,
+    "f_low": 30.0,
+    "sample_rate": 2048,
+    "subsegment_s": 1024.0,
+    "pad_s": 8.0,
+    "min_match": 0.97,
+    "n_slides": 200,
+    "slide_step_s": 3.0,
+    "pool_s": 0.0078125,
+    "gate_threshold": 50.0,
+    "gate_width_s": 0.25,
+    "gate_taper_s": 0.25,
+    "chisq_bins": 16,
+    "chisq_threshold": 5.0,
+    "max_chisq_points": 500,
+    "hierarchical_removal": true,
+    "coinc_threshold": 4.0,
+    "removal_window_s": 1.0,
+    "removal_min_second_snr": 6.0,
+    "max_templates": 20000,
+    "n_offsource": 4,
+    "min_slides": 20,
+    "offsource_gap_s": 64.0,
+    "statistic": "coherent",
+    "null_min": 5.25,
+    "null_grad": 0.2,
+    "null_step": 20.0,
+    "label": "SSS17a_GRB_window_coherent"
+  },
+  "bank_size": 2148,
+  "subsegments": [
+    {
+      "gps_start": 1187008879.47,
+      "gps_end": 1187008885.47,
+      "ifos": [
+        "H1",
+        "L1",
+        "V1"
+      ],
+      "loudest_rho_net": 22.777438267912135,
+      "loudest_gps": 1187008882.4284961,
+      "loudest_mchirp": 1.1977183856421814,
+      "loudest_rho_ifo": {
+        "H1": 18.570844650268555,
+        "L1": 13.269604682922363,
+        "V1": 3.624324083328247
+      },
+      "background": [],
+      "p_value": 1.0,
+      "gates": {
+        "H1": [],
+        "L1": [
+          1187008881.3884277
+        ],
+        "V1": []
+      },
+      "notes": "coherent, 2148 templates, 0 slides, newSNR (16-bin chi-square at H1:6629, L1:19069, V1:114 points), 8 zero-lag samples failed the null cut, delays H1:+18.8 ms, L1:+15.5 ms, V1:-6.4 ms, loudest removed from background; 4 off-source trials",
+      "p_value_extrapolated": null,
+      "extrapolation_reach": null,
+      "offsource": [
+        3.995958946933616,
+        5.9132341842149065,
+        5.778798899066514,
+        6.5063098978732965
+      ],
+      "p_value_offsource": 0.2,
+      "statistic": "coherent",
+      "loudest_rho_coh": 22.777438267912135,
+      "loudest_rho_null": 3.9093207048446095,
+      "loudest_rho_network": 23.110485076904297
+    }
+  ],
+  "p_value": 0.19999999999999996,
+  "loudest": {
+    "gps_start": 1187008879.47,
+    "gps_end": 1187008885.47,
+    "ifos": [
+      "H1",
+      "L1",
+      "V1"
+    ],
+    "loudest_rho_net": 22.777438267912135,
+    "loudest_gps": 1187008882.4284961,
+    "loudest_mchirp": 1.1977183856421814,
+    "loudest_rho_ifo": {
+      "H1": 18.570844650268555,
+      "L1": 13.269604682922363,
+      "V1": 3.624324083328247
+    },
+    "p_value": 1.0,
+    "gates": {
+      "H1": [],
+      "L1": [
+        1187008881.3884277
+      ],
+      "V1": []
+    },
+    "notes": "coherent, 2148 templates, 0 slides, newSNR (16-bin chi-square at H1:6629, L1:19069, V1:114 points), 8 zero-lag samples failed the null cut, delays H1:+18.8 ms, L1:+15.5 ms, V1:-6.4 ms, loudest removed from background; 4 off-source trials",
+    "p_value_extrapolated": null,
+    "extrapolation_reach": null,
+    "p_value_offsource": 0.2,
+    "statistic": "coherent",
+    "loudest_rho_coh": 22.777438267912135,
+    "loudest_rho_null": 3.9093207048446095,
+    "loudest_rho_network": 23.110485076904297
+  }
+}

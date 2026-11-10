@@ -43,7 +43,8 @@ from astropy.table import Table
 from astropy.time import Time
 import astropy.units as u
 
-from .connection import GRBAssociation, KNCandidate, load_candidate, save_candidate
+from .connection import (GRBAssociation, KNCandidate, NeutrinoAssociation, load_candidate,
+                         save_candidate)
 from .search import coinc_far
 from .treatment.distance_inclination import posterior_for
 from .treatment.t0 import estimate_window
@@ -59,6 +60,10 @@ GRB_TOPICS = ("gcn.notices.swift.bat.guano", "gcn.notices.einstein_probe.wxt.ale
               # classic VOEvent (XML): Fermi-GBM flight / ground / final positions
               "gcn.classic.voevent.FERMI_GBM_FLT_POS", "gcn.classic.voevent.FERMI_GBM_GND_POS",
               "gcn.classic.voevent.FERMI_GBM_FIN_POS")
+# IceCube gold/bronze track alerts, unified JSON schema (checked against the live
+# broker, 2026-11-10); the same alerts also come as classic VOEvents
+# (gcn.classic.voevent.ICECUBE_ASTROTRACK_GOLD / _BRONZE), which parse too.
+NU_TOPICS = ("gcn.notices.icecube.gold_bronze_track_alerts",)
 GBM_SYS_ERR_DEG = 3.7       # GBM systematic localisation error (Connaughton et al. 2015, core)
 MAX_FLAT_ORDER = 9          # flattened GW maps: nside 512
 
@@ -241,6 +246,55 @@ def parse_grb_notice(msg: dict | bytes | str) -> dict[str, Any]:
             "err_deg": float(err) if err is not None else None}
 
 
+def parse_neutrino_notice(msg: dict | bytes | str) -> dict[str, Any]:
+    """IceCube track alert: unified JSON (``gold_bronze_track_alerts``:
+    ``trigger_time``, ``ra``, ``dec``, ``ra_dec_error`` at
+    ``containment_probability`` 0.9, ``p_astro``, ``far`` in Hz) or classic
+    VOEvent (``ICECUBE_ASTROTRACK_*``: ISOTime, C1/C2, Error2Radius (90 %),
+    ``signalness``, ``FAR`` in yr^-1)."""
+    if isinstance(msg, (bytes, str)):
+        text = msg.decode() if isinstance(msg, bytes) else msg
+        if text.lstrip().startswith("<"):
+            import xml.etree.ElementTree as ET
+            root = ET.fromstring(text.encode())
+
+            def find(tag):
+                return next((e for e in root.iter() if e.tag.split("}")[-1] == tag), None)
+            params = {e.get("name"): e.get("value") for e in root.iter()
+                      if e.tag.split("}")[-1] == "Param"}
+            ra, dec, err = (find(k) for k in ("C1", "C2", "Error2Radius"))
+            far = params.get("FAR")
+            sig = params.get("signalness")
+            ivorn = root.get("ivorn", "")
+            name = (f"IceCube_{params['run_id']}_{params['event_id']}"
+                    if params.get("run_id") and params.get("event_id") else ivorn)
+            return {"nu": NeutrinoAssociation(
+                        gps=_gps(find("ISOTime").text.strip()), instrument="IceCube",
+                        event_name=name,
+                        ra=float(ra.text) if ra is not None else None,
+                        dec=float(dec.text) if dec is not None else None,
+                        err_deg=float(err.text) if err is not None else None,
+                        p_astro=float(sig) if sig not in (None, "") else None,
+                        far_hz=float(far) / (365.25 * 86400) if far not in (None, "") else None),
+                    "role": root.get("role"), "alert_type": "retraction"
+                    if "retract" in ivorn.lower() else "notice"}
+        msg = json.loads(text)
+    names = msg.get("event_name") or msg.get("id") or [None]
+    name = names[0] if isinstance(names, list) else names
+    err = msg.get("ra_dec_error")
+    cont = msg.get("containment_probability")
+    if err is not None and cont is not None and cont < 0.9:    # rescale to 90 % (2D Gaussian)
+        from scipy.stats import chi2
+        err = float(err) * np.sqrt(chi2.ppf(0.9, 2) / chi2.ppf(cont, 2))
+    return {"nu": NeutrinoAssociation(
+                gps=_gps(msg["trigger_time"]), instrument=msg.get("mission", "IceCube"),
+                event_name=name, ra=msg.get("ra"), dec=msg.get("dec"),
+                err_deg=float(err) if err is not None else None,
+                p_astro=msg.get("p_astro"), far_hz=msg.get("far")),
+            "role": "test" if "test" in str(msg.get("$schema", "")) else None,
+            "alert_type": msg.get("alert_type", "")}
+
+
 # --------------------------------------------------------------------------
 # Store and handlers
 # --------------------------------------------------------------------------
@@ -251,7 +305,7 @@ class CandidateStore:
 
     def __init__(self, root: str | Path, gw_memory_days: float = 14.0):
         self.root = Path(root)
-        for d in ("candidates", "gw", "coinc"):
+        for d in ("candidates", "gw", "grb", "nu", "coinc"):
             (self.root / d).mkdir(parents=True, exist_ok=True)
         self.gw_memory_s = gw_memory_days * 86400
 
@@ -290,6 +344,46 @@ class CandidateStore:
             meta["external_coinc"] = prev["external_coinc"]
             meta["external_coinc_from"] = "previous alert"
         jpath.write_text(json.dumps(meta, indent=1, default=str))
+
+    # GRB notices (latest per trigger), kept so that a kilonova found later
+    # can still be matched to the GRB that preceded it
+    def save_grb(self, notice: dict) -> None:
+        g = notice["grb"]
+        key = g.graceid or f"{g.instrument}_{g.gps:.2f}"
+        key = "".join(c if c.isalnum() or c in "-_." else "_" for c in key)
+        rec = {"grb": asdict(g), **{k: notice.get(k) for k in ("ra", "dec", "err_deg")}}
+        (self.root / "grb" / f"{key}.json").write_text(json.dumps(rec, indent=1))
+
+    def grb_notices(self) -> list[dict]:
+        out = []
+        for p in sorted((self.root / "grb").glob("*.json")):
+            rec = json.loads(p.read_text())
+            rec["grb"] = GRBAssociation(**rec["grb"])
+            out.append(rec)
+        return out
+
+    # neutrino alerts (latest per event: updates refine time and position)
+    @staticmethod
+    def _nu_key(nu: NeutrinoAssociation) -> str:
+        key = nu.event_name or f"{nu.instrument}_{nu.gps:.2f}"
+        return "".join(c if c.isalnum() or c in "-_." else "_" for c in key)
+
+    def save_nu(self, notice: dict) -> None:
+        nu = notice["nu"]
+        (self.root / "nu" / f"{self._nu_key(nu)}.json").write_text(
+            json.dumps({"nu": asdict(nu)}, indent=1))
+
+    def forget_nu(self, nu: NeutrinoAssociation) -> None:
+        p = self.root / "nu" / f"{self._nu_key(nu)}.json"
+        if p.exists():
+            p.unlink()
+
+    def nu_notices(self) -> list[dict]:
+        out = []
+        for p in sorted((self.root / "nu").glob("*.json")):
+            nu = NeutrinoAssociation(**json.loads(p.read_text())["nu"])
+            out.append({"nu": nu, "ra": nu.ra, "dec": nu.dec, "err_deg": nu.err_deg})
+        return out
 
     def forget_gw(self, superevent_id: str) -> None:
         for p in (self.root / "gw").glob(f"{superevent_id}.*"):
@@ -374,6 +468,30 @@ def handle_gw_alert(msg: dict | bytes | str, store: CandidateStore, use_combined
     return out
 
 
+def _grb_match(kn: KNCandidate, n: dict, max_lead_days: float, min_err_deg: float,
+               err_scale: float, key: str = "grb") -> Optional[float]:
+    """Separation (deg) if the GRB (``key="grb"``) or neutrino (``"nu"``)
+    notice ``n`` can belong to ``kn``: the first detection follows it by less
+    than ``max_lead_days`` and the candidate lies within ``err_scale`` x the
+    notice radius; else None."""
+    fd = kn.first_detection
+    if fd is None or n.get("ra") is None or n.get("dec") is None:
+        return None
+    radius = max(err_scale * (n.get("err_deg") or 0.0), min_err_deg)
+    lead = fd.gps - n[key].gps
+    sep = SkyCoord(n["ra"] * u.deg, n["dec"] * u.deg).separation(
+        SkyCoord(kn.ra * u.deg, kn.dec * u.deg)).deg
+    if 0 < lead < max_lead_days * 86400 and sep <= radius + kn.pos_err_arcsec / 3600:
+        return float(sep)
+    return None
+
+
+def _attach_grb(kn: KNCandidate, n: dict, sep: float, how: str) -> None:
+    kn.grb = n["grb"]
+    kn.notes = (kn.notes + f" GRB {n['grb'].graceid or ''} ({n['grb'].instrument}) "
+                f"attached by listener ({how}), sep {sep:.2f} deg.").strip()
+
+
 def handle_grb_notice(msg: dict | bytes | str, store: CandidateStore,
                       max_lead_days: float = 3.0, min_err_deg: float = 0.0,
                       err_scale: float = 2.0) -> list[str]:
@@ -382,33 +500,100 @@ def handle_grb_notice(msg: dict | bytes | str, store: CandidateStore,
     < ``max_lead_days``. Notice radii are ~68 % (1-sigma-like) circles;
     x2 is ~99 % for a 2D Gaussian (GW170817: NGC 4993 lies 24 deg from the
     GBM ground position, radius 11.6 deg stat. + 3.7 deg sys.). Candidates
-    that already have a GRB are left alone; test notices are ignored.
-    Returns the names of the candidates updated."""
+    that already have a GRB are left alone; test notices are ignored. The
+    notice is stored, so that a candidate added later (the usual order: the
+    GRB comes first, the optical counterpart hours later) is matched to it
+    by :func:`add_candidate`. Returns the names of the candidates updated."""
     n = parse_grb_notice(msg)
     if n.get("role") == "test" or n["ra"] is None or n["dec"] is None:
         return []
-    radius = max(err_scale * (n["err_deg"] or 0.0), min_err_deg)
-    grb_pos = SkyCoord(n["ra"] * u.deg, n["dec"] * u.deg)
+    store.save_grb(n)
     hits = []
     for kn in store.candidates():
-        fd = kn.first_detection
-        if kn.grb is not None or fd is None:
+        if kn.grb is not None:
             continue
-        lead = fd.gps - n["grb"].gps
-        sep = grb_pos.separation(SkyCoord(kn.ra * u.deg, kn.dec * u.deg)).deg
-        if 0 < lead < max_lead_days * 86400 and sep <= radius + kn.pos_err_arcsec / 3600:
-            kn.grb = n["grb"]
-            kn.notes = (kn.notes + f" GRB {n['grb'].graceid or ''} ({n['grb'].instrument}) "
-                        f"attached by listener, sep {sep:.2f} deg.").strip()
+        sep = _grb_match(kn, n, max_lead_days, min_err_deg, err_scale)
+        if sep is not None:
+            _attach_grb(kn, n, sep, "GRB after candidate")
+            store.save(kn)
+            hits.append(kn.name)
+    return hits
+
+
+def _attach_nu(kn: KNCandidate, n: dict, sep: float, how: str) -> None:
+    nu = n["nu"]
+    new = kn.neutrino is None or kn.neutrino.event_name != nu.event_name
+    kn.neutrino = nu
+    if new:
+        kn.notes = (kn.notes + f" Neutrino {nu.event_name or ''} ({nu.instrument}, p_astro "
+                    f"{nu.p_astro}) attached by listener ({how}), sep {sep:.2f} deg.").strip()
+
+
+def handle_neutrino_notice(msg: dict | bytes | str, store: CandidateStore,
+                           max_lead_days: float = 3.0, min_err_deg: float = 0.0,
+                           err_scale: float = 1.4) -> list[str]:
+    """Attach an IceCube track alert to candidates within ``err_scale`` x its
+    90 % radius (x1.4: about 99 % for a 2D Gaussian, as the GRB rule) whose
+    first detection follows it by < ``max_lead_days``; their window becomes
+    +-500 s around the neutrino (unless a GRB gives a tighter one). The
+    notice is stored for candidates found later (:func:`add_candidate`).
+    An update of the same event refines the time and position of attached
+    candidates; a retraction removes the notice and detaches it. Test
+    notices are ignored. Returns the names of the candidates updated."""
+    n = parse_neutrino_notice(msg)
+    nu = n["nu"]
+    if n.get("role") == "test":
+        return []
+    hits = []
+    if "retract" in str(n.get("alert_type", "")).lower():
+        store.forget_nu(nu)
+        for kn in store.candidates():
+            if kn.neutrino is not None and kn.neutrino.event_name == nu.event_name:
+                kn.neutrino = None
+                kn.notes = (kn.notes + f" Neutrino {nu.event_name} retracted.").strip()
+                store.save(kn)
+                hits.append(kn.name)
+        return hits
+    if nu.ra is None or nu.dec is None:
+        return []
+    n = {**n, "ra": nu.ra, "dec": nu.dec, "err_deg": nu.err_deg}
+    store.save_nu(n)
+    for kn in store.candidates():
+        if kn.neutrino is not None and kn.neutrino.event_name != nu.event_name:
+            continue
+        sep = _grb_match(kn, n, max_lead_days, min_err_deg, err_scale, key="nu")
+        if sep is not None:
+            _attach_nu(kn, n, sep, "neutrino after candidate")
             store.save(kn)
             hits.append(kn.name)
     return hits
 
 
 def add_candidate(kn: KNCandidate, store: CandidateStore, now_gps: Optional[float] = None,
-                  use_combined: bool = False, **coinc_kw) -> list[dict]:
-    """Store a new or updated candidate and match it against GW alerts
-    received in the last ``gw_memory_days``."""
+                  use_combined: bool = False, grb_max_lead_days: float = 3.0,
+                  grb_min_err_deg: float = 0.0, grb_err_scale: float = 2.0,
+                  nu_err_scale: float = 1.4, **coinc_kw) -> list[dict]:
+    """Store a new or updated candidate, attach a stored GRB notice and a
+    stored neutrino alert that preceded it (same rules as
+    :func:`handle_grb_notice` and :func:`handle_neutrino_notice`; the closest
+    in time if several), and match it against GW alerts received in the last
+    ``gw_memory_days``."""
+    if kn.grb is None:
+        best = None
+        for n in store.grb_notices():
+            sep = _grb_match(kn, n, grb_max_lead_days, grb_min_err_deg, grb_err_scale)
+            if sep is not None and (best is None or n["grb"].gps > best[0]["grb"].gps):
+                best = (n, sep)
+        if best is not None:
+            _attach_grb(kn, best[0], best[1], "GRB before candidate")
+    if kn.neutrino is None:
+        best = None
+        for n in store.nu_notices():
+            sep = _grb_match(kn, n, grb_max_lead_days, 0.0, nu_err_scale, key="nu")
+            if sep is not None and (best is None or n["nu"].gps > best[0]["nu"].gps):
+                best = (n, sep)
+        if best is not None:
+            _attach_nu(kn, best[0], best[1], "neutrino before candidate")
     store.save(kn)
     now = now_gps if now_gps is not None else float(Time.now().gps)
     out = []
@@ -429,7 +614,8 @@ def add_candidate(kn: KNCandidate, store: CandidateStore, now_gps: Optional[floa
 # --------------------------------------------------------------------------
 
 def listen(store: CandidateStore, client_id: str, client_secret: str,
-           grb_topics: Iterable[str] = GRB_TOPICS, domain: Optional[str] = None,
+           grb_topics: Iterable[str] = GRB_TOPICS, nu_topics: Iterable[str] = NU_TOPICS,
+           domain: Optional[str] = None,
            on_result: Optional[Callable[[dict], None]] = None, group_id: Optional[str] = "raven-kn",
            include_mock: bool = False, **coinc_kw) -> None:
     """Consume GCN Kafka forever (``gcn_kafka.Consumer``). With a fixed
@@ -442,7 +628,8 @@ def listen(store: CandidateStore, client_id: str, client_secret: str,
     if group_id:
         kw["config"] = {"group.id": group_id}
     consumer = Consumer(client_id=client_id, client_secret=client_secret, **kw)
-    topics = [GW_TOPIC, *grb_topics]
+    nu_topics = tuple(nu_topics)
+    topics = [GW_TOPIC, *grb_topics, *nu_topics]
     consumer.subscribe(topics)
     log.info("listening to %s", ", ".join(topics))
     while True:
@@ -456,6 +643,9 @@ def listen(store: CandidateStore, client_id: str, client_secret: str,
                                                **coinc_kw):
                         if on_result:
                             on_result(res)
+                elif message.topic() in nu_topics:
+                    for name in handle_neutrino_notice(message.value(), store):
+                        log.info("neutrino attached to %s", name)
                 else:
                     for name in handle_grb_notice(message.value(), store):
                         log.info("GRB attached to %s", name)

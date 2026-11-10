@@ -1,0 +1,150 @@
+{
+ "timeline": [
+  {
+   "hours_after_grb": 0.0,
+   "event": "Fermi-GBM notice 524666471 stored; candidates updated: []"
+  },
+  {
+   "hours_after_grb": 10.87,
+   "event": "SSS17a discovered (i = 16.0); GRB attached: True",
+   "notes": "GRB 524666471 (Fermi-GBM) attached by listener (GRB before candidate), sep 23.95 deg."
+  },
+  {
+   "hours_after_grb": 10.87,
+   "event": "host NGC 4993, z = 0.0109",
+   "host": {
+    "steps": [
+     "NED: 1 galaxies with z within 50.0 kpc, 1 spectroscopic",
+     "redshift from NED host NGC 4993: z=0.01092 (spectroscopic)",
+     "NED-D distance 40.7 +- 1.5 Mpc (SBF (2018ApJ...854L..31C, NED-D))"
+    ],
+    "host": {
+     "name": "NGC 4993",
+     "ra": 197.4487623,
+     "dec": -23.3839623,
+     "z": 0.010924452791843065,
+     "z_err": 1.66782047599076e-05,
+     "z_kind": "spectroscopic",
+     "d_l_mpc": null,
+     "b_mag": null,
+     "sep_arcsec": 10.379220985738074,
+     "offset_kpc": 2.1755718127511554,
+     "p_chance": null,
+     "catalog": "NED"
+    }
+   }
+  },
+  {
+   "hours_after_grb": 10.87,
+   "event": "assess with 1 points: trigger False (expected SNR 34; kilonova: False) - light curve: 1 detection epoch(s), need 2 at least 0.25 d apart; peak M = -17.1 in the kilonova range",
+   "trigger": false,
+   "kilonova_evidence": {
+    "confirmed": false,
+    "by": [],
+    "reasons": [
+     "light curve: 1 detection epoch(s), need 2 at least 0.25 d apart; peak M = -17.1 in the kilonova range"
+    ],
+    "n_epochs": 1,
+    "peak_abs_mag": -17.096598321977872,
+    "max_decline_mag_per_day": null,
+    "max_reddening_mag_per_day": null,
+    "required": true
+   }
+  },
+  {
+   "hours_after_grb": 16.86,
+   "event": "assess with 4 points: trigger False (expected SNR 34; kilonova: False) - light curve: 1 detection epoch(s), need 2 at least 0.25 d apart; peak M = -17.1 in the kilonova range",
+   "trigger": false,
+   "kilonova_evidence": {
+    "confirmed": false,
+    "by": [],
+    "reasons": [
+     "light curve: 1 detection epoch(s), need 2 at least 0.25 d apart; peak M = -17.1 in the kilonova range"
+    ],
+    "n_epochs": 1,
+    "peak_abs_mag": -17.096598321977872,
+    "max_decline_mag_per_day": null,
+    "max_reddening_mag_per_day": null,
+    "required": true
+   }
+  },
+  {
+   "hours_after_grb": 21.39,
+   "event": "assess with 7 points: trigger False (expected SNR 34; kilonova: False) - light curve: peak M = -17.1 in the kilonova range; no significant fast evolution (no fading rate, no reddening rate at >= 3 sigma; need >= 0.3 / 0.3 mag/d)",
+   "trigger": false,
+   "kilonova_evidence": {
+    "confirmed": false,
+    "by": [],
+    "reasons": [
+     "light curve: peak M = -17.1 in the kilonova range; no significant fast evolution (no fading rate, no reddening rate at >= 3 sigma; need >= 0.3 / 0.3 mag/d)"
+    ],
+    "n_epochs": 2,
+    "peak_abs_mag": -17.096598321977872,
+    "max_decline_mag_per_day": null,
+    "max_reddening_mag_per_day": null,
+    "required": true
+   }
+  },
+  {
+   "hours_after_grb": 29.51,
+   "event": "assess with 12 points: trigger True (expected SNR 34; kilonova: True by light curve) - light curve: peak M = -17.1 in the kilonova range; fading 1.75 +- 0.43 mag/d in ps1::g within 4 d",
+   "trigger": true,
+   "kilonova_evidence": {
+    "confirmed": true,
+    "by": [
+     "light curve"
+    ],
+    "reasons": [
+     "light curve: peak M = -17.1 in the kilonova range; fading 1.75 +- 0.43 mag/d in ps1::g within 4 d"
+    ],
+    "n_epochs": 3,
+    "peak_abs_mag": -17.096598321977872,
+    "max_decline_mag_per_day": 1.7455621313772678,
+    "max_reddening_mag_per_day": null,
+    "required": true
+   }
+  },
+  {
+   "hours_after_grb": 29.51,
+   "event": "search request: window [1187008879.47, 1187008885.47] (6 s), Mc [1.0, 1.5]; contains GW170817: True"
+  }
+ ],
+ "window": {
+  "gps_start": 1187008879.47,
+  "gps_end": 1187008885.47,
+  "contains_gw170817": true,
+  "trigger_hours_after_grb": 29.506869444565382,
+  "expected_network_snr": 33.682355550900354,
+  "ranges_mpc": {
+   "H1": 47.3,
+   "L1": 96.3,
+   "V1": 25.6
+  }
+ },
+ "search": {
+  "bank_size": 2148,
+  "statistic": "coherent",
+  "loudest": 22.777438267912135,
+  "loudest_gps": 1187008882.4284961,
+  "dt_from_gw170817_s": -0.0015039443969726562,
+  "mchirp": 1.1977183856421814,
+  "rho_ifo": {
+   "H1": 18.570844650268555,
+   "L1": 13.269604682922363,
+   "V1": 3.624324083328247
+  },
+  "n_offsource": 4,
+  "offsource_max": 6.5063098978732965,
+  "offsource_median": 5.9132341842149065,
+  "p_value": 0.19999999999999996,
+  "notes": "coherent, 2148 templates, 0 slides, newSNR (16-bin chi-square at H1:6629, L1:19069, V1:114 points), 8 zero-lag samples failed the null cut, delays H1:+18.8 ms, L1:+15.5 ms, V1:-6.4 ms, loudest removed from background; 4 off-source trials",
+  "gates": {
+   "H1": [],
+   "L1": [
+    1187008881.3884277
+   ],
+   "V1": []
+  },
+  "runtime_s": 2321.457248210907
+ }
+}

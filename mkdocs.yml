@@ -46,6 +46,7 @@ nav:
       - AT2017gfo and GRB 211211A light-curve fits: examples/kilonova-fits.md
       - Injection calibration: examples/injections.md
       - GW170817 targeted search: examples/gw170817-search.md
+      - GW170817 from the GRB and the kilonova: examples/gw170817-reverse.md
       - Host galaxies and redshifts: examples/hosts.md
       - S250818k / AT2025ulz: examples/s250818k.md
 

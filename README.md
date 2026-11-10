@@ -12,24 +12,28 @@ candidates (joint FAR) and/or a targeted search of archived strain.**
 
 ## Workflow
 
-![RAVEN-KN workflow: optical, spectroscopic and GRB inputs build a kilonova candidate; treatment derives the merger-time window, distance and kilonova rate; with a GW alert these give a coincidence and a joint FAR, without one they drive a targeted PyCBC or PyGRB search](docs/raven-kn-workflow.svg)
+![RAVEN-KN workflow: optical, spectroscopic, GRB and neutrino inputs build a kilonova candidate; treatment derives the merger-time window, distance and kilonova rate; with a GW alert these give a coincidence and a joint FAR; without one, a targeted PyCBC or PyGRB search runs once the transient is confirmed as a kilonova and is detectable](docs/raven-kn-workflow.svg)
 
 Everything downstream depends on the merger-time window (highlighted). With a GW alert it sets the
-coincidence; without one it sets the stretch of strain data to search. The listener (`raven-kn listen`)
-runs the top-right branch automatically for every alert and every stored candidate.
+coincidence; without one it sets the stretch of strain data to search. A targeted search is triggered only
+when the transient is **confirmed as a kilonova** (light curve, spectrum or classifier score) and a signal
+would be detectable: a GRB alone does not trigger one. GRB notices, which usually come hours before the
+optical counterpart, are stored and attached to a candidate found up to 3 days later; IceCube neutrino
+alerts are handled the same way and give a ±500 s window. The listener
+(`raven-kn listen`) runs the top-right branch automatically for every alert and every stored candidate.
 
 ## Modules
 
 | RAVEN-KN | Role | RAVEN analogue |
 |---|---|---|
-| `raven_kn.connection` | `KNCandidate` (photometry incl. non-detections, redshift, distance, viewing angle, GRB, light-curve-fit samples, spectroscopic class); connectors: Fink, ALeRCE, ANTARES, ATLAS, GraceDB, GCN JSON, NED/NED-D, GLADE+, DES Y6, TNS, local JSON | `gracedb_events.ExtTrig` / `SE` |
+| `raven_kn.connection` | `KNCandidate` (photometry incl. non-detections, redshift, distance, viewing angle, GRB, light-curve-fit samples, spectroscopic class); connectors: Fink, ALeRCE, ANTARES, ATLAS, ZTF forced photometry, GraceDB, GCN JSON, NED/NED-D, GLADE+, DES Y6, TNS, local JSON | `gracedb_events.ExtTrig` / `SE` |
 | `raven_kn.treatment.t0` | merger-time window [tl, th]: GRB (seconds) > light-curve-fit t0 posterior ∩ photometric bracket (last *constraining* non-detection → first detection) | fixed `tl, th` |
 | `raven_kn.treatment.lightcurve_fit` | NMMA wrapper: candidate → NMMA data/prior files and `lightcurve-analysis` command → posterior read back as `t0_samples_gps` (+ D_L, ι) | — (new) |
 | `raven_kn.treatment.distance_inclination` | joint (D_L, cos ι) posterior from spectroscopic redshift, host distance, VLBI/afterglow viewing angle, prompt GRB, light-curve-fit samples; search priors | — (new) |
 | `raven_kn.treatment.detectability` | expected network SNR over the window (LAL antenna patterns at the candidate position, Earth rotation, duty cycle/segments); decision: trigger or not | — (new) |
 | `raven_kn.treatment.far` | joint FARs: `(th−tl) R_KN FAR_GW` / sky overlap / **distance overlap**; targeted-search p-value, sub-segment trials, RAVEN "SubGRBTargeted" product formula | `search.coinc_far` |
 | `raven_kn.skymap` | kilonova 2D/3D HEALPix map (PROB, DISTMU, DISTSIGMA, DISTNORM), GW map reader, sky overlap (RAVEN's own function if installed), distance overlap | `search.skymap_overlap_integral` |
-| `raven_kn.listener` | GCN Kafka listener: `igwn.gwalert` (multi-order sky map decoded in the alert) and unified-schema GRB notices matched against a store of kilonova candidates, both ways in time | `listen` / `handle_*` |
+| `raven_kn.listener` | GCN Kafka listener: `igwn.gwalert` (multi-order sky map decoded in the alert), GRB notices and IceCube neutrino alerts matched against a store of kilonova candidates, both ways in time; `raven_kn.fink_stream` feeds the store from Fink's ZTF / Rubin livestream | `listen` / `handle_*` |
 | `raven_kn.search` | `query`, `search`, `coinc_far`, `calc_signif_gracedb` (GraceDB logs `RAVEN-KN:`, tag `ext_coinc`, file `coincidence_far_kn.json`), `assess` | `search.*` |
 
 `KNCandidate.to_raven_event_dict()` gives a GraceDB-External-event-shaped dict
@@ -235,6 +239,19 @@ search's per-detector chi-square: the gate removes part of L1's chirp, the power
 cuts L1 from 24 to 16, where PyGRB's coherent chi-square costs 3.5 %. Near gates the light search therefore
 under-ranks real signals (still p < 1/1001 here); a gate-aware chi-square is the next fix.
 
+## GW170817 replayed from the GRB and the kilonova (`examples/gw170817_reverse.py`)
+
+GW170817 without the GW alert, with only what the EM side knew on 17–18 August 2017, in order: the
+Fermi-GBM notice (stored, 12:41 UTC), the Swope discovery of SSS17a 10.9 h later (GRB attached, 24° from
+the GBM position: window [−5, +1] s; host NGC 4993), then the real AT2017gfo light curve. The search is
+**held** at discovery and on the first night (one epoch, then no significant evolution) and **triggered at
++29.5 h**, when g and r fade by ~1.7 mag/day (4σ in g) at M = −17.1: the light curve alone confirms the
+kilonova. Expected network SNR with that day's sensitivity: 34 (observed 32.4). The 6 s search
+(coherent, 1.0–1.5 Msun, 2148 templates, GWOSC GWTC-1 data) finds **22.8 at 1.5 ms from the merger, chirp
+mass 1.1977**; 100 off-source trials (20 HTCondor jobs on CIT, `examples/gw170817_reverse_cit/`) reach at
+most 7.5: p < 0.01 (the 100-trial floor). L1 is cut to 13 by the gated glitch (see the PyGRB comparison
+above). Results: `examples/gw170817_reverse/`.
+
 ## Redshift, distance and inclination: spectroscopy and host galaxies (`raven-kn host`, `raven-kn tns`)
 
 The "is a search worth it" cut (500 Mpc) and the GW distance/inclination priors rest on the EM distance.
@@ -247,7 +264,7 @@ host galaxy's spectrum. The connection module now fetches it:
 | **NED-D** | redshift-independent distances of the host (SBF, TRGB, Cepheids, SNe Ia, FP, Tully-Fisher); GW-based entries are dropped | public |
 | **GLADE+** (VizieR VII/291, mirrors with fallback) | LVK's galaxy catalogue: CMB-frame z (spec. or photometric), B/K magnitudes, chance-coincidence probability | public |
 | **DES Y6 Gold** (NOIRLab Data Lab TAP `des_dr2.y6_gold`) | southern 5,000 deg², ~450 M galaxies (20× GLADE+ there, complete well beyond 150 Mpc): DNF photo-z, r magnitude, half-light radius | public |
-| **TNS** | spectroscopic classification (e.g. "Kilonova"), transient/host redshift, list of spectra (ASCII/FITS) | bot ID + API key |
+| **TNS** | spectroscopic classification (e.g. "Kilonova"), transient/host redshift, list of spectra (ASCII/FITS) | bot ID + API key (`$TNS_BOT_ID`, `$TNS_BOT_NAME`, `$TNS_API_KEY`); tested live 2026-11-10: AT2017gfo "Kilonova", host NGC 4993; SN 2025ulz "SN II", z 0.0848 |
 
 `find_host` keeps a spectroscopic redshift already in the candidate (from TNS, a GCN circular or a spectrum);
 otherwise takes NED's nearest galaxy with a spectroscopic redshift within 50 kpc projected, else GLADE+ (lowest
@@ -285,6 +302,16 @@ The t0 window depends most on the latest deep image of the position before the f
 - `ANTARESConnector` — the NOIRLab ANTARES broker (public, no token), found by cone search: the same ZTF
   detections and limits as ALeRCE (ZTF21abdpqpq: identical 3 + 91 points, merged without duplicates), so
   either can stand in when the other is down; LSST records are read from ANTARES' generic fields;
+- `ZTFForcedPhotometryConnector` (`raven-kn ztffp submit|fetch`) — IPAC's ZTF Forced Photometry Service
+  (Masci et al. 2023): PSF-fit flux at the position on every ZTF difference image, so it gives the
+  non-detections before discovery that alert streams lack. Needs an IPAC account (`$ZTF_FPS_EMAIL`,
+  `$ZTF_FPS_USERPASS`); requests are queued (minutes to days), results matched to candidates by the
+  position in the file header. IPAC's quality cuts (procstatus, infobitssci, scisigpix, seeing, and
+  `diffimgstatus` in v6 files), S/N > 3 detections, else 5σ limits; no baseline correction. A position is
+  not resubmitted within 90 days (IPAC's rule; local log). Tested live 2026-11-10 on AT2025ulz (public
+  data, 28 epochs June–September 2025): the last limits before S250818k, 2025-08-17 ~04–05 UTC (about 20 h
+  before the merger), are r > 21.0 and g > 21.1, shallower than the transient at discovery (r = 21.29), so
+  they do not narrow the window — as found with the alert-stream limits;
 - `ATLASForcedPhotometryConnector` — ATLAS forced photometry (cyan/orange, 5σ limits) via the
   fallingstar-data.com queue API; needs a personal token. Tested live: SN 2023ixf gives o > 19.3 a few
   hours before discovery, then o ≈ 11.5; AT2017gfo (August 2017, field near the Sun) has no ATLAS image,
@@ -361,7 +388,25 @@ raven-kn add candidate.json --store kn_store/            # a new or updated kilo
   the 3.7° GBM systematic added in quadrature): attached to candidates within 2× the error radius whose
   first detection follows within 3 days; their window becomes RAVEN's [−5, +1] s. With 1× the radius the
   GW170817 GBM ground position (24° from NGC 4993) would be missed. Test notices are ignored.
-- **Late candidate**: `raven-kn add` matches it against GW alerts of the last 14 days.
+- **Neutrino alert** (`gcn.notices.icecube.gold_bronze_track_alerts`, IceCube gold / bronze tracks; classic
+  VOEvents parse too): stored, and attached to candidates within 1.4× the 90 % error radius (≈ 99 %) whose
+  first detection follows within 3 days; their window becomes ±500 s around the neutrino (Baret et al.
+  2011), unless a GRB gives a tighter one. Updates refine time and position; retractions detach it. Live
+  notices of IceCube-261020A (JSON and VOEvent, initial and update) parse identically
+  (`tests/data/gcn_live/`).
+- **Fink livestream** (`raven-kn fink-listen --survey ztf|lsst --store kn_store/`, `raven_kn.fink_stream`;
+  `pip install .[fink]`, credentials from Fink via its registration form, then `finkctl auth register`):
+  each alert of the subscribed topics becomes or updates a candidate in the same store and goes through
+  `add_candidate` (stored GRB / neutrino / GW matching). `--find-host` looks the host up once per
+  candidate (the light-curve kilonova test needs a distance), `--assess` re-runs the decision on every
+  update and logs when a search becomes worth it. ZTF default topics: Fink's three kilonova topics
+  (`fink_kn_candidates_ztf`, `fink_early_kn_candidates_ztf`, `fink_rate_based_kn_candidates_ztf`); Fink
+  has no Rubin kilonova topic yet, so Rubin topics must be chosen (`finkctl topic list -survey lsst`).
+  Tested with synthetic alerts only; the Rubin field names follow the alert schema as served by Fink's
+  REST API and are to be checked on a first real alert.
+- **Late candidate**: `raven-kn add` matches it against stored GRB notices (the latest one up to 3 days
+  before its first detection, same radius rule), stored neutrino alerts, and GW alerts of the last 14 days. GRB notices are
+  stored for this: the GRB usually comes first (GW170817: 11 h before AT2017gfo).
 - **LVK RAVEN coincidence**: when an alert carries `external_coinc` (LVK's own GW + GRB coincidence:
   observatory, time difference, temporal and sky-position joint FARs, combined GW × GRB map), it is kept
   with the superevent, also across later updates that omit it, and copied into every RAVEN-KN result as
@@ -399,7 +444,7 @@ than the transient, so the t0 window is the 7-day fallback.
 - Not done: GW parameter estimation with sky position and distance fixed to the host (needs O4c strain data
   or LVK posterior samples), the proper test of whether the GW data accommodate 400 Mpc.
 
-SN 2025ulz was classified as a type IIb supernova; the physical link is still debated.
+TNS lists it as SN 2025ulz, type "SN II" (queried 2026-11-10); the physical link is still debated.
 
 ## Assumptions to revisit (all are parameters)
 
@@ -440,7 +485,7 @@ SN 2025ulz was classified as a type IIb supernova; the physical link is still de
 - Light search: chi-square that ignores gated data (it under-ranks signals overlapping a gate); PyGRB
   background (off-source trials).
 - Injections drawn from the third model (LANLTP2 as truth), Rubin + LANLTP2 fits.
-- ZTF forced photometry (IRSA ZFPS; access requested), TNS bot (credentials pending), GOTO, BlackGEM.
+- Fink livestream tested live (credentials requested); GOTO, BlackGEM connectors.
 
 ## License and credits
 

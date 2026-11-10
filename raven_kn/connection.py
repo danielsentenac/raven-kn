@@ -12,9 +12,10 @@ offline use never touch the network.
 from __future__ import annotations
 
 import json
+import re
 from dataclasses import asdict, dataclass, field
 from pathlib import Path
-from typing import Any, Iterable, Optional
+from typing import Any, Iterable, Optional, Sequence
 
 import numpy as np
 from astropy.time import Time
@@ -80,6 +81,21 @@ class GRBAssociation:
 
 
 @dataclass
+class NeutrinoAssociation:
+    """A high-energy neutrino alert (IceCube gold/bronze track) attached to a
+    candidate: arrival time, position and its 90 % error radius, IceCube's
+    signalness (``p_astro``) and false-alarm rate."""
+    gps: float
+    instrument: str = "IceCube"
+    event_name: Optional[str] = None
+    ra: Optional[float] = None
+    dec: Optional[float] = None
+    err_deg: Optional[float] = None       # 90 % containment radius
+    p_astro: Optional[float] = None
+    far_hz: Optional[float] = None
+
+
+@dataclass
 class KNCandidate:
     """A kilonova candidate seen as an external trigger (RAVEN ``ExtTrig``).
 
@@ -99,6 +115,7 @@ class KNCandidate:
     distance: Optional[DistanceMeasurement] = None
     viewing_angle: Optional[ViewingAngleMeasurement] = None
     grb: Optional[GRBAssociation] = None
+    neutrino: Optional[NeutrinoAssociation] = None
     t0_samples_gps: Optional[list[float]] = None   # e.g. NMMA/Redback t0 posterior
     lc_fit_samples: Optional[dict[str, list[float]]] = None  # luminosity_distance, inclination...
     lc_fit_informed: bool = False   # fit used the EM distance/angle as priors: don't reuse its D/iota
@@ -124,9 +141,11 @@ class KNCandidate:
     @property
     def gpstime(self) -> float:
         """Reference time, as in RAVEN ``ExtTrig.gpstime``: the GRB time if
-        known, else the first detection."""
+        known, else the neutrino time, else the first detection."""
         if self.grb is not None:
             return self.grb.gps
+        if self.neutrino is not None:
+            return self.neutrino.gps
         fd = self.first_detection
         if fd is None:
             raise ValueError(f"{self.name}: no detection and no GRB time")
@@ -153,7 +172,8 @@ class KNCandidate:
         for key, klass in (("redshift", Redshift),
                            ("distance", DistanceMeasurement),
                            ("viewing_angle", ViewingAngleMeasurement),
-                           ("grb", GRBAssociation)):
+                           ("grb", GRBAssociation),
+                           ("neutrino", NeutrinoAssociation)):
             if d.get(key) is not None:
                 d[key] = klass(**d[key])
         return cls(**d)
@@ -515,6 +535,201 @@ def _sep_arcsec(ra1: float, dec1: float, ra2: float, dec2: float) -> float:
     r1, d1, r2, d2 = map(np.radians, (ra1, dec1, ra2, dec2))
     c = np.sin(d1) * np.sin(d2) + np.cos(d1) * np.cos(d2) * np.cos(r1 - r2)
     return float(np.degrees(np.arccos(np.clip(c, -1, 1))) * 3600)
+
+
+class ZTFForcedPhotometryConnector:
+    """IPAC ZTF Forced Photometry Service (ZFPS), batch interface (Masci et al.
+    2023, arXiv:2305.16279; ``ztf_zfps_userguide.pdf``). Forced PSF-fit flux on
+    every ZTF difference image covering the position: detections, and
+    non-detections with their own limit, also from before the transient was
+    found, which alert streams do not give.
+
+    Requests are queued and processed in minutes to days: :meth:`submit`
+    sends positions (at most 1500 per batch); :meth:`lightcurve_urls` lists
+    the finished light-curve files of the account (30-day history, rebuilt
+    at the top of each hour, so a new request appears there only after the
+    next rebuild; an empty history is an HTTP 400 "Zero records" page); :meth:`fetch_for` downloads the file of a candidate (matched on
+    the requested position in its header) and :meth:`add_to` merges it.
+    IPAC asks that the same position not be resubmitted within 90 days:
+    :meth:`submit` keeps a local log and refuses a repeat unless ``force``.
+
+    Photometry follows the guide: epochs with ``procstatus`` != 0,
+    ``infobitssci`` >= 2^25, ``scisigpix`` > 25 DN, ``sciinpseeing`` > 4 or
+    (files from v6 on, whose first column is ``sindex`` and which add
+    ``diffimgstatus``) a difference image flagged bad are dropped; S/N > ``snt`` (3) is a detection, mag = zpdiff - 2.5 log10(flux);
+    otherwise a ``snu``-sigma (5) upper limit, zpdiff - 2.5 log10(snu x
+    fluxunc). No baseline correction is applied (the reference images may
+    contain transient flux only for long-lived sources).
+    """
+    BASE = "https://ztfweb.ipac.caltech.edu"
+    AUTH = ("ztffps", "dontgocrazy!")      # IPAC's universal service account (user guide)
+    MAX_BATCH = 1500
+    REPEAT_DAYS = 90.0
+
+    def __init__(self, email: str, userpass: str, session: Any = None, snt: float = 3.0,
+                 snu: float = 5.0, log_path: Optional[str | Path] = None):
+        self.email, self.userpass = email, userpass
+        self._session = session
+        self.snt, self.snu = snt, snu
+        self.log_path = Path(log_path) if log_path else \
+            Path.home() / ".cache" / "raven-kn" / "ztffp_submitted.json"
+
+    @property
+    def session(self):
+        if self._session is None:
+            import requests
+            self._session = requests.Session()
+        return self._session
+
+    # -- submission ---------------------------------------------------------
+    def _log(self) -> list[dict]:
+        try:
+            return json.loads(self.log_path.read_text())
+        except (OSError, ValueError):
+            return []
+
+    def recent_submission(self, ra: float, dec: float, now_jd: Optional[float] = None,
+                          radius_arcsec: float = 1.5) -> Optional[dict]:
+        """A submission of this position in the last 90 days, from the local log."""
+        now = now_jd if now_jd is not None else float(Time.now().jd)
+        for e in self._log():
+            if now - e["submitted_jd"] < self.REPEAT_DAYS and \
+                    _sep_arcsec(ra, dec, e["ra"], e["dec"]) < radius_arcsec:
+                return e
+        return None
+
+    def submit(self, positions: Sequence[tuple[float, float]], jdstart: float, jdend: float,
+               force: bool = False) -> list[int]:
+        """Queue forced photometry for ``positions`` [(ra, dec) deg] between
+        ``jdstart`` and ``jdend``. Returns the HTTP status of each batch."""
+        if not force:
+            rep = [p for p in positions if self.recent_submission(*p)]
+            if rep:
+                raise ValueError(f"{len(rep)} position(s) submitted less than {self.REPEAT_DAYS:g} d "
+                                 f"ago (IPAC asks not to repeat them); use force=True to override")
+        codes = []
+        for i in range(0, len(positions), self.MAX_BATCH):
+            chunk = positions[i:i + self.MAX_BATCH]
+            payload = {"ra": json.dumps([round(float(r), 7) for r, _ in chunk]),
+                       "dec": json.dumps([round(float(d), 7) for _, d in chunk]),
+                       "jdstart": json.dumps(float(jdstart)), "jdend": json.dumps(float(jdend)),
+                       "email": self.email, "userpass": self.userpass}
+            r = self.session.post(f"{self.BASE}/cgi-bin/batchfp.py/submit", auth=self.AUTH,
+                                  data=payload, timeout=120)
+            codes.append(r.status_code)
+            if r.status_code != 200:
+                raise RuntimeError(f"ZFPS submission failed: HTTP {r.status_code}: {r.text[:300]}")
+        log = self._log()
+        now = float(Time.now().jd)
+        log += [{"ra": float(r), "dec": float(d), "jdstart": float(jdstart), "jdend": float(jdend),
+                 "submitted_jd": now} for r, d in positions]
+        self.log_path.parent.mkdir(parents=True, exist_ok=True)
+        self.log_path.write_text(json.dumps(log, indent=1))
+        return codes
+
+    # -- retrieval ----------------------------------------------------------
+    def lightcurve_urls(self, option: str = "All recent jobs") -> list[str]:
+        """URLs of the account's finished light-curve files (``option``:
+        'All recent jobs' or 'Pending jobs')."""
+        r = self.session.get(f"{self.BASE}/cgi-bin/getBatchForcedPhotometryRequests.cgi",
+                             auth=self.AUTH, timeout=600,
+                             params={"email": self.email, "userpass": self.userpass,
+                                     "option": option, "action": "Query Database"})
+        if "Zero records returned" in r.text:   # answered with HTTP 400; the database is rebuilt hourly
+            return []
+        r.raise_for_status()
+        return [self.BASE + p for p in dict.fromkeys(re.findall(r"/ztf/ops.+?lc\.txt\b", r.text))]
+
+    def download(self, url: str) -> str:
+        r = self.session.get(url, auth=self.AUTH, timeout=300)
+        r.raise_for_status()
+        return r.text
+
+    @staticmethod
+    def requested_position(text: str) -> tuple[Optional[float], Optional[float]]:
+        ra = re.search(r"Requested input R\.A\.\s*=\s*([-+0-9.eE]+)", text)
+        dec = re.search(r"Requested input Dec\.\s*=\s*([-+0-9.eE]+)", text)
+        return (float(ra.group(1)) if ra else None, float(dec.group(1)) if dec else None)
+
+    def fetch_for(self, kn: "KNCandidate", radius_arcsec: float = 1.5,
+                  urls: Optional[Sequence[str]] = None) -> Optional[str]:
+        """The newest finished light-curve file whose requested position is
+        within ``radius_arcsec`` of the candidate, or None if not ready."""
+        for url in reversed(list(urls if urls is not None else self.lightcurve_urls())):
+            text = self.download(url)
+            ra, dec = self.requested_position(text)
+            if ra is not None and _sep_arcsec(ra, dec, kn.ra, kn.dec) < radius_arcsec:
+                return text
+        return None
+
+    # -- parsing ------------------------------------------------------------
+    COLUMNS = ("index field ccdid qid filter pid infobitssci sciinpseeing scibckgnd scisigpix "
+               "zpmaginpsci zpmaginpsciunc zpmaginpscirms clrcoeff clrcoeffunc ncalmatches exptime "
+               "adpctdif1 adpctdif2 diffmaglim zpdiff programid jd rfid forcediffimflux "
+               "forcediffimfluxunc forcediffimsnr forcediffimchisq forcediffimfluxap "
+               "forcediffimfluxuncap forcediffimsnrap aperturecorr dnearestrefsrc nearestrefmag "
+               "nearestrefmagunc nearestrefchi nearestrefsharp refjdstart refjdend procstatus").split()
+
+    @classmethod
+    def table(cls, text: str) -> list[dict[str, str]]:
+        """Rows of a light-curve file as {column: string}. The column order is
+        read from the file (the 'index, field, ...' line, with or without a
+        leading '#'), else the documented order."""
+        names = None
+        rows = []
+        for line in text.splitlines():
+            s = line.lstrip("#").strip()
+            if not s:
+                continue
+            if "forcediffimflux" in s and "," in s and s.split(",")[0].strip() in ("index", "sindex"):
+                names = [c.strip() for c in s.split(",") if c.strip()]
+                continue
+            if line.lstrip().startswith("#"):
+                continue
+            parts = s.split()
+            if parts and parts[0].isdigit():
+                rows.append(parts)
+        names = names or list(cls.COLUMNS)
+        return [dict(zip(names, r)) for r in rows if len(r) >= len(names)]
+
+    def parse(self, text: str) -> list[PhotometryPoint]:
+        def f(row, k):
+            try:
+                return float(row.get(k, "nan"))
+            except ValueError:
+                return float("nan")
+        pts = []
+        for row in self.table(text):
+            if row.get("procstatus", "0").strip() not in ("0",):
+                continue
+            if f(row, "infobitssci") >= 33554432 or f(row, "scisigpix") > 25 \
+                    or f(row, "sciinpseeing") > 4:
+                continue
+            if "diffimgstatus" in row and row["diffimgstatus"].strip() == "0":   # v6+: bad diff image
+                continue
+            flux, unc, zp, jd = (f(row, k) for k in ("forcediffimflux", "forcediffimfluxunc",
+                                                    "zpdiff", "jd"))
+            if not all(np.isfinite([flux, unc, zp, jd])) or unc <= 0:
+                continue
+            band = row.get("filter", "").replace("ZTF_", "")
+            mjd = jd - 2400000.5
+            if flux / unc > self.snt:
+                pts.append(PhotometryPoint(mjd, band, float(zp - 2.5 * np.log10(flux)),
+                                           float(1.0857 * unc / flux), survey="ZTF-FP"))
+            else:
+                pts.append(PhotometryPoint(mjd, band, float(zp - 2.5 * np.log10(self.snu * unc)),
+                                           upper_limit=True, survey="ZTF-FP"))
+        return sorted(pts, key=lambda p: p.mjd)
+
+    def add_to(self, kn: "KNCandidate", text: Optional[str] = None) -> int:
+        """Merge the candidate's forced photometry; returns the number of
+        points added (0 if its file is not ready yet)."""
+        text = text if text is not None else self.fetch_for(kn)
+        if not text:
+            return 0
+        n = len(kn.photometry)
+        kn.add_photometry(self.parse(text))
+        return len(kn.photometry) - n
 
 
 class ATLASForcedPhotometryConnector:

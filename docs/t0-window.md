@@ -4,10 +4,13 @@ The window [t_l, t_h] is where the merger happened. It sets which GW alerts coun
 much strain data a targeted search must cover, so its width directly sets the trials factor and the joint
 FAR. `raven_kn.treatment.t0` builds it from the best information available, in this order.
 
-## 1. Prompt GRB: seconds
+## 1. Prompt GRB (seconds) or neutrino (±500 s)
 
 If a GRB is associated with the candidate, the window is RAVEN's [−5, +1] s around the GRB trigger.
 Nothing else comes close.
+
+A neutrino alert (IceCube gold / bronze track) attached to the candidate gives ±500 s around the neutrino,
+the standard GW–neutrino coincidence window, when no GRB is known.
 
 ## 2. Photometric bracket
 

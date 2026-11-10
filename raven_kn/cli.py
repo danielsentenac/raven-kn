@@ -48,6 +48,9 @@ def main(argv=None):
     a.add_argument("--model-sys-frac", type=float, default=0.75,
                    help="model-systematic margin on a light-curve t0, as a fraction of the "
                         "extrapolation gap to the anchoring data (0 = statistical only)")
+    a.add_argument("--no-kn-evidence", action="store_true",
+                   help="trigger on detectability alone, without requiring evidence that the "
+                        "transient is a kilonova (spectrum, light curve or classifier score)")
 
     c = sub.add_parser("coinc", help="joint FAR with a GW superevent")
     c.add_argument("candidate")
@@ -126,7 +129,7 @@ def main(argv=None):
                    help="exclude time outside science, e.g. H1=H1:DMT-ANALYSIS_READY:1")
     y.add_argument("--segment-url", default="https://segments.igwn.org")
 
-    li = sub.add_parser("listen", help="GCN Kafka listener: GW alerts and GRB notices vs stored "
+    li = sub.add_parser("listen", help="GCN Kafka listener: GW alerts, GRB notices and neutrino alerts vs stored "
                                        "kilonova candidates (credentials: $GCN_CLIENT_ID, "
                                        "$GCN_CLIENT_SECRET)")
     li.add_argument("--store", required=True, help="candidate/alert/result directory")
@@ -135,6 +138,8 @@ def main(argv=None):
     li.add_argument("--include-mock", action="store_true",
                     help="also process LVK mock superevents (MS...), e.g. to test the chain")
     li.add_argument("--grb-topics", nargs="*", default=None)
+    li.add_argument("--nu-topics", nargs="*", default=None,
+                    help="neutrino alert topics (default: IceCube gold/bronze tracks; none to disable)")
     li.add_argument("--domain", default=None, help="e.g. test.gcn.nasa.gov")
     li.add_argument("--use-combined-skymap", action="store_true",
                     help="when an alert carries a RAVEN coincidence (external_coinc), use its "
@@ -163,7 +168,72 @@ def main(argv=None):
     t.add_argument("--objname", required=True, help="e.g. AT2025ulz")
     t.add_argument("--save")
 
+    z = sub.add_parser("ztffp", help="ZTF forced photometry from IPAC's ZFPS "
+                                     "($ZTF_FPS_EMAIL, $ZTF_FPS_USERPASS)")
+    z.add_argument("action", choices=["submit", "fetch"],
+                   help="submit: queue the candidate's position; fetch: merge the finished "
+                        "light curve into the candidate (results take minutes to days)")
+    z.add_argument("candidate")
+    z.add_argument("--days-before", type=float, default=60.0,
+                   help="submit: JD range starts this long before the first detection (or now)")
+    z.add_argument("--days-after", type=float, default=30.0,
+                   help="submit: and ends this long after it (capped at now)")
+    z.add_argument("--force", action="store_true",
+                   help="submit even if the position was submitted in the last 90 days")
+    z.add_argument("--save", help="fetch: write the updated candidate JSON here")
+
+    fl = sub.add_parser("fink-listen", help="kilonova candidates from a Fink Kafka livestream "
+                                            "(credentials: finkctl auth register)")
+    fl.add_argument("--survey", choices=["ztf", "lsst"], required=True)
+    fl.add_argument("--store", required=True, help="the listener's store (shared with raven-kn listen)")
+    fl.add_argument("--topics", nargs="*", default=None,
+                    help="Fink topics (ZTF default: the three kilonova topics; Rubin: required, "
+                         "see `finkctl topic list -survey lsst`)")
+    fl.add_argument("--assess", action="store_true",
+                    help="re-run assess on every update; decisions in <store>/assess/")
+    fl.add_argument("--ranges", help="BNS ranges in Mpc for --assess, e.g. H1=150,L1=160,V1=55")
+    fl.add_argument("--find-host", action="store_true",
+                    help="look up the host galaxy once per new candidate (needed for the "
+                         "light-curve kilonova test)")
+    fl.add_argument("--max-alerts", type=int, default=None)
+
     args = p.parse_args(argv)
+    if args.cmd == "fink-listen":
+        import logging
+        from .fink_stream import ZTF_KN_TOPICS, stream
+        from .listener import CandidateStore
+        topics = args.topics if args.topics else (list(ZTF_KN_TOPICS) if args.survey == "ztf" else None)
+        if not topics:
+            p.error("--topics is required for --survey lsst (Fink has no Rubin kilonova topic yet)")
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+        n = stream(CandidateStore(args.store), args.survey, topics,
+                   assess_kw={"ranges_mpc": _ranges(args.ranges)} if args.assess else None,
+                   find_host=args.find_host, max_alerts=args.max_alerts,
+                   on_result=lambda r: print(json.dumps(r, default=float), flush=True))
+        print(json.dumps({"alerts_processed": n}))
+        return
+    if args.cmd == "ztffp":
+        from astropy.time import Time
+        from .connection import ZTFForcedPhotometryConnector, save_candidate
+        kn = load_candidate(args.candidate)
+        zc = ZTFForcedPhotometryConnector(os.environ["ZTF_FPS_EMAIL"], os.environ["ZTF_FPS_USERPASS"])
+        if args.action == "submit":
+            now = float(Time.now().jd)
+            fd = kn.first_detection
+            ref = fd.mjd + 2400000.5 if fd is not None else now
+            jd0, jd1 = ref - args.days_before, min(ref + args.days_after, now)
+            codes = zc.submit([(kn.ra, kn.dec)], jd0, jd1, force=args.force)
+            print(json.dumps({"submitted": kn.name, "ra": kn.ra, "dec": kn.dec, "jdstart": jd0,
+                              "jdend": jd1, "http_status": codes}, indent=2))
+        else:
+            n = zc.add_to(kn)
+            res = {"candidate": kn.name, "points_added": n,
+                   "status": "merged" if n else "no finished light curve for this position yet"}
+            if args.save and n:
+                save_candidate(kn, args.save)
+                res["saved"] = args.save
+            print(json.dumps(res, indent=2))
+        return
     if args.cmd in ("host", "tns"):
         from .connection import TNSConnector, find_host, save_candidate
         kn = load_candidate(args.candidate)
@@ -183,7 +253,7 @@ def main(argv=None):
         return
     if args.cmd in ("listen", "add"):
         import logging
-        from .listener import GRB_TOPICS, CandidateStore, add_candidate, listen
+        from .listener import GRB_TOPICS, NU_TOPICS, CandidateStore, add_candidate, listen
         store = CandidateStore(args.store)
         if args.cmd == "add":
             kn = load_candidate(args.candidate)
@@ -197,6 +267,7 @@ def main(argv=None):
         logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
         listen(store, os.environ["GCN_CLIENT_ID"], os.environ["GCN_CLIENT_SECRET"],
                grb_topics=args.grb_topics if args.grb_topics is not None else GRB_TOPICS,
+               nu_topics=args.nu_topics if args.nu_topics is not None else NU_TOPICS,
                domain=args.domain, use_combined=args.use_combined_skymap,
                on_result=lambda r: print(json.dumps(r, default=float), flush=True),
                group_id=args.group_id or None, include_mock=args.include_mock)
@@ -279,7 +350,8 @@ def main(argv=None):
     if args.cmd == "assess":
         res = assess(kn, args.out, _ranges(args.ranges), args.snr_threshold, args.p_min,
                      args.d_max_useful, model_sys_frac=args.model_sys_frac,
-                     chirp_mass_msun=args.chirp_mass)
+                     chirp_mass_msun=args.chirp_mass,
+                     require_kn_evidence=not args.no_kn_evidence)
     else:
         post = posterior_for(kn)
         win = estimate_window(kn)

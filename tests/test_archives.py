@@ -180,3 +180,80 @@ def test_antares_cone_rejects_far_loci():
             return _Resp({"data": [{"id": "ANTx", "attributes": {"ra": 37.28, "dec": 9.26,
                                                                   "properties": {}}}]})
     assert ANTARESConnector(session=Far()).cone(241.3264025, 13.9156065) == []
+
+
+# ---------------- ZTF forced photometry (IPAC ZFPS) ----------------
+
+def _zfps_file(rows):
+    from raven_kn.connection import ZTFForcedPhotometryConnector as Z
+    head = ["# Requested input R.A. = 210.910674 degrees", "# Requested input Dec. = 54.3117 degrees",
+            "# Requested JD start = 2460050 days", "# Requested JD end = 2460110 days",
+            " " + ", ".join(Z.COLUMNS)]
+    lines = []
+    for k, r in enumerate(rows):
+        vals = {c: "0" for c in Z.COLUMNS}
+        vals.update(index=str(k), filter=r["filter"], jd=str(r["jd"]), zpdiff="26.0",
+                    forcediffimflux=str(r["flux"]), forcediffimfluxunc=str(r["unc"]),
+                    infobitssci=str(r.get("bits", 0)), scisigpix=str(r.get("sig", 6.0)),
+                    sciinpseeing=str(r.get("seeing", 2.0)), procstatus=r.get("status", "0"))
+        lines.append(" " + " ".join(vals[c] for c in Z.COLUMNS))
+    return "\n".join(head + lines) + "\n"
+
+
+def test_ztf_forced_photometry_parse_detections_limits_and_cuts():
+    from raven_kn.connection import KNCandidate, ZTFForcedPhotometryConnector as Z
+    text = _zfps_file([
+        {"filter": "ZTF_r", "jd": 2460080.8, "flux": 30.0, "unc": 20.0},       # S/N 1.5: limit
+        {"filter": "ZTF_g", "jd": 2460084.7, "flux": 4000.0, "unc": 40.0},     # detection
+        {"filter": "ZTF_r", "jd": 2460085.7, "flux": 5000.0, "unc": 50.0, "bits": 33554432},
+        {"filter": "ZTF_r", "jd": 2460086.7, "flux": 5000.0, "unc": 50.0, "seeing": 5.0},
+        {"filter": "ZTF_i", "jd": 2460087.7, "flux": 5000.0, "unc": 50.0, "status": "56"},
+    ])
+    z = Z("user@example.org", "x")
+    assert z.requested_position(text) == (210.910674, 54.3117)
+    pts = z.parse(text)
+    assert len(pts) == 2                                 # three epochs fail the quality cuts
+    lim, det = pts
+    assert lim.upper_limit and lim.band == "r" and lim.mag == pytest.approx(26 - 2.5 * np.log10(100))
+    assert not det.upper_limit and det.band == "g"
+    assert det.mag == pytest.approx(26 - 2.5 * np.log10(4000)) and det.mag_err == pytest.approx(0.0109, abs=1e-3)
+    assert det.mjd == pytest.approx(2460084.7 - 2400000.5) and det.survey == "ZTF-FP"
+    kn = KNCandidate("sn", 210.910674, 54.3117)
+    assert z.add_to(kn, text) == 2 and z.add_to(kn, text) == 0     # merged once
+
+
+def test_ztf_forced_photometry_refuses_repeat_within_90_days(tmp_path):
+    from raven_kn.connection import ZTFForcedPhotometryConnector as Z
+
+    class Resp:
+        status_code, text = 200, "ok"
+
+    class Sess:
+        calls = []
+
+        def post(self, url, auth=None, data=None, timeout=None):
+            self.calls.append((url, auth, data))
+            return Resp()
+    s = Sess()
+    z = Z("user@example.org", "secret", session=s, log_path=tmp_path / "log.json")
+    assert z.submit([(210.910674, 54.3117)], 2460050, 2460110) == [200]
+    url, auth, data = s.calls[0]
+    assert url.endswith("/cgi-bin/batchfp.py/submit") and auth == ("ztffps", "dontgocrazy!")
+    assert json.loads(data["ra"]) == [210.910674] and data["userpass"] == "secret"
+    with pytest.raises(ValueError, match="90"):
+        z.submit([(210.9106745, 54.3117)], 2460050, 2460110)
+    assert z.submit([(210.910674, 54.3117)], 2460050, 2460110, force=True) == [200]
+
+
+def test_ztf_forced_photometry_real_file_v6():
+    """Real ZFPS output (AT2025ulz, public data, file format v6.1: 'sindex'
+    first column and an extra 'diffimgstatus' column)."""
+    from raven_kn.connection import ZTFForcedPhotometryConnector as Z
+    text = (Path(__file__).parent / "data" / "ztffps_at2025ulz.txt").read_text()
+    z = Z("x", "y")
+    assert z.requested_position(text) == pytest.approx((237.9758378, 30.902408))
+    rows = z.table(text)
+    assert len(rows) == 28 and "diffimgstatus" in rows[0] and rows[0]["filter"] in ("ZTF_g", "ZTF_r")
+    pts = z.parse(text)
+    assert len(pts) == 27 and sum(not p.upper_limit for p in pts) == 1
+    assert all(19.5 < p.mag < 21.5 for p in pts) and {p.band for p in pts} == {"g", "r"}

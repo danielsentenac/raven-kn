@@ -1,0 +1,102 @@
+{
+  "candidate": "SSS17a",
+  "ra": 197.450371,
+  "dec": -23.381486,
+  "t0_window": {
+    "gps_start": 1187008879.47,
+    "gps_end": 1187008885.47,
+    "method": "GRB",
+    "credible_level": 1.0,
+    "notes": "",
+    "anchor_early_gps": null,
+    "anchor_late_gps": null,
+    "duration_h": 0.0016666666666666668
+  },
+  "distance_inclination": {
+    "credible_level": 0.9,
+    "luminosity_distance_mpc": {
+      "median": 41.62168560517134,
+      "lower": 39.277391308965925,
+      "upper": 43.94570685043724
+    },
+    "viewing_angle_deg": {
+      "median": 22.699614155955913,
+      "lower": 6.64002526168186,
+      "upper": 40.5139380442847
+    },
+    "n_eff": 23354.876956521664,
+    "constraints": [
+      "redshift(spectroscopic) z=0.010924452791843065",
+      "distance(SBF (2018ApJ...854L..31C, NED-D)) 40.7+-1.4994434125577225 Mpc",
+      "prompt GRB theta<~30.0 deg"
+    ],
+    "distance_prior": "uniform in volume, D_L < 1500.0 Mpc",
+    "inclination_prior": "isotropic (cos iota uniform)"
+  },
+  "search_priors": {
+    "luminosity_distance_mpc": [
+      30.35336115842825,
+      54.385490201409105
+    ],
+    "viewing_angle_deg": [
+      0.0,
+      58.39519977632281
+    ],
+    "inclination_ranges_rad": [
+      [
+        0.0,
+        1.0191885034566894
+      ],
+      [
+        2.1224041501331037,
+        3.141592653589793
+      ]
+    ],
+    "credible_level": 0.99,
+    "pad": 0.2
+  },
+  "detectability": {
+    "p_detect": 1.0,
+    "snr_median": 33.682355550900354,
+    "snr_90": [
+      28.078832937745727,
+      37.176691131884525
+    ],
+    "snr_threshold": 6.0,
+    "ranges_mpc": {
+      "H1": 47.3,
+      "L1": 96.3,
+      "V1": 25.6
+    },
+    "data_fraction": {
+      "H1": 1.0,
+      "L1": 1.0,
+      "V1": 1.0
+    },
+    "antenna": "LAL",
+    "worth_search": true,
+    "reasons": [
+      "P(network SNR >= 6.0) = 1.000"
+    ]
+  },
+  "kilonova_evidence": {
+    "confirmed": true,
+    "by": [
+      "light curve"
+    ],
+    "reasons": [
+      "light curve: peak M = -17.1 in the kilonova range; fading 1.75 +- 0.43 mag/d in ps1::g within 4 d"
+    ],
+    "n_epochs": 3,
+    "peak_abs_mag": -17.096598321977872,
+    "max_decline_mag_per_day": 1.7455621313772678,
+    "max_reddening_mag_per_day": null,
+    "required": true
+  },
+  "trigger_targeted_search": true,
+  "files": {
+    "skymap": "SSS17a_skymap.fits",
+    "samples": "SSS17a_dist_incl_samples.npz",
+    "targeted_search_request": "SSS17a_targeted_search_request.json"
+  }
+}
