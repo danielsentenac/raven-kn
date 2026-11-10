@@ -124,7 +124,7 @@ def main(argv=None):
     y.add_argument("--veto-categories", type=int, nargs="+", default=[1, 2])
     y.add_argument("--science-flag", nargs="+", default=[], metavar="IFO=FLAG",
                    help="exclude time outside science, e.g. H1=H1:DMT-ANALYSIS_READY:1")
-    y.add_argument("--segment-url", default="https://segments.ligo.org")
+    y.add_argument("--segment-url", default="https://segments.igwn.org")
 
     li = sub.add_parser("listen", help="GCN Kafka listener: GW alerts and GRB notices vs stored "
                                        "kilonova candidates (credentials: $GCN_CLIENT_ID, "

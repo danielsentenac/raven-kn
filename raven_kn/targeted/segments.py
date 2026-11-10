@@ -11,15 +11,16 @@ cleaned of, for every detector analysed:
   CAT2: ``segments-vetoes = +CBC_CAT2`` in LVK's configs), with each flag's
   start/end padding and validity interval.
 
-Queries use ``gwpy`` and DQSegDB (``https://segments.ligo.org``, which needs
-IGWN credentials; on LDG clusters they are picked up automatically).
+Queries use ``gwpy`` and DQSegDB (``https://segments.igwn.org``; the old
+``segments.ligo.org`` no longer accepts connections). It needs an IGWN
+SciToken: run ``htgettoken -a vault.ligo.org -i igwn`` once on the cluster.
 """
 
 from __future__ import annotations
 
 from typing import Iterable, Optional, Sequence
 
-DQSEGDB = "https://segments.ligo.org"
+DQSEGDB = "https://segments.igwn.org"
 
 
 def _as_list(segs) -> list[tuple[float, float]]:

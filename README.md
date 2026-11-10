@@ -334,8 +334,11 @@ numba (imported by PyCBC's dependencies) needs `HOME`/`NUMBA_CACHE_DIR` set to t
 (`--vetoes FILE`, all detectors merged): sub-segments are then placed in the veto-free stretches
 (`veto_free_subsegments`, 1 s guard, pieces < 16 s dropped), or let RAVEN-KN query them:
 `--veto-definer VDF.xml --veto-categories 1 2 --science-flag H1=H1:DMT-ANALYSIS_READY:1 ...` (gwpy +
-DQSegDB, `raven_kn.targeted.segments`; padding as in the veto definer; tested offline, and on the O2
-veto definer file at CIT — DQSegDB was unreachable on 2026-11-09); the `--output` directory must exist before generation (`run_pygrb.sh` creates it).
+DQSegDB at `https://segments.igwn.org`, `raven_kn.targeted.segments`; padding as in the veto definer;
+needs an IGWN SciToken, `htgettoken -a vault.ligo.org -i igwn`; the old `segments.ligo.org` no longer
+accepts connections). Tested live from CIT on 2026-11-10 with the O2 CBC veto definer around GW170817
+(±600 s): H1, L1, V1 in science throughout, no CAT1 time, one 2 s CAT2 interval 444 s after the merger,
+outside the on-source window. The `--output` directory must exist before generation (`run_pygrb.sh` creates it).
 
 ## Real-time listener (`raven_kn.listener`, `raven-kn listen`)
 
@@ -431,7 +434,7 @@ SN 2025ulz was classified as a type IIb supernova; the physical link is still de
 
 ## Not yet done
 
-- Live DQSegDB test of the veto query (service unreachable from here so far); live GraceDB queries.
+- Live GraceDB queries.
 - Light search: chi-square that ignores gated data (it under-ranks signals overlapping a gate); PyGRB
   background (off-source trials).
 - Injections drawn from the third model (LANLTP2 as truth), Rubin + LANLTP2 fits.
