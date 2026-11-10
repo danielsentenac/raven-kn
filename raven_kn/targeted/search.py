@@ -84,6 +84,8 @@ class TargetedSearchConfig:
     slide_step_s: float = 3.0
     pool_s: float = 1.0 / 128
     gate_threshold: Optional[float] = 50.0
+    gate_width_s: float = 0.25               # half-width of the zeroed region (PyGRB --autogating-width)
+    gate_taper_s: float = 0.25               # Tukey taper on each side (PyGRB --autogating-taper)
     chisq_bins: Optional[int] = 16          # None: no chi-square reweighting
     chisq_threshold: float = 5.0             # compute chi-square where SNR exceeds this
     max_chisq_points: int = 500              # per template and detector (loudest kept)
@@ -303,7 +305,7 @@ def _delays(ifos, ra_deg, dec_deg, gps):
             for i in ifos}
 
 
-def _condition(ts, f_low, gate_threshold):
+def _condition(ts, f_low, gate_threshold, gate_width=0.25, gate_taper=0.25):
     from pycbc.filter import highpass
     from pycbc.strain import detect_loud_glitches, gate_data
     ts = highpass(ts, max(f_low - 10, 10.0))
@@ -315,7 +317,7 @@ def _condition(ts, f_low, gate_threshold):
         except Exception:
             gates = []
         if gates:
-            ts = gate_data(ts, [(float(g), 0.5, 0.25) for g in gates])
+            ts = gate_data(ts, [(float(g), gate_width, gate_taper) for g in gates])
     return ts, [float(g) for g in gates]
 
 
@@ -402,7 +404,7 @@ def search_subsegment(cfg: TargetedSearchConfig, bank: Sequence[float], fetch: S
             continue
         if len(ts) % 2:                              # even length: FFT and PSD sizes agree
             ts = ts[:len(ts) - 1]
-        ts, g = _condition(ts, cfg.f_low, cfg.gate_threshold)
+        ts, g = _condition(ts, cfg.f_low, cfg.gate_threshold, cfg.gate_width_s, cfg.gate_taper_s)
         data[ifo], gates[ifo] = ts, g
         ifos.append(ifo)
     if len(ifos) < 2:

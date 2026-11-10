@@ -1,0 +1,50 @@
+{
+  "workdir": "runs_inj/fits/inj034_Bu2019lm__LANLTP2",
+  "label": "inj034_Bu2019lm",
+  "model": "LANLTP2",
+  "trigger_mjd": 60836.09449416224,
+  "timeshift_bounds": [
+    0.000999999996565748,
+    6.896933989573253
+  ],
+  "informed": true,
+  "data_file": "runs_inj/fits/inj034_Bu2019lm__LANLTP2/inj034_Bu2019lm.dat",
+  "prior_file": "runs_inj/fits/inj034_Bu2019lm__LANLTP2/inj034_Bu2019lm.prior",
+  "command": [
+    "~/miniforge3/envs/nmma/bin/python",
+    "~/ACME/RAVEN-Kilonova/raven_kn/treatment/nmma_launcher.py",
+    "--em-model",
+    "LANLTP2",
+    "--light-curve-data",
+    "runs_inj/fits/inj034_Bu2019lm__LANLTP2/inj034_Bu2019lm.dat",
+    "--trigger-time",
+    "60836.094494",
+    "--prior-file",
+    "runs_inj/fits/inj034_Bu2019lm__LANLTP2/inj034_Bu2019lm.prior",
+    "--outdir",
+    "runs_inj/fits/inj034_Bu2019lm__LANLTP2/nmma_out",
+    "--label",
+    "inj034_Bu2019lm",
+    "--em-tmin",
+    "0.1",
+    "--em-tmax",
+    "14.0",
+    "--interpolation-type",
+    "tensorflow",
+    "--sampler",
+    "pymultinest",
+    "--em-error-budget",
+    "1.0",
+    "--plot",
+    "--svd-path",
+    "~/nmma_models",
+    "--nlive",
+    "512",
+    "--local-only"
+  ],
+  "n_detections": 3,
+  "n_limits": 6,
+  "notes": [
+    "distance prior from EM data: 108.6 +- 4.6 Mpc"
+  ]
+}

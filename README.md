@@ -110,6 +110,7 @@ volume, known host redshift), observed with a ZTF-like survey (nightly g/r/i epo
 |---|---|---|---|
 | same model as the truth | 29/29 | 29/29 | 29/29, 59 h |
 | other model | 23/29 (79 %) | 28/29 / 28/29 / 29/29 | 28/29, 59 h |
+| third model, LANLTP2 (LANL SuperNu grid, arXiv:2105.11543) | 23/29 (79 %) | 27/29 / 28/29 / 29/29 | 28/29, 59 h |
 | *Rubin-like (`--survey rubin`: depth 24.5, revisit 3 d, 2 of g/r/i, 40–300 Mpc, fit 6.5 d), 27 injections:* | | | |
 | same model as the truth | 26/27 | 27/27 | 27/27, 83 h |
 | other model | 19/27 (70 %) | 27/27 / 27/27 / 27/27 | 27/27, 83 h |
@@ -117,6 +118,10 @@ volume, known host redshift), observed with a ZTF-like survey (nightly g/r/i epo
 | same model as the truth | 26/30 | 30/30 / 30/30 / 30/30 | 30/30, 66 h |
 | other model | 20/30 (67 %) | 28/30 / 30/30 / 30/30 | 30/30, 101 h |
 
+- A third model from another radiative-transfer code (LANLTP2, NMMA tensorflow model, priors = its training
+  range) fitting the same Bu2019lm/Ka2017 kilonovae behaves like the Bu2019lm ↔ Ka2017 cross fits: margin
+  0.75 covers 28/29, 1.0 all; the one miss (needed 0.85) is again a late-discovered Ka2017 kilonova
+  (+31 h, no pre-merger coverage). (Bu2022Ye, listed by NMMA, is not in its model repository.)
 - Self-model posteriors are well calibrated; the margin is a model-systematic correction, as intended. The
   one cross-model case needing more than 0.75 (0.86) is a Ka2017 kilonova fitted with Bu2019lm, first seen
   at +31 h with no pre-merger coverage.
@@ -150,7 +155,8 @@ Light PyCBC-based search at the kilonova position over its t0 window, following 
   chirp-mass metric calibrated on direct matches (minimal match 0.97: 181 templates for 1.18–1.22 Msun,
   ~2150 for 1.0–1.5, ~10000 for sub-solar 0.4–0.9);
 - per sub-segment (default 1024 s): GWOSC, local hdf5 or frame files (`IFO=path:channel`), gating of loud
-  glitches, median-Welch PSD, matched filter;
+  glitches (zeroed ±0.25 s + 0.25 s taper, PyGRB's autogating values; ±0.5 s before, which cut the end of
+  GW170817's chirp in L1), median-Welch PSD, matched filter;
 - signal consistency: 16-bin power chi-square where a detector's SNR > 5, SNR replaced by newSNR;
 - each detector aligned by its time delay for the known sky position; network SNR sqrt(sum rho_d^2)
   counted only where >= 2 detectors exceed 4 (coincidence), maximised over templates;
@@ -199,7 +205,25 @@ null 1.1, and the same injection with V1's sign flipped (loud everywhere, but no
 gives those phases) falls from 57 to 8 through the null cut. Writing these tests showed that the synthetic
 injections had used degrees where `project_wave` expects radians (wrong injected sky position, hidden by the
 incoherent statistic's pooling); fixed.
-Remaining limitations: incoherent statistic, zero-spin equal-mass templates. Production: PyGRB.
+Remaining limitations: zero-spin equal-mass templates. Production: PyGRB.
+
+**PyGRB on the same event** (`examples/pygrb_gw170817/`: `pycbc_multi_inspiral` with LVK's O2 GRB170817A
+arguments, GWOSC GWTC-1 frames, RAVEN-KN bank in 4 pieces, 4 HTCondor jobs on CIT, 4 min each): coherent SNR
+**30.9**, reweighted 29.8, null 4.4, H1 / L1 / V1 = 19.0 / 24.5 / 3.6 at 1187008882.430, chirp mass 1.1976 —
+the light search's chirp mass, its time to 1–4 ms. Both gate the L1 glitch at the same instant
+(1187008881.388, PyGRB's log) on the same frames. Light search on those frames:
+
+| | coherent | H1 / L1 / V1 | null |
+|---|---|---|---|
+| raw SNR (no chi-square), PyGRB gate | **30.4** | 18.4 / 24.0 / 3.3 | 1.0 |
+| newSNR (per-detector chi-square), PyGRB gate | 24.4 | 18.4 / 15.9 / 3.2 | 2.5 |
+| newSNR, earlier ±0.5 s gate | 22.4 | 18.4 / 12.8 / 3.2 | 3.2 |
+| PyGRB: raw / reweighted coherent | **30.9** / 29.8 | 19.0 / 24.5 / 3.6 | 4.4 |
+
+Raw SNRs agree to 2 %. The gap was (a) the wider gate, now PyGRB's ±0.25 s, and mostly (b) the light
+search's per-detector chi-square: the gate removes part of L1's chirp, the power chi-square rises and newSNR
+cuts L1 from 24 to 16, where PyGRB's coherent chi-square costs 3.5 %. Near gates the light search therefore
+under-ranks real signals (still p < 1/1001 here); a gate-aware chi-square is the next fix.
 
 ## Redshift, distance and inclination: spectroscopy and host galaxies (`raven-kn host`, `raven-kn tns`)
 
@@ -263,7 +287,8 @@ The t0 window depends most on the latest deep image of the position before the f
   2026-11): alert sources and forced photometry (DiaForcedSource) in nJy, converted to AB magnitudes
   (S/N >= 5) or 5σ limits, TAI -> UTC; `conesearch` for Rubin objects at a known position. Fink's forced
   photometry currently covers only the visits of the object's own detections, so pre-discovery Rubin limits
-  are not yet available there. NMMA fits of Rubin data need the `lsst*` filter models (not downloaded here);
+  are not yet available there. None of NMMA's distributed models has LSST filters: Rubin bands are fitted
+  with the nearest PS1 band (g, r, i, z, y) and SDSS u (they were mapped to non-existent `lsst*` models before);
 - `last_nondetection(kn, depth_mag)` — latest (optionally deep enough) limit before the first detection,
   over all merged surveys.
 
@@ -293,7 +318,10 @@ raven-kn pygrb --request out/<name>_targeted_search_request.json --out pygrb_con
 IGWN conda PyCBC 2.8.1; the CVMFS RHEL-8 PyCBC virtualenv does not run on CIT's AlmaLinux 10): a 1024 s
 on-source window around GW170817 with the RAVEN-KN bank generates a complete workflow (29 jobs: coherent
 H1/L1/V1 matched filtering on O2 cleaned C02 frames over 4 bank splits, injections, clustering, results
-page). Not yet submitted. Lessons: PyGRB aborts if the on-source contains vetoed time (a CAT2 H1 second
+page). The Pegasus workflow sat idle; the inspiral step was then run as plain HTCondor jobs (result in the
+targeted-search section). CIT job lessons: jobs from `CIT login node` need `+flock_local = True` and
+`MY.POOLS = "IGWN,CIT"` to run on CIT's own nodes (else only IGWN glideins); jobs start without `HOME`, so
+numba (imported by PyCBC's dependencies) needs `HOME`/`NUMBA_CACHE_DIR` set to the scratch directory. Lessons: PyGRB aborts if the on-source contains vetoed time (a CAT2 H1 second
 444 s after the merger stopped the first attempt), so for long windows pass the vetoed intervals
 (`--vetoes FILE`, all detectors merged): sub-segments are then placed in the veto-free stretches
 (`veto_free_subsegments`, 1 s guard, pieces < 16 s dropped), or let RAVEN-KN query them:
@@ -327,8 +355,18 @@ raven-kn add candidate.json --store kn_store/            # a new or updated kilo
   `raven_external_coinc`, with the combined map at the candidate (`combined_map_at_kn`). The sky factor
   uses the GW-only map unless `--use-combined-skymap` is given.
 
+- **Mock superevents** (`MS…`, sent hourly by LVK outside observing runs) are skipped unless
+  `--include-mock`; `--group-id` (default `raven-kn`) is a fixed Kafka consumer group, so a restarted
+  listener resumes where it stopped.
+
 Nothing is uploaded to GraceDB from the listener (use `calc_signif_gracedb` once results are vetted).
-Tested on synthetic alerts only (`tests/test_listener.py`); not yet run against the live Kafka stream.
+
+**Live** (2026-11-10, on CIT; outbound port 9092 is blocked on some campus networks): 514 retained messages
+replayed with no parse failure — 336 GW alerts (mock, 19200-pixel maps, preliminary/initial/retraction, one
+with `external_coinc`), 162 Fermi-GBM and 16 Einstein Probe notices; real SVOM-ECLAIRs and Swift-BAT notices
+parse too (fixtures in `tests/data/gcn_live/`). Topic names checked against the broker (SVOM:
+`gcn.notices.svom.voevent.eclairs`; Swift-BAT positions `gcn.classic.voevent.SWIFT_BAT_GRB_POS_ACK` added).
+The listener runs on CIT as an HTCondor local-universe job (restarted if it exits).
 
 ## Real case: S250818k / AT2025ulz
 
@@ -385,11 +423,11 @@ SN 2025ulz was classified as a type IIb supernova; the physical link is still de
 
 ## Not yet done
 
-- Compare the PyGRB result with the light search; live DQSegDB test of the veto query.
-- Coherent statistic and null stream are left to PyGRB: the light search is a fast first pass on coincident network SNR (a coherent statistic through the time slides would keep the complex SNR of every template and detector, ~9 GB for the GW170817 bank). PyGRB run on GW170817 at CC-IN2P3 (Slurm) pending.
-- Injection calibration with mixed surveys (Rubin + nightly ZTF/ATLAS) and a third model (e.g. Bu2026).
-- ZTF forced photometry (IRSA ZFPS), GOTO, BlackGEM archive connectors; live test of the ATLAS connector.
-- Listener: run on the live GCN stream (needs GCN credentials); live GraceDB/segment (DQSegDB) queries.
+- Live DQSegDB test of the veto query (service unreachable from here so far); live GraceDB queries.
+- Light search: chi-square that ignores gated data (it under-ranks signals overlapping a gate); PyGRB
+  background (off-source trials).
+- Injections drawn from the third model (LANLTP2 as truth), Rubin + LANLTP2 fits.
+- ZTF forced photometry (IRSA ZFPS; access requested), TNS bot (credentials pending), GOTO, BlackGEM.
 
 ## License and credits
 

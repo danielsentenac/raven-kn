@@ -1,6 +1,7 @@
 """GCN listener handlers on synthetic igwn.gwalert and GRB unified-schema messages."""
 import base64
 import io
+from pathlib import Path
 
 import healpy as hp
 import numpy as np
@@ -8,7 +9,7 @@ import pytest
 from astropy.table import Table
 from astropy.time import Time
 
-from raven_kn.listener import (CandidateStore, add_candidate, handle_grb_notice,
+from raven_kn.listener import (parse_grb_notice, CandidateStore, add_candidate, handle_grb_notice,
                                handle_gw_alert, moc_lookup, moc_to_flat, uniq_to_order_ipix)
 from test_pipeline import T0, make_kn
 
@@ -76,6 +77,19 @@ def test_gw_alert_in_window_gives_joint_far(tmp_path):
     assert near["distance_overlap_valid"] is True and near["gw_map_at_kn"]["DISTMU"] == 40.0
     assert 10 < near["dt_from_first_detection_h"] < 12
     assert (tmp_path / "coinc" / "S170817a__test.json").exists()
+
+
+def test_mock_superevents_skipped_unless_asked(tmp_path):
+    """LVK sends a mock superevent (MS...) every hour on igwn.gwalert outside
+    observing runs (seen live on CIT, 2026-11-10): ignored by default."""
+    from raven_kn.listener import is_mock
+    store = CandidateStore(tmp_path)
+    store.save(make_kn())
+    assert handle_gw_alert(gw_alert(sid="MS261007w"), store) == []
+    assert not (tmp_path / "gw" / "MS261007w.json").exists()
+    res = handle_gw_alert(gw_alert(sid="MS261007w"), store, include_mock=True)
+    assert [r["external_event"] for r in res] == ["test"]
+    assert is_mock("TS250101a") and not is_mock("S250818k")
 
 
 def _moc_b64(moc):
@@ -180,3 +194,22 @@ def test_gbm_voevent_attached(tmp_path):
     far = GBM_VOEVENT.format(role="observation", iso=iso, ra=RA + 60, dec=DEC)
     kn = make_kn(); kn.name = "other"; store.save(kn)
     assert handle_grb_notice(far, store) == []
+
+
+LIVE = Path(__file__).parent / "data" / "gcn_live"
+
+
+@pytest.mark.parametrize("fname,instrument,max_err", [
+    ("gcn.classic.voevent.SWIFT_BAT_GRB_POS_ACK.xml", "Swift-BAT", 0.2),
+    ("gcn.notices.svom.voevent.eclairs.xml", "SVOM-ECLAIRs", 0.5),
+    ("gcn.classic.voevent.FERMI_GBM_GND_POS.msg", "Fermi-GBM", 60.0),
+    ("gcn.notices.einstein_probe.wxt.alert.msg", "WXT", 0.5),
+])
+def test_live_grb_notices_parse(fname, instrument, max_err):
+    """Real notices read from GCN Kafka on CIT (2026-11-10)."""
+    g = parse_grb_notice((LIVE / fname).read_bytes())
+    assert g["grb"].instrument == instrument
+    assert -90 <= g["dec"] <= 90 and 0 <= g["ra"] < 360 and 0 < g["err_deg"] <= max_err
+    assert g["grb"].gps > 1.4e9
+    if instrument == "Fermi-GBM":
+        assert g["err_deg"] >= 3.7                     # systematic added in quadrature

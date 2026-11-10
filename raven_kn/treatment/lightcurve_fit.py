@@ -53,8 +53,11 @@ DAY = 86400.0
 # survey -> {band: NMMA filter}
 FILTER_MAP = {
     "ZTF": {"g": "ztfg", "r": "ztfr", "i": "ztfi"},
-    "LSST": {b: f"lsst{b}" for b in "ugrizy"},
-    "RUBIN": {b: f"lsst{b}" for b in "ugrizy"},
+    # NMMA's distributed models have no LSST filters (none of the 9 in its model
+    # repository, 2026-11): Rubin bands use the nearest PS1 band (g,r,i,z,y)
+    # and SDSS u, as in the Rubin injection calibration.
+    "LSST": {**{b: f"ps1::{b}" for b in "grizy"}, "u": "sdssu"},
+    "RUBIN": {**{b: f"ps1::{b}" for b in "grizy"}, "u": "sdssu"},
     "PS1": {b: f"ps1::{b}" for b in "grizy"},
     "PAN-STARRS": {b: f"ps1::{b}" for b in "grizy"},
     "SDSS": {"u": "sdssu"},
@@ -80,6 +83,16 @@ MODEL_PRIORS = {
         "log10_vej = Uniform(name='log10_vej', minimum=-1.52, maximum=-0.53)",
         "log10_Xlan = Uniform(name='log10_Xlan', minimum=-9, maximum=-1)",
     ],
+    # LANL SuperNu grid (NMMA "LANLTP2", tensorflow interpolation only; arXiv:2105.11543):
+    # toroidal dynamical + peanut-shaped wind ejecta. Ranges = the grid's training
+    # range (param_mins/maxs of LANLTP2.joblib); NMMA's LANL2022 prior starts the
+    # velocities at 0, outside the grid.
+    "LANLTP2": [
+        "log10_mej_dyn = Uniform(name='log10_mej_dyn', minimum=-3., maximum=-1.)",
+        "vej_dyn = Uniform(name='vej_dyn', minimum=0.05, maximum=0.3)",
+        "log10_mej_wind = Uniform(name='log10_mej_wind', minimum=-3., maximum=-1.)",
+        "vej_wind = Uniform(name='vej_wind', minimum=0.05, maximum=0.3)",
+    ],
     "Bu2023Ye": [
         "log10_mej_dyn = Uniform(name='log10_mej_dyn', minimum=-3., maximum=-1.7)",
         "vej_dyn = Uniform(name='vej_dyn', minimum=0.12, maximum=0.25)",
@@ -98,6 +111,7 @@ MODEL_PARAM_NAMES = {
     "Bu2019nsbh": ["log10_mej_dyn", "log10_mej_wind", "KNtheta"],
     "Bu2019lm_sparse": ["log10_mej_dyn", "log10_mej_wind"],
     "Ka2017": ["log10_mej", "log10_vej", "log10_Xlan"],
+    "LANLTP2": ["log10_mej_dyn", "vej_dyn", "log10_mej_wind", "vej_wind", "KNtheta"],
 }
 
 
@@ -152,6 +166,11 @@ def clip_prior_lines(lines: list[str], ranges: dict[str, tuple[float, float]]) -
                                  f"[{nlo:.4g}, {nhi:.4g}]")
         out.append(ln)
     return out, notes
+
+
+# NMMA interpolation type each distributed model exists in (sklearn_gp ``.joblib``
+# per filter, or a tensorflow network per filter in ``<model>_tf/``)
+MODEL_INTERPOLATION = {"Bu2019lm": "sklearn_gp", "Ka2017": "sklearn_gp", "LANLTP2": "tensorflow"}
 
 
 def nmma_filter(survey: str, band: str) -> str:

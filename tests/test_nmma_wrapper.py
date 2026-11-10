@@ -32,7 +32,7 @@ def test_setup_files(tmp_path):
     kn = make_kn()
     s = lcf.setup(kn, tmp_path / "w", executable=_fake_nmma_bin(tmp_path))
     data = Path(s.data_file).read_text().split("\n")
-    assert any(l.endswith(" inf") and " lsstg " in l for l in data)       # pre-merger UL kept
+    assert any(l.endswith(" inf") and " ps1::g " in l for l in data)      # pre-merger LSST g UL kept (PS1 g model)
     assert s.n_limits == 1 and s.n_detections == 2
     # trigger before the UL, so NMMA's data-tmin=0 cut keeps it
     ul_mjd = kn.upper_limits[0].mjd
@@ -53,7 +53,7 @@ def test_setup_files(tmp_path):
 def test_limit_only_filter_dropped_without_launcher(tmp_path):
     s = lcf.setup(make_kn(), tmp_path, executable="no-such-nmma-binary")
     data = Path(s.data_file).read_text()
-    assert " lsstg " not in data and s.command[0] == "no-such-nmma-binary"
+    assert " ps1::g " not in data and s.command[0] == "no-such-nmma-binary"
     assert any("non-detection-only" in n for n in s.notes)
 
 
@@ -150,7 +150,8 @@ def test_missing_executable(tmp_path):
 
 def test_filter_map():
     assert lcf.nmma_filter("ZTF", "r") == "ztfr"
-    assert lcf.nmma_filter("LSST", "y") == "lssty"
+    assert lcf.nmma_filter("LSST", "y") == "ps1::y"     # NMMA has no LSST filter models
+    assert lcf.nmma_filter("RUBIN", "u") == "sdssu"
     assert lcf.nmma_filter("PS1", "z") == "ps1::z"
     assert lcf.nmma_filter("whatever", "besselli") == "besselli"
 

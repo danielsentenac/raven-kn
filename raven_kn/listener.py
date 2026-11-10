@@ -53,7 +53,9 @@ log = logging.getLogger("raven_kn.listener")
 GW_TOPIC = "igwn.gwalert"
 # GCN unified-schema JSON GRB topics (others can be passed to listen())
 GRB_TOPICS = ("gcn.notices.swift.bat.guano", "gcn.notices.einstein_probe.wxt.alert",
-              "gcn.notices.svom.eclairs.alert",
+              # topic names checked against the live broker (2026-11-10)
+              "gcn.notices.svom.voevent.eclairs",           # SVOM/ECLAIRs (VOEvent)
+              "gcn.classic.voevent.SWIFT_BAT_GRB_POS_ACK",  # Swift-BAT on-board GRB positions
               # classic VOEvent (XML): Fermi-GBM flight / ground / final positions
               "gcn.classic.voevent.FERMI_GBM_FLT_POS", "gcn.classic.voevent.FERMI_GBM_GND_POS",
               "gcn.classic.voevent.FERMI_GBM_FIN_POS")
@@ -205,7 +207,14 @@ def parse_voevent(xml: bytes | str) -> dict[str, Any]:
     ivorn = root.get("ivorn", "")
     t = find("ISOTime").text.strip()
     ra, dec, err = (find(k) for k in ("C1", "C2", "Error2Radius"))
-    instrument = "Fermi-GBM" if "Fermi" in ivorn or "GBM" in ivorn else ivorn.split("/")[-1].split("#")[0]
+    if "Fermi" in ivorn or "GBM" in ivorn:
+        instrument = "Fermi-GBM"
+    elif "svom" in ivorn.lower():
+        instrument = "SVOM-ECLAIRs"            # ivorn says only "fsc" (French science centre)
+    elif "SWIFT" in ivorn.upper():
+        instrument = "Swift-BAT"
+    else:
+        instrument = ivorn.split("/")[-1].split("#")[0]
     e = float(err.text) if err is not None else None
     if e is not None and instrument == "Fermi-GBM":
         e = float(np.hypot(e, GBM_SYS_ERR_DEG))
@@ -328,10 +337,19 @@ def _evaluate(kn: KNCandidate, gw: dict, moc: Optional[Table], combined: Optiona
     return res
 
 
+def is_mock(superevent_id: str) -> bool:
+    """LVK mock superevents (``MS...``, sent hourly on igwn.gwalert outside
+    observing runs) and their test/playground variants (``TS``, ``GS``)."""
+    return superevent_id[:2] in ("MS", "TS", "GS")
+
+
 def handle_gw_alert(msg: dict | bytes | str, store: CandidateStore, use_combined: bool = False,
-                    **coinc_kw) -> list[dict]:
+                    include_mock: bool = False, **coinc_kw) -> list[dict]:
     alert = parse_gw_alert(msg)
     sid = alert["superevent_id"]
+    if is_mock(sid) and not include_mock:
+        log.debug("%s: mock/test superevent ignored", sid)
+        return []
     if alert["alert_type"] == "RETRACTION":
         store.forget_gw(sid)
         log.info("%s retracted", sid)
@@ -412,10 +430,17 @@ def add_candidate(kn: KNCandidate, store: CandidateStore, now_gps: Optional[floa
 
 def listen(store: CandidateStore, client_id: str, client_secret: str,
            grb_topics: Iterable[str] = GRB_TOPICS, domain: Optional[str] = None,
-           on_result: Optional[Callable[[dict], None]] = None, **coinc_kw) -> None:
-    """Consume GCN Kafka forever (``gcn_kafka.Consumer``)."""
+           on_result: Optional[Callable[[dict], None]] = None, group_id: Optional[str] = "raven-kn",
+           include_mock: bool = False, **coinc_kw) -> None:
+    """Consume GCN Kafka forever (``gcn_kafka.Consumer``). With a fixed
+    ``group_id`` a restarted listener resumes from its last committed offset
+    (messages that arrived while it was down are processed); ``None`` gives a
+    new group each time (latest messages only). Mock superevents are skipped
+    unless ``include_mock``."""
     from gcn_kafka import Consumer
     kw = {"domain": domain} if domain else {}
+    if group_id:
+        kw["config"] = {"group.id": group_id}
     consumer = Consumer(client_id=client_id, client_secret=client_secret, **kw)
     topics = [GW_TOPIC, *grb_topics]
     consumer.subscribe(topics)
@@ -427,7 +452,8 @@ def listen(store: CandidateStore, client_id: str, client_secret: str,
                 continue
             try:
                 if message.topic() == GW_TOPIC:
-                    for res in handle_gw_alert(message.value(), store, **coinc_kw):
+                    for res in handle_gw_alert(message.value(), store, include_mock=include_mock,
+                                               **coinc_kw):
                         if on_result:
                             on_result(res)
                 else:

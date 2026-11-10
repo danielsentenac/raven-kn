@@ -1,0 +1,7 @@
+log10_mej_dyn = Uniform(name='log10_mej_dyn', minimum=-3., maximum=-1.)
+vej_dyn = Uniform(name='vej_dyn', minimum=0.05, maximum=0.3)
+log10_mej_wind = Uniform(name='log10_mej_wind', minimum=-3., maximum=-1.)
+vej_wind = Uniform(name='vej_wind', minimum=0.05, maximum=0.3)
+timeshift = Uniform(minimum=0.00100, maximum=6.89629, name='timeshift')
+luminosity_distance = TruncatedGaussian(mu=137.518, sigma=4.645, minimum=109.647, maximum=165.390, name='luminosity_distance')
+inclination_EM = Sine(minimum=0., maximum=1.570796, name='inclination_EM')

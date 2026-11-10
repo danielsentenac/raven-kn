@@ -130,6 +130,10 @@ def main(argv=None):
                                        "kilonova candidates (credentials: $GCN_CLIENT_ID, "
                                        "$GCN_CLIENT_SECRET)")
     li.add_argument("--store", required=True, help="candidate/alert/result directory")
+    li.add_argument("--group-id", default="raven-kn",
+                    help="Kafka consumer group: a restart resumes where it stopped ('' for none)")
+    li.add_argument("--include-mock", action="store_true",
+                    help="also process LVK mock superevents (MS...), e.g. to test the chain")
     li.add_argument("--grb-topics", nargs="*", default=None)
     li.add_argument("--domain", default=None, help="e.g. test.gcn.nasa.gov")
     li.add_argument("--use-combined-skymap", action="store_true",
@@ -194,7 +198,8 @@ def main(argv=None):
         listen(store, os.environ["GCN_CLIENT_ID"], os.environ["GCN_CLIENT_SECRET"],
                grb_topics=args.grb_topics if args.grb_topics is not None else GRB_TOPICS,
                domain=args.domain, use_combined=args.use_combined_skymap,
-               on_result=lambda r: print(json.dumps(r, default=float), flush=True))
+               on_result=lambda r: print(json.dumps(r, default=float), flush=True),
+               group_id=args.group_id or None, include_mock=args.include_mock)
         return
     if args.cmd == "pygrb":
         from .targeted.pygrb import write_pygrb_overrides

@@ -165,17 +165,21 @@ def _fit(args):
     if (wd / "nmma_out").exists() and any((wd / "nmma_out").glob("*posterior*")):
         return name, model, "exists"
     try:
-        lcf.fit(kn, wd, executable=EXE, interpolation_type="sklearn_gp", model=model,
+        lcf.fit(kn, wd, executable=EXE, interpolation_type=lcf.MODEL_INTERPOLATION.get(model, "sklearn_gp"),
+                model=model,
                 svd_path=SVD, fit_days=fit_days, extra_args=["--nlive", "512", "--local-only"])
         return name, model, "ok"
     except Exception as e:      # keep going; reported
         return name, model, f"failed: {e}"
 
 
+FIT_MODELS = ["Ka2017", "Bu2019lm"]
+
+
 def run(out: Path, workers: int):
     inj = json.loads((out / "injections.json").read_text())
     sv = json.loads((out / "survey.json").read_text()) if (out / "survey.json").exists() else SURVEY
-    tasks = [(out, i["name"], m, sv.get("fit_days", 3.0)) for i in inj for m in ("Ka2017", "Bu2019lm")]
+    tasks = [(out, i["name"], m, sv.get("fit_days", 3.0)) for i in inj for m in FIT_MODELS]
     with ProcessPoolExecutor(workers) as ex:
         for name, model, status in ex.map(_fit, tasks):
             print(name, model, status, flush=True)
@@ -185,7 +189,7 @@ def report(out: Path):
     inj = json.loads((out / "injections.json").read_text())
     rows = []
     for i in inj:
-        for model in ("Bu2019lm", "Ka2017"):
+        for model in ("Bu2019lm", "Ka2017", "LANLTP2"):      # those fitted (others skipped)
             kn = load_candidate(out / f"{i['name']}.json")
             try:
                 lcf.import_result(kn, out / "fits" / f"{i['name']}__{model}")
@@ -223,7 +227,9 @@ def report(out: Path):
               f"{r['first_det_h']:8.1f} {r['t0_med_minus_true_h']:7.1f} {r['stat_width_h']:7.1f} "
               f"{r['late_gap_h']:6.1f} {r['f_needed']:6.2f}")
     for label, sel in (("self-model", lambda r: r["truth_model"] == r["fit_model"]),
-                       ("cross-model", lambda r: r["truth_model"] != r["fit_model"]),
+                       ("cross-model", lambda r: r["truth_model"] != r["fit_model"]
+                        and r["fit_model"] != "LANLTP2"),
+                       ("LANLTP2 fits", lambda r: r["fit_model"] == "LANLTP2"),
                        ("all", lambda r: True)):
         f = np.array([r["f_needed"] for r in rows if sel(r)])
         if len(f) == 0:
@@ -247,11 +253,14 @@ def main():
     p.add_argument("--n", type=int, default=12)
     p.add_argument("--seed", type=int, default=1)
     p.add_argument("--workers", type=int, default=6)
+    p.add_argument("--fit-models", default="Ka2017,Bu2019lm",
+                   help="models fitted by 'run' (e.g. LANLTP2: a third, independent model)")
     p.add_argument("--survey", choices=sorted(PRESETS), default="ztf",
                    help="survey preset used by 'make' (stored with the injections)")
     a = p.parse_args()
     out = Path(a.out)
     SURVEY.update(PRESETS[a.survey])
+    FIT_MODELS[:] = a.fit_models.split(",")
     {"make": lambda: make(out, a.n, a.seed), "run": lambda: run(out, a.workers),
      "report": lambda: report(out)}[a.action]()
 
