@@ -64,6 +64,40 @@ def test_atlas_queue_poll_parse():
     assert last_nondetection(kn).survey == "ATLAS"
 
 
+def test_atlas_no_data_is_empty():
+    """Live reply for AT2017gfo, Aug 2017 (2026-11-09): the task ends with
+    error_msg "No data returned" (field too close to the Sun for ATLAS)."""
+    class Sess:
+        def post(self, url, headers, data, timeout):
+            return _Resp({"url": "https://x/queue/2/"})
+
+        def get(self, url, headers, timeout):
+            return _Resp({"finishtimestamp": "now", "result_url": None,
+                          "error_msg": "No data returned"})
+    a = ATLASForcedPhotometryConnector("TOKEN", session=Sess(), poll_s=0)
+    assert a.request(197.45, -23.38, 57975.0, 57993.0) == "" and a.parse("") == []
+
+
+def test_atlas_parse_real_reply():
+    """Live reply for SN 2023ixf, MJD 60075-60090 (2026-11-09): limits up to
+    hours before discovery (MJD ~60082.7), then o ~ 10.9-11.5 detections."""
+    a = ATLASForcedPhotometryConnector("TOKEN")
+    pts = a.parse((DATA / "atlas_sn2023ixf.txt").read_text())
+    det = [p for p in pts if not p.upper_limit]
+    lim = [p for p in pts if p.upper_limit]
+    assert len(pts) == 19 and len(det) == 4 and {p.band for p in pts} == {"c", "o"}
+    assert all(p.mjd > 60086 and 10.5 < p.mag < 13 for p in det)
+    # S/N 3.8 point on the 11-mag supernova: a non-detection, but not a deep one
+    bad = [p for p in lim if abs(p.mjd - 60086.3642) < 1e-3][0]
+    assert bad.mag < 11
+    # just before the first detection ATLAS has a non-detection only to ~9.8 (bad error);
+    # the last limit deep enough to matter is hours before discovery
+    kn = KNCandidate("SN2023ixf", 210.910674, 54.3117, photometry=pts)
+    assert last_nondetection(kn).mag < 11
+    last = last_nondetection(kn, depth_mag=19.0)
+    assert last.band == "o" and 60082.4 < last.mjd < 60082.5 and 19.1 < last.mag < 19.5
+
+
 def test_last_nondetection_depth():
     kn = KNCandidate("t", 0, 0, photometry=[PhotometryPoint(10.0, "r", 19.0, 0.1),
                                             PhotometryPoint(9.5, "r", 18.0, upper_limit=True),

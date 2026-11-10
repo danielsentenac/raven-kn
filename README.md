@@ -252,8 +252,12 @@ The t0 window depends most on the latest deep image of the position before the f
   detections and limits as ALeRCE (ZTF21abdpqpq: identical 3 + 91 points, merged without duplicates), so
   either can stand in when the other is down; LSST records are read from ANTARES' generic fields;
 - `ATLASForcedPhotometryConnector` — ATLAS forced photometry (cyan/orange, 5σ limits) via the
-  fallingstar-data.com queue API; needs a personal token (written from the API guide, tested on mocked
-  responses only);
+  fallingstar-data.com queue API; needs a personal token. Tested live: SN 2023ixf gives o > 19.3 a few
+  hours before discovery, then o ≈ 11.5; AT2017gfo (August 2017, field near the Sun) has no ATLAS image,
+  which the server reports as "No data returned" and the connector turns into an empty light curve.
+  A non-detection's limit is the brighter of `mag5sig` and the point's own flux + 5σ: on SN 2023ixf a
+  point of 116893 ± 30752 µJy (S/N 3.8: the 11-mag supernova with a saturated error) would otherwise have
+  read "fainter than 19.6", the kind of false deep limit that could cut the true merger out of a t0 window;
 - `FinkConnector` (ZTF API);
 - `FinkLSSTConnector` — Rubin light curves from the Fink/LSST API (`api.lsst.fink-portal.org`, checked live
   2026-11): alert sources and forced photometry (DiaForcedSource) in nJy, converted to AB magnitudes

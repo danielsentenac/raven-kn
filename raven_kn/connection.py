@@ -523,8 +523,13 @@ class ATLASForcedPhotometryConnector:
     candidate position on every ATLAS image: detections and 5-sigma limits
     (``mag5sig``) in cyan 'c' / orange 'o', mapped to NMMA ``atlasc``/``atlaso``.
 
-    Interface written from the server's API guide; needs a token to run
-    (not tested against the live service here).
+    Interface written from the server's API guide. A task the server ends
+    with "No data returned" (no ATLAS image of the position in that time
+    range, e.g. AT2017gfo in August 2017, too close to the Sun) gives an
+    empty light curve, not an error. A non-detection's limit is the brighter
+    of ``mag5sig`` and the point's own flux + 5 sigma: on SN 2023ixf an
+    ATLAS point of 116893 +- 30752 uJy (S/N 3.8, the 11-mag supernova with a
+    saturated error) would otherwise read "fainter than 19.6".
     """
 
     def __init__(self, token: str, base_url: str = "https://fallingstar-data.com/forcedphot",
@@ -559,6 +564,8 @@ class ATLASForcedPhotometryConnector:
             j = r.json()
             if j.get("finishtimestamp"):
                 if not j.get("result_url"):
+                    if "no data" in str(j.get("error_msg", "")).lower():
+                        return ""            # no ATLAS image of the position in that range
                     raise RuntimeError(f"ATLAS task failed: {j.get('error_msg')}")
                 return self.session.get(j["result_url"], headers=self._headers(), timeout=60).text
             if waited > self.max_wait_s:
@@ -568,6 +575,8 @@ class ATLASForcedPhotometryConnector:
 
     def parse(self, text: str) -> list[PhotometryPoint]:
         lines = [ln for ln in text.splitlines() if ln.strip()]
+        if not lines:
+            return []
         head = lines[0].lstrip("#").split()
         col = {k: i for i, k in enumerate(head)}
         pts = []
@@ -582,8 +591,13 @@ class ATLASForcedPhotometryConnector:
                 mag = 23.9 - 2.5 * np.log10(flux)
                 pts.append(PhotometryPoint(mjd, band, float(mag), float(1.0857 * dflux / flux),
                                            survey="ATLAS"))
-            elif lim > 0:
-                pts.append(PhotometryPoint(mjd, band, lim, upper_limit=True, survey="ATLAS"))
+            elif lim > 0 and dflux > 0:
+                # the image's nominal depth only holds if this point's own flux is
+                # consistent with it: a bright source with a huge error (saturation,
+                # bad pixels) must not become a deep non-detection
+                own = 23.9 - 2.5 * np.log10(max(flux, 0.0) + 5 * dflux)
+                pts.append(PhotometryPoint(mjd, band, float(min(lim, own)), upper_limit=True,
+                                           survey="ATLAS"))
         return pts
 
     def add_to(self, kn: KNCandidate, days_before: float = 10.0) -> KNCandidate:
