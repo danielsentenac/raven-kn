@@ -8,6 +8,14 @@ Direction: **kilonova candidate → is a GW search worth it? → merger-time win
 sky position, distance and inclination priors → coincidence with existing GW
 candidates (joint FAR) and/or a targeted search of archived strain.**
 
+## Workflow
+
+![RAVEN-KN workflow: optical, spectroscopic and GRB inputs build a kilonova candidate; treatment derives the merger-time window, distance and kilonova rate; with a GW alert these give a coincidence and a joint FAR, without one they drive a targeted PyCBC or PyGRB search](docs/raven-kn-workflow.svg)
+
+Everything downstream depends on the merger-time window (highlighted). With a GW alert it sets the
+coincidence; without one it sets the stretch of strain data to search. The listener (`raven-kn listen`)
+runs the top-right branch automatically for every alert and every stored candidate.
+
 ## Modules
 
 | RAVEN-KN | Role | RAVEN analogue |
