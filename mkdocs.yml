@@ -1,0 +1,65 @@
+site_name: RAVEN-KN
+site_description: Kilonova-triggered coincidence and targeted gravitational-wave search pipeline
+site_url: https://danielsentenac.github.io/raven-kn/
+repo_url: https://github.com/danielsentenac/raven-kn
+repo_name: danielsentenac/raven-kn
+edit_uri: edit/main/docs/
+copyright: GPL-3.0-or-later
+
+docs_dir: docs
+exclude_docs: |
+  scripts/
+
+theme:
+  name: material
+  palette:
+    - scheme: slate
+      primary: teal
+      accent: cyan
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+    - scheme: default
+      primary: teal
+      accent: cyan
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+  features:
+    - navigation.sections
+    - navigation.top
+    - navigation.footer
+    - content.code.copy
+    - toc.follow
+
+nav:
+  - Home: index.md
+  - Workflow:
+      - Overview: workflow.md
+      - Merger-time window: t0-window.md
+      - Distance, rate and joint FAR: coincidence.md
+      - Targeted GW search: targeted-search.md
+      - Real-time listener: listener.md
+      - Modules and commands: modules.md
+  - Examples:
+      - Overview: examples/index.md
+      - AT2017gfo and GRB 211211A light-curve fits: examples/kilonova-fits.md
+      - Injection calibration: examples/injections.md
+      - GW170817 targeted search: examples/gw170817-search.md
+      - Host galaxies and redshifts: examples/hosts.md
+      - S250818k / AT2025ulz: examples/s250818k.md
+
+markdown_extensions:
+  - admonition
+  - attr_list
+  - md_in_html
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.arithmatex:
+      generic: true
+
+extra_javascript:
+  - https://cdn.jsdelivr.net/npm/mathjax@3.2.2/es5/tex-mml-chtml.js

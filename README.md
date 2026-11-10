@@ -4,6 +4,8 @@ Kilonova-triggered coincidence and targeted-GW-search trigger pipeline, built
 with the layout of LVK RAVEN (`ligo.raven` 3.3) so that it can later be merged
 into it or called from gwcelery.
 
+Documentation: **https://danielsentenac.github.io/raven-kn/** (workflow and example results).
+
 Direction: **kilonova candidate → is a GW search worth it? → merger-time window,
 sky position, distance and inclination priors → coincidence with existing GW
 candidates (joint FAR) and/or a targeted search of archived strain.**
