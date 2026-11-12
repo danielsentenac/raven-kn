@@ -98,9 +98,20 @@ def main(argv=None):
     g.add_argument("--statistic", choices=["network", "coherent"], default="network",
                    help="incoherent network SNR, or coherent SNR with null-stream cut (as PyGRB)")
     g.add_argument("--no-gating", action="store_true")
-    g.add_argument("--source", default="gwosc", choices=["gwosc", "files"])
+    g.add_argument("--source", default="auto", choices=["auto", "public", "lvk", "gwosc"],
+                   help="auto: public GWOSC data (datafind.gwosc.org frames, GWOSC timelines) if they "
+                        "cover the window, else LVK data if configured and a SciToken is present; "
+                        "public / lvk: force one; gwosc: GWOSC event files only, no segment check")
     g.add_argument("--files", help="IFO=path[:channel],... (frame files need :channel); "
                                    "detectors without a file are read from GWOSC")
+    g.add_argument("--lvk-preset", help="LVK frame types, channels and science flags of a run (O2)")
+    g.add_argument("--frame-type", nargs="+", default=[], metavar="IFO=TYPE", help="LVK frame types")
+    g.add_argument("--channel", nargs="+", default=[], metavar="IFO=CHANNEL", help="LVK h(t) channels")
+    g.add_argument("--science-flag", nargs="+", default=[], metavar="IFO=FLAG",
+                   help="LVK science flags, e.g. H1=H1:DMT-ANALYSIS_READY:1")
+    g.add_argument("--veto-definer", help="LVK CBC veto-definer XML (CAT1 excluded, CAT2 reported)")
+    g.add_argument("--datafind-host", help="LVK datafind server (default $GWDATAFIND_SERVER)")
+    g.add_argument("--segment-url", default="https://segments.igwn.org")
     g.add_argument("--ca-bundle", help="CA file if Python fails SSL to gwosc.org, "
                                        "e.g. /etc/pki/tls/certs/ca-bundle.crt")
     g.add_argument("--label", default=None)
@@ -312,8 +323,21 @@ def main(argv=None):
         if args.files:
             files = dict(kv.split("=", 1) for kv in args.files.split(","))
             fetch = file_fetcher(files, cfg.sample_rate, fallback=gw)
-        else:
+        elif args.source == "gwosc":
             fetch = gw
+        else:
+            from .targeted.datasource import LVKSource, PublicSource, select_source
+            lvk = None
+            if args.lvk_preset or args.frame_type:
+                kw = {k: dict(x.split("=", 1) for x in v) for k, v in
+                      (("frame_types", args.frame_type), ("channels", args.channel),
+                       ("science_flags", args.science_flag)) if v}
+                kw.update(sample_rate=cfg.sample_rate, veto_definer=args.veto_definer,
+                          datafind_host=args.datafind_host, segment_url=args.segment_url)
+                lvk = LVKSource.preset(args.lvk_preset, **kw) if args.lvk_preset else LVKSource(**kw)
+            fetch = select_source(args.source, cfg.ifos, cfg.gps_start, cfg.gps_end,
+                                  PublicSource(cfg.sample_rate, ca_bundle=args.ca_bundle), lvk)
+            print(f"data source: {fetch.name}", flush=True)
         res = run(cfg, fetch, args.out)
         print(json.dumps({"p_value": res.p_value,
                           "p_value_extrapolated": res.loudest.get("p_value_extrapolated"),

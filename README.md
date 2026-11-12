@@ -172,6 +172,9 @@ Light PyCBC-based search at the kilonova position over its t0 window, following 
   glitches (zeroed ±0.25 s + 0.25 s taper, PyGRB's autogating values; ±0.5 s before, which cut the end of
   GW170817's chirp in L1), median-Welch PSD, matched filter;
 - signal consistency: 16-bin power chi-square where a detector's SNR > 5, SNR replaced by newSNR;
+  gate-aware (where a gate falls inside the template, the template is gated like the data); computed at
+  the 500 loudest samples per template and detector, the other samples over the threshold take the value
+  of the nearest computed one within 1 s;
 - each detector aligned by its time delay for the known sky position; network SNR sqrt(sum rho_d^2)
   counted only where >= 2 detectors exceed 4 (coincidence), maximised over templates;
 - background: time slides (independent shifts per detector, many per sub-segment); the loudest on-source
@@ -232,12 +235,22 @@ the light search's chirp mass, its time to 1–4 ms. Both gate the L1 glitch at 
 | raw SNR (no chi-square), PyGRB gate | **30.4** | 18.4 / 24.0 / 3.3 | 1.0 |
 | newSNR (per-detector chi-square), PyGRB gate | 24.4 | 18.4 / 15.9 / 3.2 | 2.5 |
 | newSNR, earlier ±0.5 s gate | 22.4 | 18.4 / 12.8 / 3.2 | 3.2 |
+| gate-aware network chi-square (now the default), PyGRB gate | raw 30.3 / reweighted **29.8** | 18.3 / 23.9 / 3.7 | 1.3 |
 | PyGRB: raw / reweighted coherent | **30.9** / 29.8 | 19.0 / 24.5 / 3.6 | 4.4 |
+| PyGRB on LVK frames (cleaned C02, V1O2Repro2A): raw / reweighted | **31.2** / 30.2 | 19.2 / 24.5 / 3.7 | 3.5 |
 
 Raw SNRs agree to 2 %. The gap was (a) the wider gate, now PyGRB's ±0.25 s, and mostly (b) the light
 search's per-detector chi-square: the gate removes part of L1's chirp, the power chi-square rises and newSNR
 cuts L1 from 24 to 16, where PyGRB's coherent chi-square costs 3.5 %. Near gates the light search therefore
-under-ranks real signals (still p < 1/1001 here); a gate-aware chi-square is the next fix.
+under-ranked real signals (still p < 1/1001 here).
+
+Fixed in two steps. The chi-square is now gate-aware: where a gate falls inside the template, bins,
+normalisation and per-bin filter outputs use the template gated like the data. And the coherent statistic
+follows PyGRB: one chi-square summed over the detectors, with PyGRB's number of bins (int(0.72 f^0.7), about
+125 for a BNS), reweights the coherent SNR (`coherent_chisq="per_ifo"` keeps the per-detector reweighting).
+On GW170817 the reduced network chi-square is 1.06 and the reweighted coherent SNR 29.8, PyGRB's value
+(6 s GRB-window search, 2148 templates, same frames). An H1-only sine-Gaussian on synthetic data falls from
+15.5 to 6.1.
 
 ## GW170817 replayed from the GRB and the kilonova (`examples/gw170817_reverse.py`)
 
@@ -247,10 +260,10 @@ the GBM position: window [−5, +1] s; host NGC 4993), then the real AT2017gfo l
 **held** at discovery and on the first night (one epoch, then no significant evolution) and **triggered at
 +29.5 h**, when g and r fade by ~1.7 mag/day (4σ in g) at M = −17.1: the light curve alone confirms the
 kilonova. Expected network SNR with that day's sensitivity: 34 (observed 32.4). The 6 s search
-(coherent, 1.0–1.5 Msun, 2148 templates, GWOSC GWTC-1 data) finds **22.8 at 1.5 ms from the merger, chirp
-mass 1.1977**; 100 off-source trials (20 HTCondor jobs on CIT, `examples/gw170817_reverse_cit/`) reach at
-most 7.5: p < 0.01 (the 100-trial floor). L1 is cut to 13 by the gated glitch (see the PyGRB comparison
-above). Results: `examples/gw170817_reverse/`.
+(coherent, 1.0–1.5 Msun, 2148 templates, GWOSC GWTC-1 data) finds **29.8 (reweighted coherent SNR) at 2.0 ms from the merger,
+chirp mass 1.1977**; 100 off-source trials (20 HTCondor jobs on CIT, `examples/gw170817_reverse_cit/`) reach
+at most 7.4: p < 0.01 (the 100-trial floor). With the earlier per-detector chi-square, not gate-aware, the
+on-source value was 22.8 (L1 cut to 13 by the gated glitch) and the off-source maximum 7.5. Results: `examples/gw170817_reverse/`.
 
 ## Redshift, distance and inclination: spectroscopy and host galaxies (`raven-kn host`, `raven-kn tns`)
 
@@ -328,6 +341,28 @@ The t0 window depends most on the latest deep image of the position before the f
   with the nearest PS1 band (g, r, i, z, y) and SDSS u (they were mapped to non-existent `lsst*` models before);
 - `last_nondetection(kn, depth_mag)` — latest (optionally deep enough) limit before the first detection,
   over all merged surveys.
+
+## Data for the search: public or LVK (`raven_kn.targeted.datasource`)
+
+Two back-ends behind one interface (analysable time of a detector, its strain):
+
+- **public** (no credentials): GWOSC data, i.e. catalogue events and whole runs after the proprietary
+  period. Frames from `datafind.gwosc.org` (CVMFS where mounted, else OSDF, else gwosc.org's archive);
+  segments from the GWOSC timelines (`<IFO>_CBC_CAT1`, `_CAT2`), so DQSegDB is not needed.
+- **lvk** (IGWN SciToken): the collaboration's calibrated h(t) frames, available at once. Science flags and
+  veto-definer categories from DQSegDB, frames from IGWN datafind. Frame types, channels and flags per
+  detector, or a preset checked on real data (`--lvk-preset O2`).
+
+Analysable time is science data passing CAT1; a detector not analysable over a sub-segment is left out of
+it; CAT2 time is kept and reported. `raven-kn targeted --source auto` (default) takes public data if they
+cover the window in two detectors, else LVK data if configured and a token is present, else stops and says
+the data are not public yet. Each result records source, frame types, channels, files and segments.
+Checked live on GW170817: public from this laptop and on CIT, LVK on CIT. On LVK data the production engine
+is PyGRB. `examples/pygrb_gw170817_lvk/` runs it on the collaboration's O2 frames for GW170817 (CIT,
+4 jobs of 4–15 min): SciToken, DQSegDB (all three detectors in science, no CAT1, two 2 s CAT2 stretches in
+H1 at +444 s and +1684 s), datafind, then `pycbc_multi_inspiral` with LVK's arguments. Coherent SNR 31.2,
+reweighted 30.2, null 3.5, H1 / L1 / V1 = 19.2 / 24.5 / 3.7, same time (1187008882.430), chirp mass and L1
+gate as on the GWOSC frames (30.9 / 29.8).
 
 ## PyGRB configuration (`raven-kn pygrb`)
 
@@ -482,8 +517,10 @@ TNS lists it as SN 2025ulz, type "SN II" (queried 2026-11-10); the physical link
 ## Not yet done
 
 - Live GraceDB queries.
-- Light search: chi-square that ignores gated data (it under-ranks signals overlapping a gate); PyGRB
-  background (off-source trials).
+- Light search: GW170817 1000-slide backgrounds (`examples/targeted_gw170817/`) repeated with the gate-aware
+  network chi-square (the off-source trials of the reverse replay are); PyGRB background (off-source trials).
+- LVK data source: presets beyond O2 (O4 frame types, channels and flags); light search on LVK frames as a
+  cluster job.
 - Injections drawn from the third model (LANLTP2 as truth), Rubin + LANLTP2 fits.
 - Fink livestream tested live (credentials requested); GOTO, BlackGEM connectors.
 

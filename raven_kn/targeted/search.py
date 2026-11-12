@@ -86,9 +86,12 @@ class TargetedSearchConfig:
     gate_threshold: Optional[float] = 50.0
     gate_width_s: float = 0.25               # half-width of the zeroed region (PyGRB --autogating-width)
     gate_taper_s: float = 0.25               # Tukey taper on each side (PyGRB --autogating-taper)
+    gate_aware_chisq: bool = True            # chi-square with the template gated like the data
     chisq_bins: Optional[int] = 16          # None: no chi-square reweighting
     chisq_threshold: float = 5.0             # compute chi-square where SNR exceeds this
     max_chisq_points: int = 500              # per template and detector (loudest kept)
+    chisq_inherit_s: float = 1.0             # samples over the threshold beyond that number take the
+                                             # chi-square of the nearest computed sample within this time
     hierarchical_removal: bool = True        # mask the loudest on-source candidate in the slides
     coinc_threshold: float = 4.0             # a candidate needs >= 2 detectors above this (0: off)
     removal_window_s: float = 1.0
@@ -98,6 +101,11 @@ class TargetedSearchConfig:
     min_slides: int = 20                     # fewer slides fit (short window): off-source p-value only
     offsource_gap_s: float = 64.0            # gap between the on-source window and off-source trials
     statistic: str = "network"               # "network" (incoherent) or "coherent" (known sky position)
+    coherent_chisq: str = "network"          # coherent: one chi-square summed over detectors
+                                             # reweights the coherent SNR (PyGRB); "per_ifo": each
+                                             # detector's SNR reweighted before the projection
+    coherent_chisq_bins: str = "pygrb"       # coherent: "pygrb" = int(0.72 f^0.7), f the template's
+                                             # ISCO frequency (~125 bins for a BNS); "fixed" = chisq_bins
     null_min: float = 5.25                   # coherent: null-SNR cut (PyGRB's --null-min/-grad/-step)
     null_grad: float = 0.2
     null_step: float = 20.0
@@ -281,6 +289,7 @@ class SubsegmentResult:
     loudest_rho_coh: Optional[float] = None  # coherent statistic only
     loudest_rho_null: Optional[float] = None
     loudest_rho_network: Optional[float] = None
+    loudest_chisq_r: Optional[float] = None  # coherent, network chi-square: reduced value
 
 
 @dataclass
@@ -290,6 +299,7 @@ class TargetedSearchResult:
     subsegments: list[SubsegmentResult]
     p_value: float
     loudest: dict
+    data: Optional[dict] = None              # data source, frames, segments (datasource.py)
 
     def to_json(self, path: str | Path) -> None:
         d = asdict(self)
@@ -382,12 +392,142 @@ def slide_shifts(n_ifos: int, n_steps: int, n_slides: int) -> list[tuple[int, ..
     return out
 
 
+def pygrb_chisq_bins(mchirp: float) -> int:
+    """Number of power chi-square bins as in LVK's PyGRB configuration,
+    int(0.72 f^0.7), with f the ISCO frequency of the equal-mass template in
+    place of IMRPhenomD's peak frequency (TaylorF2 templates end at ISCO)."""
+    m_tot = 2 * _mass_equal(mchirp)
+    f_isco = 1.0 / (6 ** 1.5 * np.pi * m_tot * 4.925490947e-6)
+    return max(int(0.72 * f_isco ** 0.7), 2)
+
+
+def _gate_multiplier(t: np.ndarray, gate: float, width: float, taper: float) -> np.ndarray:
+    """The factor :func:`pycbc.strain.gate_data` applies at times ``t``:
+    0 within ``width`` of the gate, a Tukey taper over ``taper``, 1 outside."""
+    d = np.abs(t - gate)
+    m = np.ones_like(d)
+    m[d <= width] = 0.0
+    tap = (d > width) & (d < width + taper)
+    m[tap] = 0.5 * (1 + np.cos(np.pi * (width + taper - d[tap]) / taper))
+    return m
+
+
+def chisq_points(snr: np.ndarray, threshold: float, max_points: int
+                 ) -> tuple[np.ndarray, np.ndarray]:
+    """Samples where the chi-square is computed (above ``threshold``, the
+    ``max_points`` loudest) and the remaining samples above the threshold."""
+    idx = np.flatnonzero(snr > threshold)
+    if len(idx) <= max_points:
+        return idx, idx[:0]
+    order = np.argsort(snr[idx])
+    return idx[order[-max_points:]], np.sort(idx[order[:-max_points]])
+
+
+def inherit_chisq(idx: np.ndarray, chisq: np.ndarray, rest: np.ndarray, max_dist: int
+                  ) -> tuple[np.ndarray, np.ndarray]:
+    """Chi-square for the samples ``rest`` that were over the threshold but not
+    among the loudest: that of the nearest computed sample (``idx``, ``chisq``)
+    no more than ``max_dist`` samples away. A loud glitch has more samples over
+    the threshold than are computed; without this its wings, at lower but still
+    high SNR, would pass unweighted. Returns the selected ``rest`` and their
+    chi-square values."""
+    if not (len(idx) and len(rest)):
+        return rest[:0], np.zeros(0)
+    o = np.argsort(idx)
+    si, sc = idx[o].astype(np.int64), np.asarray(chisq, dtype=float)[o]
+    j = np.searchsorted(si, rest)
+    jl, jr = np.clip(j - 1, 0, len(si) - 1), np.clip(j, 0, len(si) - 1)
+    pick = np.where(np.abs(rest - si[jl]) <= np.abs(si[jr] - rest), jl, jr)
+    ok = np.abs(si[pick] - rest) <= max_dist
+    return rest[ok], sc[pick[ok]]
+
+
+def chisq_at_points(hp, corr, su, norm, psd, f_low: float, nbins: int, gidx: np.ndarray,
+                    t0: float, fs: float, gates: Sequence[float] = (), gate_width: float = 0.25,
+                    gate_taper: float = 0.25, tmax: float = 0.0, gate_aware: bool = True,
+                    stilde=None, group_hz: float = 64.0) -> np.ndarray:
+    """Power chi-square (not reduced) at the sample indices ``gidx`` of the
+    filter output (``su``, ``corr``, ``norm`` from ``matched_filter_core``).
+
+    Gate-aware: where a gate of the data falls inside the template's span for
+    a point (merger at ``t0 + gidx / fs``), the chi-square is computed with the
+    template gated the same way as the data (same window, at the same place
+    relative to that merger time): bins, normalisation and per-bin filter
+    outputs all use the gated template. Otherwise the zeroed stretch of the
+    chirp shows up as a power deficit in its frequency bins, and a real
+    signal that overlaps a gate (GW170817's L1 glitch, 1.1 s before the
+    merger) is penalised as if it were a glitch. Points away from gates get
+    the standard chi-square. Points whose merger times fall in the same
+    1/``group_hz`` s share one gated template (64 Hz: the gate is placed
+    within 8 ms of its exact position relative to the chirp)."""
+    from pycbc.types import FrequencySeries, TimeSeries
+    from pycbc.vetoes import power_chisq_at_points_from_precomputed, power_chisq_bins
+    from pycbc.filter import sigmasq
+    from pycbc.filter.matchedfilter import get_cutoff_indices
+    bins = power_chisq_bins(hp, nbins, psd, f_low)
+    chisq = np.asarray(power_chisq_at_points_from_precomputed(corr, su[gidx], norm, bins, gidx),
+                       dtype=float)
+    gates = [float(g) for g in (gates or []) if isinstance(g, (int, float, np.floating))]
+    if not (gate_aware and gates and len(gidx)):
+        return chisq
+    t_pt = t0 + gidx.astype(float) / fs
+    reach = gate_width + gate_taper
+    hit = np.zeros(len(gidx), bool)
+    for g in gates:      # template span ~ [merger - tmax, merger + 0.1 s]
+        hit |= (g - t_pt > -(tmax + reach + 1.0)) & (g - t_pt < reach + 0.1)
+    if not hit.any():
+        return chisq
+    N = len(corr)
+    kmin, kmax = get_cutoff_indices(f_low, None, hp.delta_f, N)
+    h_td = hp.to_timeseries()
+    dt = float(h_td.delta_t)
+    n = np.arange(N)
+    tau = np.where(n < N // 2, n, n - N) * dt              # time relative to the template merger
+    if stilde is not None:                                 # data / psd in the band
+        st_band = stilde.numpy()[kmin:kmax] / psd.numpy()[kmin:kmax]
+    else:                                                  # recovered from corr = conj(h) s / psd
+        hb = np.conj(hp.numpy()[kmin:kmax])
+        ok = np.abs(hb) > 1e-6 * np.abs(hb).max()
+        st_band = np.zeros(kmax - kmin, dtype=complex)
+        st_band[ok] = corr.numpy()[kmin:kmax][ok] / hb[ok]
+    # points whose merger times lie within the same 1/group_hz s share one gated
+    # template (the gate moves by <= half a group relative to the chirp)
+    hit_i = np.flatnonzero(hit)
+    groups: dict[int, list[int]] = {}
+    for i in hit_i:
+        groups.setdefault(int(np.floor(t_pt[i] * group_hz)), []).append(int(i))
+    h = h_td.numpy()
+    for key, members in groups.items():
+        tj = (key + 0.5) / group_hz
+        mult = np.ones(N)
+        for g in gates:
+            sel = np.abs(tau + tj - g) < reach
+            if sel.any():
+                mult[sel] *= _gate_multiplier(tau[sel] + tj, g, gate_width, gate_taper)
+        if mult.min() == 1.0:
+            continue
+        hg = TimeSeries(h * mult, delta_t=dt).to_frequencyseries()
+        hg = FrequencySeries(hg.numpy()[:len(hp)], delta_f=hp.delta_f)
+        sig2 = float(sigmasq(hg, psd, f_low))
+        if sig2 <= 0:
+            continue
+        cg = np.zeros(N, dtype=np.complex128)
+        cg[kmin:kmax] = np.conj(hg.numpy()[kmin:kmax]) * st_band
+        q_all = np.fft.ifft(cg) * N                      # pycbc's unnormalised inverse FFT
+        idx = gidx[members].astype(np.uint32)
+        bins_g = power_chisq_bins(hg, nbins, psd, f_low)
+        corr_g = FrequencySeries(cg.astype(corr.dtype), delta_f=corr.delta_f)
+        chisq[members] = np.asarray(power_chisq_at_points_from_precomputed(
+            corr_g, q_all[idx].astype(corr.dtype), 4.0 * corr.delta_f / np.sqrt(sig2), bins_g, idx),
+            dtype=float)
+    return chisq
+
+
 def search_subsegment(cfg: TargetedSearchConfig, bank: Sequence[float], fetch: StrainFetcher,
                       start: float, end: float) -> SubsegmentResult:
     import pycbc.psd
     from pycbc.events.ranking import newsnr
     from pycbc.filter import matched_filter_core
-    from pycbc.vetoes import power_chisq_at_points_from_precomputed, power_chisq_bins
     from pycbc.waveform import get_fd_waveform
 
     tmax = template_duration(min(bank), cfg.f_low)
@@ -450,16 +590,19 @@ def search_subsegment(cfg: TargetedSearchConfig, bank: Sequence[float], fetch: S
             su = snr_u.numpy()
             x = (np.abs(su[i0:i1]) * norm).astype(np.float32)
             if cfg.chisq_bins:
-                idx = np.flatnonzero(x > cfg.chisq_threshold)
-                if len(idx) > cfg.max_chisq_points:
-                    idx = idx[np.argsort(x[idx])[-cfg.max_chisq_points:]]
+                idx, rest = chisq_points(x, cfg.chisq_threshold, cfg.max_chisq_points)
                 if len(idx):
-                    bins = power_chisq_bins(hp, cfg.chisq_bins, psds[ifo], cfg.f_low)
                     gidx = (idx + i0).astype(np.uint32)
-                    chisq = power_chisq_at_points_from_precomputed(corr, su[gidx], norm, bins, gidx)
-                    red = np.asarray(chisq) / (2 * cfg.chisq_bins - 2)
+                    chisq = chisq_at_points(hp, corr, su, norm, psds[ifo], cfg.f_low,
+                                            cfg.chisq_bins, gidx, t0, fs, gates.get(ifo, []),
+                                            cfg.gate_width_s, cfg.gate_taper_s,
+                                            template_duration(mc, cfg.f_low), cfg.gate_aware_chisq,
+                                            stilde=st)
+                    rest, chisq_rest = inherit_chisq(idx, chisq, rest, int(cfg.chisq_inherit_s * fs))
+                    idx = np.concatenate([idx, rest])
+                    red = np.concatenate([np.asarray(chisq), chisq_rest]) / (2 * cfg.chisq_bins - 2)
                     x[idx] = newsnr(x[idx], red).astype(np.float32)
-                    n_chisq[ifo] += len(idx)
+                    n_chisq[ifo] += len(gidx)
             p = _pool(x, n_pool)
             n_on = len(p) if n_on is None else min(n_on, len(p))
             pooled[ifo].append(p)
@@ -541,7 +684,6 @@ def null_cut(rho_coh: np.ndarray, rho_null: np.ndarray, null_min: float = 5.25,
 def _coherent_subsegment(cfg, bank, ifos, stilde, psds, delays, gates, start, end):
     from pycbc.events.ranking import newsnr
     from pycbc.filter import matched_filter_core
-    from pycbc.vetoes import power_chisq_at_points_from_precomputed, power_chisq_bins
     from pycbc.waveform import get_fd_waveform
 
     fs = cfg.sample_rate
@@ -561,9 +703,12 @@ def _coherent_subsegment(cfg, bank, ifos, stilde, psds, delays, gates, start, en
     n_chisq = {i: 0 for i in ifos}
     n_null_cut = 0
     t0 = None
+    net_chisq = bool(cfg.chisq_bins) and cfg.coherent_chisq == "network"
     for it, mc in enumerate(bank):
         m = _mass_equal(mc)
-        z, sig = [], []
+        nb = pygrb_chisq_bins(mc) if cfg.coherent_chisq_bins == "pygrb" else (cfg.chisq_bins or 0)
+        dof = 2 * nb - 2
+        z, sig, chi = [], [], []
         for ifo in ifos:
             st = stilde[ifo]
             hp, _ = get_fd_waveform(approximant="TaylorF2", mass1=m, mass2=m,
@@ -578,19 +723,28 @@ def _coherent_subsegment(cfg, bank, ifos, stilde, psds, delays, gates, start, en
                                                     low_frequency_cutoff=cfg.f_low)
             su = snr_u.numpy()
             zi = (su[i0:i0 + L] * norm).astype(np.complex64)
+            # chi-square array: the expected value (reduced 1) where not computed
+            ci = np.full(L, float(dof), dtype=np.float32) if net_chisq else None
             if cfg.chisq_bins:
                 a = np.abs(zi)
-                idx = np.flatnonzero(a > cfg.chisq_threshold)
-                if len(idx) > cfg.max_chisq_points:
-                    idx = idx[np.argsort(a[idx])[-cfg.max_chisq_points:]]
+                idx, rest = chisq_points(a, cfg.chisq_threshold, cfg.max_chisq_points)
                 if len(idx):
-                    bins = power_chisq_bins(hp, cfg.chisq_bins, psds[ifo], cfg.f_low)
                     gidx = (idx + i0).astype(np.uint32)
-                    chisq = power_chisq_at_points_from_precomputed(corr, su[gidx], norm, bins, gidx)
-                    red = np.asarray(chisq) / (2 * cfg.chisq_bins - 2)
-                    zi[idx] *= (newsnr(a[idx], red) / a[idx]).astype(np.float32)
+                    chisq = chisq_at_points(hp, corr, su, norm, psds[ifo], cfg.f_low,
+                                            nb, gidx, t0, fs, gates.get(ifo, []),
+                                            cfg.gate_width_s, cfg.gate_taper_s,
+                                            template_duration(mc, cfg.f_low), cfg.gate_aware_chisq,
+                                            stilde=st)
                     n_chisq[ifo] += len(idx)
+                    rest, chisq_rest = inherit_chisq(idx, chisq, rest, int(cfg.chisq_inherit_s * fs))
+                    idx = np.concatenate([idx, rest])
+                    chisq = np.concatenate([np.asarray(chisq, dtype=float), chisq_rest])
+                    if net_chisq:
+                        ci[idx] = np.maximum(chisq, 0.0).astype(np.float32)
+                    else:
+                        zi[idx] *= (newsnr(a[idx], chisq / dof) / a[idx]).astype(np.float32)
             z.append(zi)
+            chi.append(ci)
             sig.append(4 * st.delta_f / norm)       # sqrt(sigmasq): matched_filter_core's norm
         P = coherent_projector(sig, fp, fx)
         above = [np.flatnonzero(np.abs(zi) >= thr) for zi in z]
@@ -608,6 +762,11 @@ def _coherent_subsegment(cfg, bank, ifos, stilde, psds, delays, gates, start, en
             coh = np.sqrt(np.clip(coh2, 0, None))
             null = np.sqrt(np.clip(net2 - coh2, 0, None))
             stat = coh.copy()
+            chir = None
+            if net_chisq:            # PyGRB: one chi-square over the network reweights the coherent SNR
+                C = np.stack([chi[d][(cand - sh[k, d]) % L] for d in range(len(ifos))])
+                chir = C.sum(axis=0) / (dof * len(ifos))
+                stat = np.asarray(newsnr(coh, chir), dtype=float)
             if len(ifos) >= 3:
                 cut = null_cut(coh, null, cfg.null_min, cfg.null_grad, cfg.null_step)
                 stat[cut] = 0.0
@@ -619,6 +778,7 @@ def _coherent_subsegment(cfg, bank, ifos, stilde, psds, delays, gates, start, en
                 if stat[j] > best["stat"]:
                     best = {"stat": float(stat[j]), "it": it, "ib": int(cand[j]),
                             "coh": float(coh[j]), "null": float(null[j]),
+                            "chir": float(chir[j]) if chir is not None else None,
                             "net": float(np.sqrt(net2[j])),
                             "rho_ifo": {i: float(abs(Z[d, j])) for d, i in enumerate(ifos)}}
     loud = best["stat"]
@@ -643,7 +803,10 @@ def _coherent_subsegment(cfg, bank, ifos, stilde, psds, delays, gates, start, en
     res = SubsegmentResult(start, end, ifos, loud, loud_gps, loud_mc, rho_ifo, bkg, p, gates,
                            f"coherent, {len(bank)} templates, {len(bkg)} slides, "
                            + ("no chi-square" if not cfg.chisq_bins else
-                              f"newSNR ({cfg.chisq_bins}-bin chi-square at "
+                              ("coherent SNR reweighted by the network chi-square"
+                               if net_chisq else "per-detector newSNR")
+                              + f" ({'PyGRB-rule' if cfg.coherent_chisq_bins == 'pygrb' else cfg.chisq_bins}"
+                              f"-bin{', gate-aware' if cfg.gate_aware_chisq else ''} chi-square at "
                               + ", ".join(f"{i}:{n_chisq[i]}" for i in ifos) + " points)")
                            + (f", {n_null_cut} zero-lag samples failed the null cut"
                               if len(ifos) >= 3 else ", 2 detectors: no null stream")
@@ -653,6 +816,7 @@ def _coherent_subsegment(cfg, bank, ifos, stilde, psds, delays, gates, start, en
     if loud > 0:
         res.loudest_rho_coh, res.loudest_rho_null = best["coh"], best["null"]
         res.loudest_rho_network = best["net"]
+        res.loudest_chisq_r = best.get("chir")
     res.p_value_extrapolated = p_ext
     res.extrapolation_reach = reach
     if reach is not None and reach > 3:
@@ -736,6 +900,13 @@ def run(cfg: TargetedSearchConfig, fetch: StrainFetcher, out_dir: Optional[str |
     loudest.pop("background", None)
     loudest.pop("offsource", None)
     res = TargetedSearchResult(asdict(cfg), len(bank), subs, p_all, loudest)
+    if hasattr(fetch, "provenance"):               # a datasource.DataSource: record what was used
+        from .datasource import segment_summary
+        seg = segment_summary(fetch, cfg.ifos, cfg.gps_start, cfg.gps_end)
+        t = loudest.get("loudest_gps")
+        res.data = {**fetch.provenance(), "window": seg,
+                    "loudest_in_cat2": [i for i, s in seg.items() if t is not None and
+                                        any(a <= t < b for a, b in s.get("cat2", []))]}
     if out_dir is not None:
         out = Path(out_dir)
         out.mkdir(parents=True, exist_ok=True)

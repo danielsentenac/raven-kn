@@ -251,3 +251,65 @@ def test_short_window_uses_offsource_pvalue():
     assert subsegment_pvalue(r) == 0.01                      # 1 slide only: off-source alone
     r.background = [5.0] * 50
     assert subsegment_pvalue(r) == 0.5                       # enough slides: the larger
+
+
+def _spiked(fetch, ifo="L1", dt=-1.1, amp=5e-19):
+    """A loud short glitch in one detector ``dt`` s from the merger, as in
+    GW170817's L1 data: the search gates it, and the gate cuts the chirp."""
+    def f(i, start, end):
+        ts = fetch(i, start, end).copy()
+        if i == ifo:
+            k = int(round((T_INJ + dt - float(ts.start_time)) * FS))
+            if 0 <= k < len(ts):
+                ts.data[k - 2:k + 3] += amp * np.array([0.3, 0.7, 1.0, 0.7, 0.3])
+        return ts
+    return f
+
+
+def test_gate_aware_chisq_keeps_gated_signal():
+    """The injection overlaps a gate in L1. With the template gated like the
+    data, L1's chi-square stays near 1 and newSNR keeps most of the gated SNR;
+    the plain chi-square sees the zeroed stretch of the chirp as a power
+    deficit and cuts L1 hard (GW170817: 24 -> 16)."""
+    base = {**_cfg().__dict__, "gate_threshold": 50.0}
+    fetch = _spiked(synthetic_fetcher(inject=True, distance_mpc=60))
+    aware = run(TargetedSearchConfig(**base), fetch, progress=False).subsegments[0]
+    plain = run(TargetedSearchConfig(**{**base, "gate_aware_chisq": False}), fetch,
+                progress=False).subsegments[0]
+    raw = run(TargetedSearchConfig(**{**base, "chisq_bins": None}), fetch, progress=False).subsegments[0]
+    assert aware.gates["L1"] and abs(aware.gates["L1"][0] - (T_INJ - 1.1)) < 0.1
+    assert abs(aware.loudest_gps - T_INJ) < 0.01
+    l1_raw, l1_aware, l1_plain = (r.loudest_rho_ifo["L1"] for r in (raw, aware, plain))
+    assert l1_aware > 0.85 * l1_raw
+    assert l1_plain < 0.8 * l1_aware
+
+
+def test_gate_aware_chisq_is_standard_away_from_gates():
+    """No gate in the template span: identical to the standard chi-square."""
+    a = run(TargetedSearchConfig(**{**_cfg().__dict__}), synthetic_fetcher(inject=True),
+            progress=False).subsegments[0]
+    b = run(TargetedSearchConfig(**{**_cfg().__dict__, "gate_aware_chisq": False}),
+            synthetic_fetcher(inject=True), progress=False).subsegments[0]
+    assert a.loudest_rho_net == pytest.approx(b.loudest_rho_net)
+
+
+def test_coherent_network_chisq_keeps_gated_signal():
+    """Coherent statistic, injection overlapping an L1 gate: the coherent SNR
+    reweighted by the network chi-square (PyGRB) stays close to the raw one."""
+    base = {**_coh_cfg().__dict__, "gate_threshold": 50.0}
+    fetch = _spiked(synthetic_fetcher(inject=True, distance_mpc=60))
+    rw = run(TargetedSearchConfig(**base), fetch, progress=False).subsegments[0]
+    raw = run(TargetedSearchConfig(**{**base, "chisq_bins": None}), fetch, progress=False).subsegments[0]
+    assert rw.gates["L1"] and abs(rw.loudest_gps - T_INJ) < 0.01
+    assert "network chi-square" in rw.notes and rw.loudest_chisq_r is not None
+    assert rw.loudest_rho_net > 0.85 * raw.loudest_rho_net
+
+
+def test_coherent_network_chisq_suppresses_glitch():
+    """A loud H1-only sine-Gaussian (no gating, no coincidence requirement):
+    the network chi-square brings the coherent statistic down."""
+    base = {**_coh_cfg().__dict__, "coinc_threshold": 0.0}
+    raw = run(TargetedSearchConfig(**{**base, "chisq_bins": None}), _glitchy(), progress=False).subsegments[0]
+    rw = run(TargetedSearchConfig(**base), _glitchy(), progress=False).subsegments[0]
+    assert raw.loudest_rho_net > 10
+    assert rw.loudest_rho_net < 0.7 * raw.loudest_rho_net

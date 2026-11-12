@@ -1,0 +1,52 @@
+{
+ "gps": [
+  1187006900.0,
+  1187010900.0
+ ],
+ "url": "https://segments.igwn.org",
+ "veto_definer": "H1L1V1-CBC_VETO_DEFINER_CLEANED_C02_O2_1164556817-23176801.xml",
+ "ifos": {
+  "H1": {
+   "science_flag": "H1:DCH-CLEAN_SCIENCE_C02:1",
+   "science": [
+    [
+     1187006900.0,
+     1187010900.0
+    ]
+   ],
+   "cat1": [],
+   "cat2": [
+    [
+     1187009326.0,
+     1187009328.0
+    ],
+    [
+     1187010566.0,
+     1187010568.0
+    ]
+   ]
+  },
+  "L1": {
+   "science_flag": "L1:DCH-CLEAN_SCIENCE_C02:1",
+   "science": [
+    [
+     1187006900.0,
+     1187010900.0
+    ]
+   ],
+   "cat1": [],
+   "cat2": []
+  },
+  "V1": {
+   "science_flag": "V1:ITF_SCIENCE:2",
+   "science": [
+    [
+     1187006900.0,
+     1187010900.0
+    ]
+   ],
+   "cat1": [],
+   "cat2": []
+  }
+ }
+}

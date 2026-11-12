@@ -16,7 +16,7 @@ The package mirrors LVK RAVEN so that it can be merged into it later.
 | `raven_kn.listener` | GCN Kafka listener | `listen` / `handle_*` |
 | `raven_kn.fink_stream` | Fink livestream (ZTF, Rubin) → candidates | — |
 | `raven_kn.search` | `query`, `search`, `coinc_far`, `calc_signif_gracedb`, `assess` | `search.*` |
-| `raven_kn.targeted` | light PyCBC search, PyGRB configuration, DQSegDB segments | — |
+| `raven_kn.targeted` | light PyCBC search, public (GWOSC) and LVK data sources, PyGRB configuration, DQSegDB segments | — |
 
 `KNCandidate.to_raven_event_dict()` gives a GraceDB external-event dictionary accepted by
 `ligo.raven.gracedb_events.ExtTrig(..., event_dict=..., use_radec=True)`.
