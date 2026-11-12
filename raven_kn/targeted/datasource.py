@@ -110,9 +110,34 @@ class DataSource:
         except Exception:
             return False
 
+    cache_dir: Optional[str] = None          # downloaded frames (default ~/.cache/raven-kn/frames)
+
+    def _token(self) -> Optional[str]:
+        return None
+
     def _local_path(self, url: str) -> str:
         if url.startswith("file://"):
             return url[len("file://"):].replace("localhost", "", 1)
+        if url.startswith("https://"):       # OSDF: the director redirects to a cache (port 8443)
+            import requests
+            d = Path(self.cache_dir or Path.home() / ".cache" / "raven-kn" / "frames")
+            d.mkdir(parents=True, exist_ok=True)
+            dest = d / url.rsplit("/", 1)[-1]
+            if not dest.exists():
+                tmp = dest.with_suffix(".part")
+                tok = self._token()
+                try:
+                    with requests.get(url, stream=True, timeout=(15, 600),
+                                      headers={"Authorization": f"Bearer {tok}"} if tok else {}) as r:
+                        r.raise_for_status()
+                        with open(tmp, "wb") as f:
+                            for chunk in r.iter_content(1 << 20):
+                                f.write(chunk)
+                except requests.RequestException as e:
+                    tmp.unlink(missing_ok=True)
+                    raise DataNotAvailable(f"OSDF download failed ({type(e).__name__}): {url}") from e
+                tmp.rename(dest)
+            return str(dest)
         raise DataNotAvailable(f"cannot read {url}")
 
     def fetch(self, ifo: str, start: float, end: float):
@@ -124,6 +149,8 @@ class DataSource:
             raise DataNotAvailable(f"{ifo} not analysable over [{start:.0f}, {end:.0f}] "
                                    f"({self.name}): analysable {ok}")
         ts = self._read(ifo, start, end)
+        if ts.dtype != "float64":            # Virgo's O2 h(t) is single precision
+            ts = ts.astype("float64")
         from pycbc.filter import resample_to_delta_t
         if abs(ts.delta_t - 1.0 / self.sample_rate) > 1e-12:
             ts = resample_to_delta_t(ts, 1.0 / self.sample_rate)
@@ -154,8 +181,9 @@ class PublicSource(DataSource):
     """GWOSC open data: datafind + OSDF/CVMFS frames, GWOSC timelines."""
     name: str = "public"
     host: str = GWOSC_DATAFIND
-    cache_dir: Optional[str] = None          # downloaded frames (default ~/.cache/raven-kn/frames)
     ca_bundle: Optional[str] = None
+    rate_khz: Optional[int] = None           # 4 or 16: GWOSC frame types <IFO>_GWOSC_<run>_4KHZ_R1 or
+                                             # _16KHZ_R1 (default: 4, or 16 if the search samples faster)
     snippets: bool = True                    # fall back to gwosc.org's archive when frames cannot be read
     _types: dict = field(default_factory=dict, repr=False)
 
@@ -182,7 +210,7 @@ class PublicSource(DataSource):
         site = ifo[0]
         if site not in self._types:
             self._types[site] = sorted(gwdatafind.find_types(site=site, host=self.host))
-        rate = "16KHZ" if self.sample_rate > 4096 else "4KHZ"
+        rate = self._rate()
         for ft in self._types[site]:
             if not re.fullmatch(rf"{ifo}_GWOSC_\w+_{rate}_R\d+", ft):
                 continue
@@ -192,9 +220,12 @@ class PublicSource(DataSource):
                 return ft
         return None
 
+    def _rate(self) -> str:
+        k = self.rate_khz or (16 if self.sample_rate > 4096 else 4)
+        return f"{k}KHZ"
+
     def channel(self, ifo):
-        rate = "16KHZ" if self.sample_rate > 4096 else "4KHZ"
-        return f"{ifo}:GWOSC-{rate}_R1_STRAIN"
+        return f"{ifo}:GWOSC-{self._rate()}_R1_STRAIN"
 
     def frame_urls(self, ifo, start, end):
         import gwdatafind
@@ -221,27 +252,6 @@ class PublicSource(DataSource):
                 if u.startswith(scheme):
                     return u
         return urls[0]
-
-    def _local_path(self, url):
-        if url.startswith("https://"):
-            import requests
-            d = Path(self.cache_dir or Path.home() / ".cache" / "raven-kn" / "frames")
-            d.mkdir(parents=True, exist_ok=True)
-            dest = d / url.rsplit("/", 1)[-1]
-            if not dest.exists():
-                tmp = dest.with_suffix(".part")
-                try:                    # the director redirects to a cache (port 8443)
-                    with requests.get(url, stream=True, timeout=(15, 600)) as r:
-                        r.raise_for_status()
-                        with open(tmp, "wb") as f:
-                            for chunk in r.iter_content(1 << 20):
-                                f.write(chunk)
-                except requests.RequestException as e:
-                    tmp.unlink(missing_ok=True)
-                    raise DataNotAvailable(f"OSDF download failed ({type(e).__name__}): {url}") from e
-                tmp.rename(dest)
-            return str(dest)
-        return super()._local_path(url)
 
     def _read(self, ifo, start, end):
         try:
@@ -307,15 +317,17 @@ class LVKSource(DataSource):
         if self.active is not None:
             return _clip(self.active.get(flag, []), start, end)
         from gwpy.segments import DataQualityFlag
-        return [(float(a), float(b)) for a, b in
-                DataQualityFlag.query(flag, start, end, url=self.segment_url).active]
+        q0, q1 = int(start // 1), int(-(-end // 1))          # DQSegDB answers on whole seconds
+        return _clip([(float(a), float(b)) for a, b in
+                      DataQualityFlag.query(flag, q0, q1, url=self.segment_url).active], start, end)
 
     def _cat(self, ifo, start, end, cat) -> Segs:
         if not self.veto_definer:
             return []
         from .segments import veto_definer_segments
-        return veto_definer_segments(self.veto_definer, [ifo], start, end, categories=(cat,),
-                                     url=self.segment_url, active=self.active)
+        return _clip(veto_definer_segments(self.veto_definer, [ifo], int(start // 1), int(-(-end // 1)),
+                                           categories=(cat,), url=self.segment_url, active=self.active),
+                     start, end)
 
     def analysable(self, ifo, start, end):
         if ifo not in self.science_flags:
@@ -333,8 +345,18 @@ class LVKSource(DataSource):
         kw = {"host": self.datafind_host} if self.datafind_host else {}
         self.used.setdefault(ifo, {"channel": self.channel(ifo), "frames": []})["frame_type"] = \
             self.frame_types[ifo]
-        return gwdatafind.find_urls(ifo[0], self.frame_types[ifo], int(start), int(-(-end // 1)),
-                                    urltype="file", **kw)
+        urls = gwdatafind.find_urls(ifo[0], self.frame_types[ifo], int(start), int(-(-end // 1)),
+                                    urltype=None, **kw)
+        by_file: dict[str, list[str]] = {}
+        for u in urls:
+            by_file.setdefault(u.rsplit("/", 1)[-1], []).append(u)
+        # a cluster's datafind gives files readable in place; datafind.igwn.org gives OSDF
+        # URLs, downloaded with the SciToken (scopes read:/ligo, read:/virgo, ...)
+        return [next((u for sch in ("file://", "https://") for u in v if u.startswith(sch)), v[0])
+                for _, v in sorted(by_file.items())]
+
+    def _token(self):
+        return bearer_token()
 
     def provenance(self):
         return {**super().provenance(), "datafind": self.datafind_host or os.environ.get("GWDATAFIND_SERVER"),
@@ -342,16 +364,99 @@ class LVKSource(DataSource):
                 "veto_definer": os.path.basename(self.veto_definer) if self.veto_definer else None}
 
 
-def has_lvk_credentials() -> bool:
-    """An IGWN SciToken where the IGWN tools look for one (``htgettoken -a
-    vault.ligo.org -i igwn`` writes it)."""
-    if os.environ.get("BEARER_TOKEN") or os.environ.get("SCITOKEN"):
-        return True
+def write_manifest(source: DataSource, ifos: Sequence[str], start: float, end: float,
+                   path: str | Path, margin: float = 256.0) -> dict:
+    """Resolve segments and frame files of ``source`` for [start - margin,
+    end + margin] and write them to a JSON file. Done where credentials and
+    datafind are (a login node); a job without either then reads the data
+    with :class:`ManifestSource`. ``margin`` covers the data the search needs
+    before and after the window (template length, padding)."""
+    import json
+    a, b = start - margin, end + margin
+    man = {"source": source.name, "span": [a, b], "ifos": {}, "provenance": None}
+    for ifo in ifos:
+        try:
+            man["ifos"][ifo] = {"analysable": source.analysable(ifo, a, b),
+                                "cat2": source.vetoed(ifo, a, b),
+                                "channel": source.channel(ifo),
+                                "frames": source.frame_urls(ifo, a, b)}
+        except Exception as e:
+            man["ifos"][ifo] = {"error": f"{type(e).__name__}: {e}"}
+    man["provenance"] = source.provenance()
+    Path(path).write_text(json.dumps(man, indent=1))
+    return man
+
+
+@dataclass
+class ManifestSource(DataSource):
+    """A source resolved beforehand by :func:`write_manifest`: no network, no
+    credentials. Frames are read from ``frame_dir`` when they are there (files
+    shipped with a job), else from their original paths."""
+    manifest: dict = field(default_factory=dict)
+    frame_dir: Optional[str] = None
+
+    @classmethod
+    def load(cls, path: str | Path, sample_rate: int = 2048, frame_dir: Optional[str] = None
+             ) -> "ManifestSource":
+        import json
+        man = json.loads(Path(path).read_text())
+        return cls(sample_rate=sample_rate, name=man["source"], manifest=man, frame_dir=frame_dir)
+
+    def _ifo(self, ifo, start, end) -> dict:
+        m = self.manifest["ifos"].get(ifo)
+        a, b = self.manifest["span"]
+        if not m or "error" in m:
+            raise DataNotAvailable(f"{ifo} not in the manifest" + (f": {m['error']}" if m else ""))
+        if start < a or end > b:
+            raise DataNotAvailable(f"[{start:.0f}, {end:.0f}] outside the manifest's span "
+                                   f"[{a:.0f}, {b:.0f}]")
+        return m
+
+    def analysable(self, ifo, start, end):
+        return _clip([tuple(s) for s in self._ifo(ifo, start, end)["analysable"]], start, end)
+
+    def vetoed(self, ifo, start, end):
+        return _clip([tuple(s) for s in self._ifo(ifo, start, end)["cat2"]], start, end)
+
+    def channel(self, ifo):
+        return self.manifest["ifos"][ifo]["channel"]
+
+    def frame_urls(self, ifo, start, end):
+        out = []
+        for u in self._ifo(ifo, start, end)["frames"]:
+            name = u.rsplit("/", 1)[-1]
+            m = re.search(r"-(\d+)-(\d+)\.gwf$", name)
+            if m and (int(m[1]) >= end or int(m[1]) + int(m[2]) <= start):
+                continue
+            local = os.path.join(self.frame_dir or ".", name)
+            out.append("file://" + os.path.abspath(local) if os.path.exists(local) else u)
+        return out
+
+    def provenance(self):
+        return {**(self.manifest.get("provenance") or {}), "sample_rate": self.sample_rate,
+                "read": self.used, "resolved_beforehand": True}
+
+
+def bearer_token() -> Optional[str]:
+    """The IGWN SciToken, where the IGWN tools look for one. ``htgettoken -a
+    vault.ligo.org -i igwn`` writes one valid for DQSegDB (dqsegdb.read),
+    datafind (gwdatafind.read) and the frames (read:/ligo, read:/virgo,
+    read:/kagra); a token for one service only can be asked with
+    ``--audience https://datafind.igwn.org --scopes gwdatafind.read``."""
+    for var in ("BEARER_TOKEN", "SCITOKEN"):
+        if os.environ.get(var):
+            return os.environ[var].strip()
     uid = os.getuid()
-    cands = [os.environ.get("BEARER_TOKEN_FILE"), os.environ.get("SCITOKEN_FILE"),
-             os.path.join(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{uid}"), f"bt_u{uid}"),
-             f"/tmp/bt_u{uid}"]
-    return any(c and os.path.isfile(c) for c in cands)
+    for c in (os.environ.get("BEARER_TOKEN_FILE"), os.environ.get("SCITOKEN_FILE"),
+              os.path.join(os.environ.get("XDG_RUNTIME_DIR", f"/run/user/{uid}"), f"bt_u{uid}"),
+              f"/tmp/bt_u{uid}"):
+        if c and os.path.isfile(c):
+            return Path(c).read_text().strip()
+    return None
+
+
+def has_lvk_credentials() -> bool:
+    return bearer_token() is not None
 
 
 def select_source(mode: str, ifos: Sequence[str], start: float, end: float,

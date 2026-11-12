@@ -70,6 +70,25 @@ The same PyGRB search on the collaboration's own O2 data instead of the public f
 
 The two data sets agree to 1 %; the LVK frames give slightly more in H1 (their h(t) is noise-subtracted, which may be the reason).
 
+### Light search on LVK frames
+
+The light search on the same LVK frames, as one HTCondor job on CIT (`examples/light_gw170817_lvk/`): the
+6 s GRB window of the [reverse replay](gw170817-reverse.md), coherent statistic, 2148 templates. Segments
+and frame files are resolved on the login node (`--write-manifest`); the job reads the four frame files
+shipped to it (`--manifest`).
+
+| | GWOSC frames | LVK frames |
+|---|---|---|
+| Coherent SNR, raw / reweighted | 30.30 / 29.83 | **30.30 / 29.81** |
+| H1 / L1 / V1 | 18.26 / 23.93 / 3.72 | 18.26 / 23.93 / 3.72 |
+| Null SNR, reduced chi-square | 1.34, 1.06 | 1.33, 1.07 |
+| Time, chirp mass | 1187008882.428, 1.1977 | 1187008882.428, 1.1977 |
+| L1 gate | 1187008881.388 | 1187008881.388 |
+
+The two agree to 0.1 %. The result file records the frames, channels, science flags and veto definer used.
+This job ran the on-source window only (no background). Virgo's O2 h(t) is single precision and is
+converted to double on reading.
+
 ## Data-quality vetoes
 
 DQSegDB queried live from CIT (O2 CBC veto definer, ±600 s around the merger): H1, L1 and V1 in science

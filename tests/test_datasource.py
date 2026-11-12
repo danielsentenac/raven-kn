@@ -115,3 +115,49 @@ def test_search_records_provenance_and_drops_unanalysable_detector():
     assert res.data["source"] == "public" and res.data["loudest_in_cat2"] == ["H1"]
     assert res.data["window"]["V1"]["analysable"] == [(cfg.gps_start, T_INJ - 5)]
     assert np.isfinite(res.p_value)
+
+
+def test_manifest_resolved_beforehand(tmp_path):
+    """Segments and frames resolved once (login node), read back without network (job)."""
+    from raven_kn.targeted.datasource import ManifestSource, write_manifest
+
+    class Src(FakePublic):
+        def frame_urls(self, ifo, start, end):
+            return [f"file://localhost/data/{ifo[0]}-{ifo}_X-{T0 - 4096}-4096.gwf",
+                    f"file://localhost/data/{ifo[0]}-{ifo}_X-{T0}-4096.gwf"]
+
+    src = Src({"H1_CBC_CAT1": [(T0 - 500, T0 + 500)], "H1_CBC_CAT2": [(T0 - 500, T0 + 10), (T0 + 12, T0 + 500)]})
+    man = write_manifest(src, ["H1", "L1"], T0, T0 + 100, tmp_path / "m.json", margin=200)
+    assert man["span"] == [T0 - 200, T0 + 300] and len(man["ifos"]["H1"]["frames"]) == 2
+    (tmp_path / f"H-H1_X-{T0}-4096.gwf").write_bytes(b"")           # shipped with the job
+    m = ManifestSource.load(tmp_path / "m.json", frame_dir=str(tmp_path))
+    assert m.name == "public" and m.channel("H1") == "H1:GWOSC-4KHZ_R1_STRAIN"
+    assert m.analysable("H1", T0, T0 + 100) == [(T0, T0 + 100)]
+    assert m.vetoed("H1", T0, T0 + 100) == [(T0 + 10, T0 + 12)]
+    assert m.frame_urls("H1", T0 + 1, T0 + 100) == [f"file://{tmp_path}/H-H1_X-{T0}-4096.gwf"]   # local copy
+    assert m.frame_urls("H1", T0 - 10, T0 - 1) == [f"file://localhost/data/H-H1_X-{T0 - 4096}-4096.gwf"]
+    assert m.analysable("L1", T0, T0 + 100) == [] and not m.available("L1", T0, T0 + 100)
+    with pytest.raises(DataNotAvailable, match="outside the manifest"):
+        m.analysable("H1", T0 - 1000, T0)
+
+
+def test_public_rate_choice():
+    assert PublicSource(2048, rate_khz=16).channel("L1") == "L1:GWOSC-16KHZ_R1_STRAIN"
+    assert PublicSource(16384).channel("L1") == "L1:GWOSC-16KHZ_R1_STRAIN"
+
+
+def test_lvk_frames_in_place_or_over_osdf(monkeypatch):
+    """A cluster's datafind gives files read in place; datafind.igwn.org gives
+    OSDF URLs, downloaded with the SciToken."""
+    import gwdatafind
+    osdf = ["pelican://osg-htc.org/igwn/ligo/frames/O2/x/H-H1_CLEANED_HOFT_C02-1-4096.gwf",
+            "https://osdf-director.osg-htc.org/igwn/ligo/frames/O2/x/H-H1_CLEANED_HOFT_C02-1-4096.gwf"]
+    monkeypatch.setattr(gwdatafind, "find_urls", lambda *a, **k: osdf)
+    s = LVKSource.preset("O2", datafind_host="datafind.igwn.org")
+    assert s.frame_urls("H1", T0, T0 + 10) == [osdf[1]]
+    monkeypatch.setattr(gwdatafind, "find_urls", lambda *a, **k: osdf + ["file://localhost/ceph/x/H-H1_CLEANED_HOFT_C02-1-4096.gwf"])
+    assert s.frame_urls("H1", T0, T0 + 10) == ["file://localhost/ceph/x/H-H1_CLEANED_HOFT_C02-1-4096.gwf"]
+    assert s._local_path("file://localhost/ceph/x/a.gwf") == "/ceph/x/a.gwf"
+    monkeypatch.setenv("BEARER_TOKEN", "abc")
+    assert D.bearer_token() == "abc" and D.has_lvk_credentials() and s._token() == "abc"
+    assert PublicSource()._token() is None

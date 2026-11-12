@@ -362,7 +362,13 @@ is PyGRB. `examples/pygrb_gw170817_lvk/` runs it on the collaboration's O2 frame
 4 jobs of 4–15 min): SciToken, DQSegDB (all three detectors in science, no CAT1, two 2 s CAT2 stretches in
 H1 at +444 s and +1684 s), datafind, then `pycbc_multi_inspiral` with LVK's arguments. Coherent SNR 31.2,
 reweighted 30.2, null 3.5, H1 / L1 / V1 = 19.2 / 24.5 / 3.7, same time (1187008882.430), chirp mass and L1
-gate as on the GWOSC frames (30.9 / 29.8).
+gate as on the GWOSC frames (30.9 / 29.8). The light search on the same LVK frames, as one cluster job
+(`examples/light_gw170817_lvk/`: segments and frames resolved on the login node with `--write-manifest`,
+job run with `--manifest`), gives 30.30 raw and 29.81 reweighted, against 30.30 / 29.83 on the GWOSC frames.
+One token (`htgettoken -a vault.ligo.org -i igwn`) covers DQSegDB, datafind and the frames; away from a
+cluster, `--datafind-host datafind.igwn.org` gives OSDF addresses and the frames are downloaded with it.
+Public O4a and O4b frames (`<IFO>_GWOSC_O4a/O4b_4KHZ_R1`, `_16KHZ_R1` with `--public-rate 16`) are found
+by the public back-end.
 
 ## PyGRB configuration (`raven-kn pygrb`)
 
@@ -519,8 +525,7 @@ TNS lists it as SN 2025ulz, type "SN II" (queried 2026-11-10); the physical link
 - Live GraceDB queries.
 - Light search: GW170817 1000-slide backgrounds (`examples/targeted_gw170817/`) repeated with the gate-aware
   network chi-square (the off-source trials of the reverse replay are); PyGRB background (off-source trials).
-- LVK data source: presets beyond O2 (O4 frame types, channels and flags); light search on LVK frames as a
-  cluster job.
+- LVK data source: presets beyond O2 (O4 internal frame types, channels and flags).
 - Injections drawn from the third model (LANLTP2 as truth), Rubin + LANLTP2 fits.
 - Fink livestream tested live (credentials requested); GOTO, BlackGEM connectors.
 

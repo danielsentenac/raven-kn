@@ -1,0 +1,78 @@
+{
+ "source": "lvk",
+ "span": [
+  1187008623.47,
+  1187009141.47
+ ],
+ "ifos": {
+  "H1": {
+   "analysable": [
+    [
+     1187008623.47,
+     1187009141.0
+    ]
+   ],
+   "cat2": [],
+   "channel": "H1:DCH-CLEAN_STRAIN_C02",
+   "frames": [
+    "file://localhost/ceph/mirror/frames/O2/hoft_C02_clean/H1/H-H1_CLEANED_HOFT_C02-11870/H-H1_CLEANED_HOFT_C02-1187006455-4096.gwf"
+   ]
+  },
+  "L1": {
+   "analysable": [
+    [
+     1187008623.47,
+     1187009141.0
+    ]
+   ],
+   "cat2": [],
+   "channel": "L1:DCH-CLEAN_STRAIN_C02",
+   "frames": [
+    "file://localhost/ceph/mirror/frames/O2/hoft_C02_clean/L1/L-L1_CLEANED_HOFT_C02-11870/L-L1_CLEANED_HOFT_C02-1187004571-4096.gwf",
+    "file://localhost/ceph/mirror/frames/O2/hoft_C02_clean/L1/L-L1_CLEANED_HOFT_C02-11870/L-L1_CLEANED_HOFT_C02-1187008667-4096.gwf"
+   ]
+  },
+  "V1": {
+   "analysable": [
+    [
+     1187008623.47,
+     1187009141.0
+    ]
+   ],
+   "cat2": [],
+   "channel": "V1:Hrec_hoft_V1O2Repro2A_16384Hz",
+   "frames": [
+    "file://localhost/ceph/mirror/frames/O2/V1O2Repro2A/V-V1O2Repro2A-11870/V-V1O2Repro2A-1187005000-5000.gwf"
+   ]
+  }
+ },
+ "provenance": {
+  "source": "lvk",
+  "sample_rate": 2048,
+  "read": {
+   "H1": {
+    "channel": "H1:DCH-CLEAN_STRAIN_C02",
+    "frames": [],
+    "frame_type": "H1_CLEANED_HOFT_C02"
+   },
+   "L1": {
+    "channel": "L1:DCH-CLEAN_STRAIN_C02",
+    "frames": [],
+    "frame_type": "L1_CLEANED_HOFT_C02"
+   },
+   "V1": {
+    "channel": "V1:Hrec_hoft_V1O2Repro2A_16384Hz",
+    "frames": [],
+    "frame_type": "V1O2Repro2A"
+   }
+  },
+  "datafind": "datafind.ldas.cit:80",
+  "segments": "https://segments.igwn.org",
+  "science_flags": {
+   "H1": "H1:DCH-CLEAN_SCIENCE_C02:1",
+   "L1": "L1:DCH-CLEAN_SCIENCE_C02:1",
+   "V1": "V1:ITF_SCIENCE:2"
+  },
+  "veto_definer": "H1L1V1-CBC_VETO_DEFINER_CLEANED_C02_O2_1164556817-23176801.xml"
+ }
+}

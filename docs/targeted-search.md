@@ -61,9 +61,23 @@ detector and its strain, so the search does not depend on which one is used.
 - **Routing** (`--source auto`, the default): public data if they cover the window in at least two
   detectors; else LVK data if configured and a SciToken is present; else the search stops and says that the
   data are not public yet. `--source public` or `--source lvk` forces one.
+- **One token** is enough for the LVK back-end: `htgettoken -a vault.ligo.org -i igwn` gives the scopes
+  for DQSegDB (`dqsegdb.read`), datafind (`gwdatafind.read`) and the frames (`read:/ligo`, `read:/virgo`,
+  `read:/kagra`). A token for datafind alone:
+  `htgettoken -a vault.ligo.org --audience https://datafind.igwn.org --scopes gwdatafind.read`.
+- **Where the LVK frames are read**: a cluster's own datafind server returns files read in place. Elsewhere,
+  `--datafind-host datafind.igwn.org` returns OSDF addresses and the frames are downloaded with the token
+  (checked on CIT for H1 and V1 O2 frames).
 - **LVK frames**: the calibrated h(t) frames, never raw data. Frame types, channels and science flags are
   given per detector, or by a preset checked on real data (`--lvk-preset O2`: cleaned C02 for H1 and L1,
   `V1O2Repro2A`).
+- **Public frame types** are found per run and detector on `datafind.gwosc.org`:
+  `<IFO>_GWOSC_<run>_4KHZ_R1` by default, `_16KHZ_R1` with `--public-rate 16`. O4a
+  (`H1/L1_GWOSC_O4a_16KHZ_R1`, no Virgo) and O4b (`H1/L1/V1_GWOSC_O4b_16KHZ_R1`) are served this way, so
+  they need no credentials.
+- **Cluster jobs** have neither token nor datafind. `--write-manifest FILE` resolves segments and frame
+  files on the login node; the job runs with `--manifest FILE` on the frames shipped to it
+  (`examples/light_gw170817_lvk/`).
 - **Provenance**: each result file records the source, frame types, channels, frame files and segments
   used (`data`). The same event gives different numbers on different frames.
 

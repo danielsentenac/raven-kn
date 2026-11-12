@@ -1,0 +1,19 @@
+# condor_submit FRAMES="$(cat frames.txt)" light_search.sub   (after ./prepare.sh)
+universe              = vanilla
+executable            = light_search.sh
+accounting_group      = ligo.dev.o4.cbc.grb.cohptfoffline
+accounting_group_user = daniel.sentenac
+request_cpus          = 1
+request_memory        = 6 GB
+request_disk          = 6 GB
++DESIRED_Sites        = "LIGO-CIT"
+# run on CIT local nodes too (else only IGWN glideins)
+MY.POOLS              = "IGWN,CIT"
+should_transfer_files = YES
+when_to_transfer_output = ON_EXIT
+transfer_input_files  = raven_kn, SSS17a_targeted_search_request.json, manifest.json, $(FRAMES)
+transfer_output_files = SSS17a_GRB_window_coherent_lvk_targeted_result.json
+output                = logs/light_search.out
+error                 = logs/light_search.err
+log                   = logs/light_search.log
+queue

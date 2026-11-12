@@ -112,6 +112,15 @@ def main(argv=None):
     g.add_argument("--veto-definer", help="LVK CBC veto-definer XML (CAT1 excluded, CAT2 reported)")
     g.add_argument("--datafind-host", help="LVK datafind server (default $GWDATAFIND_SERVER)")
     g.add_argument("--segment-url", default="https://segments.igwn.org")
+    g.add_argument("--public-rate", type=int, choices=[4, 16],
+                   help="public frames at 4 or 16 kHz (<IFO>_GWOSC_<run>_4KHZ_R1 / _16KHZ_R1)")
+    g.add_argument("--write-manifest", metavar="FILE",
+                   help="resolve segments and frame files for the window, write them to FILE and stop "
+                        "(on a login node, where the token and datafind are)")
+    g.add_argument("--manifest", metavar="FILE",
+                   help="read the data as resolved in FILE (--write-manifest): no network or credentials")
+    g.add_argument("--frame-dir", help="with --manifest: directory holding the frame files (default: "
+                                       "the current one, else their original paths)")
     g.add_argument("--ca-bundle", help="CA file if Python fails SSL to gwosc.org, "
                                        "e.g. /etc/pki/tls/certs/ca-bundle.crt")
     g.add_argument("--label", default=None)
@@ -323,6 +332,10 @@ def main(argv=None):
         if args.files:
             files = dict(kv.split("=", 1) for kv in args.files.split(","))
             fetch = file_fetcher(files, cfg.sample_rate, fallback=gw)
+        elif args.manifest:
+            from .targeted.datasource import ManifestSource
+            fetch = ManifestSource.load(args.manifest, cfg.sample_rate, args.frame_dir)
+            print(f"data source: {fetch.name} (manifest {args.manifest})", flush=True)
         elif args.source == "gwosc":
             fetch = gw
         else:
@@ -336,8 +349,18 @@ def main(argv=None):
                           datafind_host=args.datafind_host, segment_url=args.segment_url)
                 lvk = LVKSource.preset(args.lvk_preset, **kw) if args.lvk_preset else LVKSource(**kw)
             fetch = select_source(args.source, cfg.ifos, cfg.gps_start, cfg.gps_end,
-                                  PublicSource(cfg.sample_rate, ca_bundle=args.ca_bundle), lvk)
+                                  PublicSource(cfg.sample_rate, ca_bundle=args.ca_bundle,
+                                               rate_khz=args.public_rate), lvk)
             print(f"data source: {fetch.name}", flush=True)
+            if args.write_manifest:
+                from .targeted.datasource import write_manifest
+                man = write_manifest(fetch, cfg.ifos, cfg.gps_start, cfg.gps_end, args.write_manifest)
+                print(json.dumps({"manifest": args.write_manifest, "source": man["source"],
+                                  "span": man["span"],
+                                  "frames": {i: len(m.get("frames", [])) for i, m in man["ifos"].items()},
+                                  "errors": {i: m["error"] for i, m in man["ifos"].items() if "error" in m}},
+                                 indent=2))
+                return
         res = run(cfg, fetch, args.out)
         print(json.dumps({"p_value": res.p_value,
                           "p_value_extrapolated": res.loudest.get("p_value_extrapolated"),
