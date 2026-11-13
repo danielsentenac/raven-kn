@@ -11,6 +11,7 @@ cd ~/raven-kn-run
 while true; do
     echo "$(date -Is) starting listener on $(hostname)" >> listener.log
     ~/raven-kn/.venv/bin/raven-kn listen --store kn_store/ >> results.jsonl 2>> listener.log
-    echo "$(date -Is) listener exited ($?), restarting in 60 s" >> listener.log
+    rc=$?
+    echo "$(date -Is) listener exited ($rc), restarting in 60 s" >> listener.log
     sleep 60
 done

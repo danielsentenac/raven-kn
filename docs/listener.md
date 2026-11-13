@@ -59,7 +59,7 @@ consumer group a restarted listener resumes from its last committed offset, so t
 are processed as long as the broker still retains them.
 
 To update the code (installed with `pip install -e`): `git pull` in the clone, then
-`pkill -f "raven-kn listen"`; the loop starts the new version 60 s later.
+`pkill -f "raven-kn listen"`; the loop starts the new version 60 s later (tested).
 
 ## Kilonova candidates from Fink
 
