@@ -89,6 +89,30 @@ The two agree to 0.1 %. The result file records the frames, channels, science fl
 This job ran the on-source window only (no background). Virgo's O2 h(t) is single precision and is
 converted to double on reading.
 
+### Light search on RAW frames
+
+The same window from the site archives (`examples/light_gw170817_raw/`): LIGO strain rebuilt from the
+front-end channel `CAL-DELTAL_EXTERNAL_DQ` of the RAW frames at CIT (`--lvk-preset O2-raw`), Virgo from the
+reconstructed h(t) on tape at CC-IN2P3. The strain around the window is cut into small frames
+(`--extract-frames`) and the search runs from a manifest. Full bank (2148 templates), coherent statistic.
+
+| | Calibrated h(t) (C02), H1 L1 | RAW-derived, H1 L1 | RAW-derived H1 L1 + Virgo h(t) |
+|---|---|---|---|
+| Reweighted coherent SNR | 29.42 | **27.84** | **28.38** |
+| H1 / L1 / V1 | 18.30 / 24.15 | 15.77 / 24.33 | 15.77 / 24.33 / 3.13 |
+| Time, chirp mass | 1187008882.428, 1.1977 | 1187008882.429, 1.1975 | 1187008882.429, 1.1975 |
+
+The event is found at the same time and chirp mass. L1 is unchanged; H1 loses 14 % of its SNR, the
+front-end channel being neither noise-subtracted nor finally calibrated (12 % and 15° from the official
+h(t) in O2). Enough to detect, not to measure.
+
+RAW data has strong spectral lines, and this is what exposed a defect of the search: the data stretch was
+Fourier-transformed without tapering its ends, and the edge transient leaked into the narrow chi-square
+bins (reduced chi-square 2.9 on RAW-derived strain, reweighted SNR 19.0 instead of 27.8). The ends of
+each stretch are now tapered over the padding (`pad_s`), which is discarded anyway. On calibrated frames
+the effect is small: 29.36 → 29.42 here, 29.83 → 30.26 on the GWOSC frames (the tables above predate the
+taper).
+
 ## Data-quality vetoes
 
 DQSegDB queried live from CIT (O2 CBC veto definer, ±600 s around the merger): H1, L1 and V1 in science

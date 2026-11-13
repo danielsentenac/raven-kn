@@ -260,9 +260,9 @@ the GBM position: window [−5, +1] s; host NGC 4993), then the real AT2017gfo l
 **held** at discovery and on the first night (one epoch, then no significant evolution) and **triggered at
 +29.5 h**, when g and r fade by ~1.7 mag/day (4σ in g) at M = −17.1: the light curve alone confirms the
 kilonova. Expected network SNR with that day's sensitivity: 34 (observed 32.4). The 6 s search
-(coherent, 1.0–1.5 Msun, 2148 templates, GWOSC GWTC-1 data) finds **29.8 (reweighted coherent SNR) at 2.0 ms from the merger,
-chirp mass 1.1977**; 100 off-source trials (20 HTCondor jobs on CIT, `examples/gw170817_reverse_cit/`) reach
-at most 7.4: p < 0.01 (the 100-trial floor). With the earlier per-detector chi-square, not gate-aware, the
+(coherent, 1.0–1.5 Msun, 2148 templates, GWOSC GWTC-1 data) finds **30.3 (reweighted coherent SNR) at 2.0 ms from the merger,
+chirp mass 1.1977**; 100 off-source trials (`examples/gw170817_reverse_cit/` for HTCondor) reach
+at most 7.6: p < 0.01 (the 100-trial floor). Before the ends of each data stretch were tapered the values were 29.8 and 7.4. With the earlier per-detector chi-square, not gate-aware, the
 on-source value was 22.8 (L1 cut to 13 by the gated glitch) and the off-source maximum 7.5. Results: `examples/gw170817_reverse/`.
 
 ## Redshift, distance and inclination: spectroscopy and host galaxies (`raven-kn host`, `raven-kn tns`)

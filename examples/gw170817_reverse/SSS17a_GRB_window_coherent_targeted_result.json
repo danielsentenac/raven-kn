@@ -53,13 +53,13 @@
         "L1",
         "V1"
       ],
-      "loudest_rho_net": 29.832462988777213,
+      "loudest_rho_net": 30.26092656307635,
       "loudest_gps": 1187008882.4280078,
       "loudest_mchirp": 1.1977183856421814,
       "loudest_rho_ifo": {
-        "H1": 18.264392852783203,
-        "L1": 23.928903579711914,
-        "V1": 3.7177278995513916
+        "H1": 18.30342674255371,
+        "L1": 24.143766403198242,
+        "V1": 3.6562764644622803
       },
       "background": [],
       "p_value": 1.0,
@@ -70,21 +70,21 @@
         ],
         "V1": []
       },
-      "notes": "coherent, 2148 templates, 0 slides, coherent SNR reweighted by the network chi-square (PyGRB-rule-bin, gate-aware chi-square at H1:6629, L1:19069, V1:114 points), 9 zero-lag samples failed the null cut, delays H1:+18.8 ms, L1:+15.5 ms, V1:-6.4 ms, loudest removed from background; 4 off-source trials",
+      "notes": "coherent, 2148 templates, 0 slides, coherent SNR reweighted by the network chi-square (PyGRB-rule-bin, gate-aware chi-square at H1:6952, L1:20319, V1:137 points), 13 zero-lag samples failed the null cut, delays H1:+18.8 ms, L1:+15.5 ms, V1:-6.4 ms, loudest removed from background; 4 off-source trials",
       "p_value_extrapolated": null,
       "extrapolation_reach": null,
       "offsource": [
-        3.995958946933616,
-        5.913234184214906,
-        5.778798899066514,
-        6.5063098978732965
+        5.213336915343749,
+        6.126294246537223,
+        5.904138599975749,
+        6.6063270126110725
       ],
       "p_value_offsource": 0.2,
       "statistic": "coherent",
-      "loudest_rho_coh": 30.30181341050118,
-      "loudest_rho_null": 1.34238449224309,
-      "loudest_rho_network": 30.331533432006836,
-      "loudest_chisq_r": 1.0615882873535156
+      "loudest_rho_coh": 30.49269700936393,
+      "loudest_rho_null": 1.2250665213966478,
+      "loudest_rho_network": 30.517295837402344,
+      "loudest_chisq_r": 1.0303014516830444
     }
   ],
   "p_value": 0.19999999999999996,
@@ -96,13 +96,13 @@
       "L1",
       "V1"
     ],
-    "loudest_rho_net": 29.832462988777213,
+    "loudest_rho_net": 30.26092656307635,
     "loudest_gps": 1187008882.4280078,
     "loudest_mchirp": 1.1977183856421814,
     "loudest_rho_ifo": {
-      "H1": 18.264392852783203,
-      "L1": 23.928903579711914,
-      "V1": 3.7177278995513916
+      "H1": 18.30342674255371,
+      "L1": 24.143766403198242,
+      "V1": 3.6562764644622803
     },
     "p_value": 1.0,
     "gates": {
@@ -112,14 +112,15 @@
       ],
       "V1": []
     },
-    "notes": "coherent, 2148 templates, 0 slides, coherent SNR reweighted by the network chi-square (PyGRB-rule-bin, gate-aware chi-square at H1:6629, L1:19069, V1:114 points), 9 zero-lag samples failed the null cut, delays H1:+18.8 ms, L1:+15.5 ms, V1:-6.4 ms, loudest removed from background; 4 off-source trials",
+    "notes": "coherent, 2148 templates, 0 slides, coherent SNR reweighted by the network chi-square (PyGRB-rule-bin, gate-aware chi-square at H1:6952, L1:20319, V1:137 points), 13 zero-lag samples failed the null cut, delays H1:+18.8 ms, L1:+15.5 ms, V1:-6.4 ms, loudest removed from background; 4 off-source trials",
     "p_value_extrapolated": null,
     "extrapolation_reach": null,
     "p_value_offsource": 0.2,
     "statistic": "coherent",
-    "loudest_rho_coh": 30.30181341050118,
-    "loudest_rho_null": 1.34238449224309,
-    "loudest_rho_network": 30.331533432006836,
-    "loudest_chisq_r": 1.0615882873535156
-  }
+    "loudest_rho_coh": 30.49269700936393,
+    "loudest_rho_null": 1.2250665213966478,
+    "loudest_rho_network": 30.517295837402344,
+    "loudest_chisq_r": 1.0303014516830444
+  },
+  "data": null
 }

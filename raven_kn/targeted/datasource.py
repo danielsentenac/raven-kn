@@ -80,6 +80,45 @@ def _clip(segs: Segs, start: float, end: float) -> Segs:
     return [(max(a, start), min(b, end)) for a, b in _merge(segs) if b > start and a < end]
 
 
+def strain_from_deltal(ts, arm_length: float = 3994.5, zero_hz: float = 0.3, pole_hz: float = 30.0,
+                       order: int = 6, f_min: float = 8.0, delay_s: float = 0.0):
+    """Strain from LIGO's front-end channel ``<IFO>:CAL-DELTAL_EXTERNAL_DQ``,
+    the only calibrated length signal in the RAW frames (``H1_R``, ``L1_R``).
+
+    The channel is the differential arm length in metres, whitened by
+    ``order`` zeros at ``zero_hz`` and as many poles at ``pole_hz`` (unit DC
+    gain). It is de-whitened in the frequency domain and divided by the arm
+    length; content below ``f_min`` is removed (the de-whitening multiplies
+    low frequencies by up to 10^12). ``delay_s`` advances the result.
+
+    This is the front-end model's calibration, without the time-dependent
+    corrections of the h(t) pipeline. Measured against the official h(t),
+    20 to 1000 Hz, after a common delay of 0.15-0.2 ms: O2 around GW170817
+    (final C02 h(t)), L1 within 2.5 % and 1.5 deg, H1 within 12 % and 15 deg
+    (its final h(t) is also noise-subtracted); O4b (GPS 1415000000,
+    GDS-CALIB_STRAIN), L1 within 3 % and 2 deg. Enough for a matched-filter
+    search, not for parameter estimation.
+
+    Other candidates in the RAW frames are not usable: ``CAL-STRAIN_DBL_DQ``
+    (O4) is zero, ``L1:CAL-TEST_STRAIN_DBL_DQ`` (O2) is not coherent with
+    h(t); ``CAL-CFTD_DELTAL_EXTERNAL_DQ`` (O4, with time-dependent
+    corrections) agrees as well as ``CAL-DELTAL_EXTERNAL_DQ``."""
+    import numpy as np
+    from pycbc.types import TimeSeries
+    x = np.asarray(ts.numpy(), dtype=np.float64)
+    n = len(x)
+    edge = min(int(round(1.0 / ts.delta_t)), n // 4)          # 1 s cosine taper at each end
+    w = np.ones(n)
+    ramp = 0.5 * (1 - np.cos(np.pi * np.arange(edge) / edge))
+    w[:edge], w[n - edge:] = ramp, ramp[::-1]
+    X = np.fft.rfft((x - x.mean()) * w)
+    f = np.fft.rfftfreq(n, ts.delta_t)
+    W = ((1 + 1j * f / zero_hz) / (1 + 1j * f / pole_hz)) ** order
+    hp = 1.0 / np.sqrt(1.0 + (f_min / np.maximum(f, 1e-6)) ** 16)   # 8th-order high-pass, zero phase
+    H = X / W / arm_length * hp * np.exp(2j * np.pi * f * delay_s)
+    return TimeSeries(np.fft.irfft(H, n), delta_t=ts.delta_t, epoch=ts.start_time)
+
+
 @dataclass
 class DataSource:
     """Common part of the two back-ends. Sub-classes give
@@ -87,6 +126,8 @@ class DataSource:
     sample_rate: int = 2048
     name: str = ""
     used: dict = field(default_factory=dict, repr=False)   # ifo -> what was read (provenance)
+    raw_calibration: dict = field(default_factory=dict)    # ifo -> strain_from_deltal options: the
+                                                           # channel is a RAW front-end one, not h(t)
 
     # -- to be provided -----------------------------------------------------
     def analysable(self, ifo: str, start: float, end: float) -> Segs:
@@ -148,13 +189,27 @@ class DataSource:
         if not _covers(ok, start, end):
             raise DataNotAvailable(f"{ifo} not analysable over [{start:.0f}, {end:.0f}] "
                                    f"({self.name}): analysable {ok}")
-        ts = self._read(ifo, start, end)
-        if ts.dtype != "float64":            # Virgo's O2 h(t) is single precision
-            ts = ts.astype("float64")
+        ts = self.strain(ifo, start, end)
         from pycbc.filter import resample_to_delta_t
         if abs(ts.delta_t - 1.0 / self.sample_rate) > 1e-12:
             ts = resample_to_delta_t(ts, 1.0 / self.sample_rate)
         return ts
+
+    def strain(self, ifo: str, start: float, end: float):
+        """Strain at the frames' own sampling rate, double precision; RAW
+        channels are converted (:func:`strain_from_deltal`), with 4 s read on
+        each side where the frames allow, to keep filter edges out."""
+        if ifo not in self.raw_calibration:
+            ts = self._read(ifo, start, end)
+            return ts if ts.dtype == "float64" else ts.astype("float64")   # Virgo O2 h(t): single
+        try:
+            ts = self._read(ifo, start - 4, end + 4)
+        except Exception:
+            ts = self._read(ifo, start, end)
+        ts = strain_from_deltal(ts.astype("float64"), **self.raw_calibration[ifo])
+        self.used[ifo]["raw_calibration"] = {"method": "CAL-DELTAL_EXTERNAL_DQ de-whitened / arm length",
+                                             **self.raw_calibration[ifo]}
+        return ts.time_slice(start, end) if float(ts.start_time) < start else ts
 
     def _read(self, ifo: str, start: float, end: float):
         from pycbc.frame import read_frame
@@ -286,6 +341,21 @@ LVK_PRESETS = {
         "science_flags": {"H1": "H1:DCH-CLEAN_SCIENCE_C02:1", "L1": "L1:DCH-CLEAN_SCIENCE_C02:1",
                           "V1": "V1:ITF_SCIENCE:2"},
     },
+    # O2 RAW frames (CIT archive, not on OSDF): front-end CAL-DELTAL_EXTERNAL_DQ converted to strain.
+    # Science flags are the low-latency ones. No Virgo: its raw data are on tape at CC-IN2P3.
+    "O2-raw": {
+        "frame_types": {"H1": "H1_R", "L1": "L1_R"},
+        "channels": {"H1": "H1:CAL-DELTAL_EXTERNAL_DQ", "L1": "L1:CAL-DELTAL_EXTERNAL_DQ"},
+        "science_flags": {"H1": "H1:DMT-ANALYSIS_READY:1", "L1": "L1:DMT-ANALYSIS_READY:1"},
+        "raw_calibration": {"H1": {}, "L1": {}},
+    },
+    # O4 RAW frames: same channel and whitening (checked on L1 in O4b against GDS-CALIB_STRAIN)
+    "O4-raw": {
+        "frame_types": {"H1": "H1_R", "L1": "L1_R"},
+        "channels": {"H1": "H1:CAL-DELTAL_EXTERNAL_DQ", "L1": "L1:CAL-DELTAL_EXTERNAL_DQ"},
+        "science_flags": {"H1": "H1:DMT-ANALYSIS_READY:1", "L1": "L1:DMT-ANALYSIS_READY:1"},
+        "raw_calibration": {"H1": {}, "L1": {}},
+    },
 }
 
 
@@ -364,22 +434,87 @@ class LVKSource(DataSource):
                 "veto_definer": os.path.basename(self.veto_definer) if self.veto_definer else None}
 
 
+def extract_strain(files: Sequence[str], channel: str, ifo: str, start: float, end: float,
+                   out_dir: str | Path, raw_calibration: Optional[dict] = None) -> dict:
+    """Cut the strain of one detector out of local frame files into a small
+    frame (channel ``<IFO>:RAVENKN_STRAIN``, double precision, whole seconds)
+    and return its manifest entry, without segments. For archives that are
+    only reachable at their site (h(t) staged from tape, RAW files): the
+    small frame is then carried to where the search runs and added to a
+    manifest (:func:`add_to_manifest`)."""
+    from pycbc.frame import read_frame, write_frame
+    x, y = int(-(-start // 1)), int(end // 1)
+    pad = 4 if raw_calibration is not None else 0
+    try:
+        ts = read_frame(list(files), channel, start_time=x - pad, end_time=y + pad)
+    except Exception:
+        if not pad:
+            raise
+        ts = read_frame(list(files), channel, start_time=x, end_time=y)
+    ts = ts.astype("float64")
+    if raw_calibration is not None:
+        ts = strain_from_deltal(ts, **raw_calibration)
+        if float(ts.start_time) < x:
+            ts = ts.time_slice(x, y)
+    Path(out_dir).mkdir(parents=True, exist_ok=True)
+    name = f"{ifo[0]}-{ifo}_RAVENKN_STRAIN-{x}-{y - x}.gwf"
+    write_frame(str(Path(out_dir) / name), f"{ifo}:RAVENKN_STRAIN", ts)
+    return {"channel": f"{ifo}:RAVENKN_STRAIN", "frames": ["file://" + os.path.abspath(Path(out_dir) / name)],
+            "original_channel": channel, "original_frames": [os.path.basename(f) for f in files],
+            "extracted": [x, y]}
+
+
+def add_to_manifest(path: str | Path, ifo: str, entry: dict, analysable: Segs, cat2: Segs = (),
+                    note: Optional[str] = None) -> dict:
+    """Add a detector resolved elsewhere (:func:`extract_strain`) to a
+    manifest; its analysable and CAT2 time are clipped to what was extracted."""
+    import json
+    man = json.loads(Path(path).read_text())
+    x, y = entry["extracted"]
+    man["ifos"][ifo] = {**entry, "analysable": _clip([tuple(s) for s in analysable], x, y),
+                        "cat2": _clip([tuple(s) for s in cat2], x, y)}
+    if note:
+        man.setdefault("notes", {})[ifo] = note
+    Path(path).write_text(json.dumps(man, indent=1))
+    return man
+
+
 def write_manifest(source: DataSource, ifos: Sequence[str], start: float, end: float,
-                   path: str | Path, margin: float = 256.0) -> dict:
+                   path: str | Path, margin: float = 256.0, extract_dir: Optional[str] = None) -> dict:
     """Resolve segments and frame files of ``source`` for [start - margin,
     end + margin] and write them to a JSON file. Done where credentials and
     datafind are (a login node); a job without either then reads the data
     with :class:`ManifestSource`. ``margin`` covers the data the search needs
-    before and after the window (template length, padding)."""
+    before and after the window (template length, padding).
+
+    ``extract_dir``: also write there, per detector, one small frame file
+    with the strain of the analysable stretch around the window (channel
+    ``<IFO>:RAVENKN_STRAIN``), and point the manifest to it. For frames that
+    cannot be shipped to a job: RAW files of 2 GB per 64 s, of which one
+    channel is needed (converted to strain here), or data on tape."""
     import json
     a, b = start - margin, end + margin
-    man = {"source": source.name, "span": [a, b], "ifos": {}, "provenance": None}
+    man = {"source": source.name, "span": [a, b], "ifos": {}, "provenance": None,
+           "raw_calibration": {} if extract_dir else source.raw_calibration}   # extracted = strain
     for ifo in ifos:
         try:
-            man["ifos"][ifo] = {"analysable": source.analysable(ifo, a, b),
-                                "cat2": source.vetoed(ifo, a, b),
-                                "channel": source.channel(ifo),
-                                "frames": source.frame_urls(ifo, a, b)}
+            m = {"analysable": source.analysable(ifo, a, b), "cat2": source.vetoed(ifo, a, b),
+                 "channel": source.channel(ifo), "frames": source.frame_urls(ifo, a, b)}
+            if extract_dir:
+                seg = next(((x, y) for x, y in m["analysable"] if x <= start and y >= end), None)
+                if seg is None:
+                    raise DataNotAvailable(f"{ifo} not analysable over the window")
+                from pycbc.frame import write_frame
+                x, y = int(-(-seg[0] // 1)), int(seg[1] // 1)       # whole seconds
+                ts = source.strain(ifo, x, y)
+                Path(extract_dir).mkdir(parents=True, exist_ok=True)
+                name = f"{ifo[0]}-{ifo}_RAVENKN_STRAIN-{x}-{y - x}.gwf"
+                write_frame(str(Path(extract_dir) / name), f"{ifo}:RAVENKN_STRAIN", ts)
+                m.update(original_channel=m["channel"], original_frames=m["frames"],
+                         channel=f"{ifo}:RAVENKN_STRAIN",
+                         frames=["file://" + os.path.abspath(Path(extract_dir) / name)],
+                         analysable=_clip(m["analysable"], x, y), cat2=_clip(m["cat2"], x, y))
+            man["ifos"][ifo] = m
         except Exception as e:
             man["ifos"][ifo] = {"error": f"{type(e).__name__}: {e}"}
     man["provenance"] = source.provenance()
@@ -400,7 +535,8 @@ class ManifestSource(DataSource):
              ) -> "ManifestSource":
         import json
         man = json.loads(Path(path).read_text())
-        return cls(sample_rate=sample_rate, name=man["source"], manifest=man, frame_dir=frame_dir)
+        return cls(sample_rate=sample_rate, name=man["source"], manifest=man, frame_dir=frame_dir,
+                   raw_calibration=man.get("raw_calibration") or {})
 
     def _ifo(self, ifo, start, end) -> dict:
         m = self.manifest["ifos"].get(ifo)
@@ -434,7 +570,10 @@ class ManifestSource(DataSource):
 
     def provenance(self):
         return {**(self.manifest.get("provenance") or {}), "sample_rate": self.sample_rate,
-                "read": self.used, "resolved_beforehand": True}
+                "read": self.used, "resolved_beforehand": True,
+                "original": {i: {k: m[k] for k in ("original_channel", "original_frames") if k in m}
+                             for i, m in self.manifest["ifos"].items() if "original_channel" in m},
+                "notes": self.manifest.get("notes", {})}
 
 
 def bearer_token() -> Optional[str]:

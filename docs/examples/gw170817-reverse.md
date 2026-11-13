@@ -33,10 +33,10 @@ Coherent statistic; GWOSC GWTC-1 strain, in which the L1 glitch 1.1 s before the
 
 | | Result |
 |---|---|
-| Loudest in the window | coherent SNR 30.3, reweighted **29.8** (reduced chi-square 1.06, null 1.3) at 1187008882.428, **2.0 ms** before GW170817's merger time |
+| Loudest in the window | coherent SNR 30.5, reweighted **30.3** (reduced chi-square 1.03, null 1.2) at 1187008882.428, **2.0 ms** before GW170817's merger time |
 | Chirp mass | **1.1977 M☉** (GW170817: 1.1976) |
-| Per detector | H1 18.3, L1 23.9, V1 3.7 |
-| Background | 100 off-source trials (6 s windows around the on-source, 20 HTCondor jobs on CIT): max **7.4**, 90th percentile 6.7, median 6.2; none as loud as the on-source |
+| Per detector | H1 18.3, L1 24.1, V1 3.7 |
+| Background | 100 off-source trials (6 s windows around the on-source): max **7.6**, 90th percentile 6.7, median 6.2; none as loud as the on-source |
 | p-value | **< 0.01** (1/101, the floor for 100 trials) |
 
 ![GW170817 against the off-source trials](../img/gw170817_reverse_offsource.png)
@@ -46,7 +46,7 @@ Coherent statistic; GWOSC GWTC-1 strain, in which the L1 glitch 1.1 s before the
 The 6 s window is too short for time slides, so the background comes from off-source trials: the same
 search in 6 s windows around the on-source window, at least 64 s away from it, as PyGRB does.
 
-The reweighted coherent SNR equals PyGRB's 29.8 on the same data (see
+The reweighted coherent SNR is within 2 % of PyGRB's 29.8 on the same data (see
 [the GW170817 targeted search](gw170817-search.md#comparison-with-pygrb)). On-source and off-source use
 the gate-aware network chi-square. With the earlier per-detector chi-square, which was not gate-aware, the
 on-source value was 22.8 (L1 cut from 24 to 13 by the gated glitch) and the off-source maximum 7.5: the new
@@ -57,7 +57,7 @@ chi-square restores the signal and leaves the noise background where it was.
 - The GRB-first order works: the notice is stored and attached when the counterpart appears 11 h later.
 - The search waits for evidence of a kilonova, and the real light curve provides it on the second night.
 - Given only EM information, the targeted search finds GW170817 at the right time and chirp mass, about
-  15 units above the loudest of 100 off-source trials (p < 0.01, limited by the number of trials; more
+  23 units above the loudest of 100 off-source trials (p < 0.01, limited by the number of trials; more
   trials would push the floor down).
 
 Results: `examples/gw170817_reverse/` (`report.json` with the timeline, the decision and search request,

@@ -124,20 +124,20 @@
  "search": {
   "bank_size": 2148,
   "statistic": "coherent",
-  "loudest": 29.832462988777213,
+  "loudest": 30.26092656307635,
   "loudest_gps": 1187008882.4280078,
   "dt_from_gw170817_s": -0.0019922256469726562,
   "mchirp": 1.1977183856421814,
   "rho_ifo": {
-   "H1": 18.264392852783203,
-   "L1": 23.928903579711914,
-   "V1": 3.7177278995513916
+   "H1": 18.30342674255371,
+   "L1": 24.143766403198242,
+   "V1": 3.6562764644622803
   },
   "n_offsource": 4,
-  "offsource_max": 6.5063098978732965,
-  "offsource_median": 5.913234184214906,
+  "offsource_max": 6.6063270126110725,
+  "offsource_median": 6.126294246537223,
   "p_value": 0.19999999999999996,
-  "notes": "coherent, 2148 templates, 0 slides, coherent SNR reweighted by the network chi-square (PyGRB-rule-bin, gate-aware chi-square at H1:6629, L1:19069, V1:114 points), 9 zero-lag samples failed the null cut, delays H1:+18.8 ms, L1:+15.5 ms, V1:-6.4 ms, loudest removed from background; 4 off-source trials",
+  "notes": "coherent, 2148 templates, 0 slides, coherent SNR reweighted by the network chi-square (PyGRB-rule-bin, gate-aware chi-square at H1:6952, L1:20319, V1:137 points), 13 zero-lag samples failed the null cut, delays H1:+18.8 ms, L1:+15.5 ms, V1:-6.4 ms, loudest removed from background; 4 off-source trials",
   "gates": {
    "H1": [],
    "L1": [
@@ -145,6 +145,6 @@
    ],
    "V1": []
   },
-  "runtime_s": 2559.998368024826
+  "runtime_s": 3005.62521648407
  }
 }

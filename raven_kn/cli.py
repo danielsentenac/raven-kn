@@ -117,6 +117,9 @@ def main(argv=None):
     g.add_argument("--write-manifest", metavar="FILE",
                    help="resolve segments and frame files for the window, write them to FILE and stop "
                         "(on a login node, where the token and datafind are)")
+    g.add_argument("--extract-frames", metavar="DIR",
+                   help="with --write-manifest: also write the strain of each detector around the "
+                        "window to a small frame file in DIR (RAW frames, tape: too big to ship)")
     g.add_argument("--manifest", metavar="FILE",
                    help="read the data as resolved in FILE (--write-manifest): no network or credentials")
     g.add_argument("--frame-dir", help="with --manifest: directory holding the frame files (default: "
@@ -354,7 +357,8 @@ def main(argv=None):
             print(f"data source: {fetch.name}", flush=True)
             if args.write_manifest:
                 from .targeted.datasource import write_manifest
-                man = write_manifest(fetch, cfg.ifos, cfg.gps_start, cfg.gps_end, args.write_manifest)
+                man = write_manifest(fetch, cfg.ifos, cfg.gps_start, cfg.gps_end, args.write_manifest,
+                                     extract_dir=args.extract_frames)
                 print(json.dumps({"manifest": args.write_manifest, "source": man["source"],
                                   "span": man["span"],
                                   "frames": {i: len(m.get("frames", [])) for i, m in man["ifos"].items()},

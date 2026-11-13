@@ -78,6 +78,21 @@ detector and its strain, so the search does not depend on which one is used.
 - **Cluster jobs** have neither token nor datafind. `--write-manifest FILE` resolves segments and frame
   files on the login node; the job runs with `--manifest FILE` on the frames shipped to it
   (`examples/light_gw170817_lvk/`).
+- **RAW frames and site archives.** RAW frames are not on OSDF; they are read at the site that archives
+  them, and the strain around the window is cut out into a small frame carried to where the search runs
+  (`--extract-frames`, `extract_strain`, `add_to_manifest`).
+
+    | | Where | Strain |
+    |---|---|---|
+    | LIGO H1, L1 (all runs) | CIT, datafind types `H1_R`, `L1_R` (`/archive/jbod*/<run>/raw/`), 2 GB per 64 s | no h(t) in the file: front-end `CAL-DELTAL_EXTERNAL_DQ` (metres, whitened by 6 zeros at 0.3 Hz and 6 poles at 30 Hz), de-whitened and divided by the arm length (`--lvk-preset O2-raw`, `O4-raw`) |
+    | Virgo O2 | CC-IN2P3 tape, `Run/O2/proc/V2/V-V1O2Repro2A-*.gwf` | reconstructed h(t); the O2 raw files hold only the inputs of Hrec |
+    | Virgo O4b | CC-IN2P3 tape, `Run/O4b/raw/<gps>/V-raw-<gps>-100.gwf`, 4.8 GB per 100 s | `V1:Hrec_hoft_16384Hz` inside the raw file |
+
+    LIGO's front-end channel against the official h(t), 20–1000 Hz, after a common delay of 0.15–0.2 ms:
+    L1 within 2.5 % and 1.5° (O2, GW170817) and within 3.6 % and 2.5° (O4b); H1 within 12 % and 15° (O2,
+    where the official h(t) is also noise-subtracted). Enough for a search, not for parameter estimation.
+    On GW170817 the RAW-derived strain gives a reweighted coherent SNR of 27.8 against 29.4 on the
+    calibrated h(t) ([comparison](examples/gw170817-search.md#light-search-on-raw-frames)).
 - **Provenance**: each result file records the source, frame types, channels, frame files and segments
   used (`data`). The same event gives different numbers on different frames.
 

@@ -332,6 +332,24 @@ def _condition(ts, f_low, gate_threshold, gate_width=0.25, gate_taper=0.25):
     return ts, [float(g) for g in gates]
 
 
+def _taper_ends(ts, taper_s: float):
+    """Cosine taper over ``taper_s`` at both ends of the data stretch, inside
+    the margins the search discards. The stretch is Fourier-transformed as a
+    whole: without a taper, the jump between its two ends is a transient that
+    leaks into every narrow chi-square bin, over the whole stretch. It is
+    large where strong spectral lines are present (data without line
+    subtraction, such as strain derived from RAW frames: noise chi-square 3
+    times too high with 125 bins)."""
+    n = min(int(round(taper_s / ts.delta_t)), len(ts) // 4)
+    if n < 2:
+        return ts
+    ramp = 0.5 * (1 - np.cos(np.pi * np.arange(n) / n))
+    out = ts.copy()
+    out.data[:n] *= ramp
+    out.data[len(out) - n:] *= ramp[::-1]
+    return out
+
+
 def _pool(x, n):
     m = len(x) // n
     return x[: m * n].reshape(m, n).max(axis=1)
@@ -546,7 +564,7 @@ def search_subsegment(cfg: TargetedSearchConfig, bank: Sequence[float], fetch: S
         if len(ts) % 2:                              # even length: FFT and PSD sizes agree
             ts = ts[:len(ts) - 1]
         ts, g = _condition(ts, cfg.f_low, cfg.gate_threshold, cfg.gate_width_s, cfg.gate_taper_s)
-        data[ifo], gates[ifo] = ts, g
+        data[ifo], gates[ifo] = _taper_ends(ts, cfg.pad_s), g
         ifos.append(ifo)
     if len(ifos) < 2:
         return SubsegmentResult(start, end, ifos, 0.0, start, 0.0, {}, [], 1.0, gates,

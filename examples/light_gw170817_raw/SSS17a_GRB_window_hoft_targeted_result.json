@@ -1,0 +1,177 @@
+{
+  "config": {
+    "ra_deg": 197.450371,
+    "dec_deg": -23.381486,
+    "gps_start": 1187008879.47,
+    "gps_end": 1187008885.47,
+    "ifos": [
+      "H1",
+      "L1"
+    ],
+    "mchirp_min": 1.0,
+    "mchirp_max": 1.5,
+    "f_low": 30.0,
+    "sample_rate": 2048,
+    "subsegment_s": 1024.0,
+    "pad_s": 8.0,
+    "min_match": 0.97,
+    "n_slides": 0,
+    "slide_step_s": 3.0,
+    "pool_s": 0.0078125,
+    "gate_threshold": 50.0,
+    "gate_width_s": 0.25,
+    "gate_taper_s": 0.25,
+    "gate_aware_chisq": true,
+    "chisq_bins": 16,
+    "chisq_threshold": 5.0,
+    "max_chisq_points": 500,
+    "chisq_inherit_s": 1.0,
+    "hierarchical_removal": true,
+    "coinc_threshold": 4.0,
+    "removal_window_s": 1.0,
+    "removal_min_second_snr": 6.0,
+    "max_templates": 20000,
+    "n_offsource": 0,
+    "min_slides": 20,
+    "offsource_gap_s": 64.0,
+    "statistic": "coherent",
+    "coherent_chisq": "network",
+    "coherent_chisq_bins": "pygrb",
+    "null_min": 5.25,
+    "null_grad": 0.2,
+    "null_step": 20.0,
+    "label": "SSS17a_GRB_window_hoft"
+  },
+  "bank_size": 2148,
+  "subsegments": [
+    {
+      "gps_start": 1187008879.47,
+      "gps_end": 1187008885.47,
+      "ifos": [
+        "H1",
+        "L1"
+      ],
+      "loudest_rho_net": 29.41514134285802,
+      "loudest_gps": 1187008882.4280078,
+      "loudest_mchirp": 1.1977183856421814,
+      "loudest_rho_ifo": {
+        "H1": 18.300981521606445,
+        "L1": 24.148130416870117
+      },
+      "background": [],
+      "p_value": 1.0,
+      "gates": {
+        "H1": [],
+        "L1": [
+          1187008881.3881679
+        ]
+      },
+      "notes": "coherent, 2148 templates, 0 slides, coherent SNR reweighted by the network chi-square (PyGRB-rule-bin, gate-aware chi-square at H1:6982, L1:20162 points), 2 detectors: no null stream, delays H1:+18.8 ms, L1:+15.5 ms, loudest removed from background",
+      "p_value_extrapolated": null,
+      "extrapolation_reach": null,
+      "offsource": [],
+      "p_value_offsource": null,
+      "statistic": "coherent",
+      "loudest_rho_coh": 30.299473948077758,
+      "loudest_rho_null": 0.0,
+      "loudest_rho_network": 30.29947280883789,
+      "loudest_chisq_r": 1.115749478340149
+    }
+  ],
+  "p_value": 1.0,
+  "loudest": {
+    "gps_start": 1187008879.47,
+    "gps_end": 1187008885.47,
+    "ifos": [
+      "H1",
+      "L1"
+    ],
+    "loudest_rho_net": 29.41514134285802,
+    "loudest_gps": 1187008882.4280078,
+    "loudest_mchirp": 1.1977183856421814,
+    "loudest_rho_ifo": {
+      "H1": 18.300981521606445,
+      "L1": 24.148130416870117
+    },
+    "p_value": 1.0,
+    "gates": {
+      "H1": [],
+      "L1": [
+        1187008881.3881679
+      ]
+    },
+    "notes": "coherent, 2148 templates, 0 slides, coherent SNR reweighted by the network chi-square (PyGRB-rule-bin, gate-aware chi-square at H1:6982, L1:20162 points), 2 detectors: no null stream, delays H1:+18.8 ms, L1:+15.5 ms, loudest removed from background",
+    "p_value_extrapolated": null,
+    "extrapolation_reach": null,
+    "p_value_offsource": null,
+    "statistic": "coherent",
+    "loudest_rho_coh": 30.299473948077758,
+    "loudest_rho_null": 0.0,
+    "loudest_rho_network": 30.29947280883789,
+    "loudest_chisq_r": 1.115749478340149
+  },
+  "data": {
+    "source": "lvk",
+    "sample_rate": 2048,
+    "read": {
+      "H1": {
+        "channel": "H1:RAVENKN_STRAIN",
+        "frames": [
+          "H-H1_RAVENKN_STRAIN-1187008624-517.gwf"
+        ]
+      },
+      "L1": {
+        "channel": "L1:RAVENKN_STRAIN",
+        "frames": [
+          "L-L1_RAVENKN_STRAIN-1187008624-517.gwf"
+        ]
+      }
+    },
+    "datafind": "datafind.ldas.cit:80",
+    "segments": "https://segments.igwn.org",
+    "science_flags": {
+      "H1": "H1:DCH-CLEAN_SCIENCE_C02:1",
+      "L1": "L1:DCH-CLEAN_SCIENCE_C02:1",
+      "V1": "V1:ITF_SCIENCE:2"
+    },
+    "veto_definer": "H1L1V1-CBC_VETO_DEFINER_CLEANED_C02_O2_1164556817-23176801.xml",
+    "resolved_beforehand": true,
+    "original": {
+      "H1": {
+        "original_channel": "H1:DCH-CLEAN_STRAIN_C02",
+        "original_frames": [
+          "file://localhost/ceph/mirror/frames/O2/hoft_C02_clean/H1/H-H1_CLEANED_HOFT_C02-11870/H-H1_CLEANED_HOFT_C02-1187006455-4096.gwf"
+        ]
+      },
+      "L1": {
+        "original_channel": "L1:DCH-CLEAN_STRAIN_C02",
+        "original_frames": [
+          "file://localhost/ceph/mirror/frames/O2/hoft_C02_clean/L1/L-L1_CLEANED_HOFT_C02-11870/L-L1_CLEANED_HOFT_C02-1187004571-4096.gwf",
+          "file://localhost/ceph/mirror/frames/O2/hoft_C02_clean/L1/L-L1_CLEANED_HOFT_C02-11870/L-L1_CLEANED_HOFT_C02-1187008667-4096.gwf"
+        ]
+      }
+    },
+    "notes": {},
+    "window": {
+      "H1": {
+        "analysable": [
+          [
+            1187008879.47,
+            1187008885.47
+          ]
+        ],
+        "cat2": []
+      },
+      "L1": {
+        "analysable": [
+          [
+            1187008879.47,
+            1187008885.47
+          ]
+        ],
+        "cat2": []
+      }
+    },
+    "loudest_in_cat2": []
+  }
+}

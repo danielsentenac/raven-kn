@@ -161,3 +161,65 @@ def test_lvk_frames_in_place_or_over_osdf(monkeypatch):
     monkeypatch.setenv("BEARER_TOKEN", "abc")
     assert D.bearer_token() == "abc" and D.has_lvk_credentials() and s._token() == "abc"
     assert PublicSource()._token() is None
+
+
+def test_strain_from_raw_front_end_channel():
+    """The RAW channel is the arm length whitened by 6 zeros at 0.3 Hz and 6
+    poles at 30 Hz; de-whitening recovers the strain in band."""
+    from pycbc.types import TimeSeries
+    from raven_kn.targeted.datasource import strain_from_deltal
+    fs, n = 4096, 4096 * 16
+    t = np.arange(n) / fs
+    h = 1e-21 * (np.sin(2 * np.pi * 50 * t) + 0.5 * np.sin(2 * np.pi * 300 * t + 1.0))
+    f = np.fft.rfftfreq(n, 1 / fs)
+    W = ((1 + 1j * f / 0.3) / (1 + 1j * f / 30.0)) ** 6
+    raw = np.fft.irfft(np.fft.rfft(h) * W * 3994.5, n)          # what the front end records
+    out = strain_from_deltal(TimeSeries(raw, delta_t=1 / fs, epoch=T0)).numpy()
+    mid = slice(2 * fs, n - 2 * fs)                               # away from the tapered ends
+    assert np.max(np.abs(out[mid] - h[mid])) < 1e-3 * 1e-21
+    assert float(strain_from_deltal(TimeSeries(raw, delta_t=1 / fs, epoch=T0)).start_time) == T0
+    raw_src = LVKSource.preset("O2-raw")
+    assert raw_src.channel("L1") == "L1:CAL-DELTAL_EXTERNAL_DQ" and "V1" not in raw_src.frame_types
+
+
+def test_manifest_extracts_strain_into_small_frames(tmp_path):
+    from pycbc.types import TimeSeries
+    from raven_kn.targeted.datasource import ManifestSource, write_manifest
+
+    class Src(FakePublic):
+        def frame_urls(self, ifo, start, end):
+            return ["file://localhost/archive/huge.gwf"]
+
+        def _read(self, ifo, start, end):
+            n = int(round((end - start) * 256))
+            return TimeSeries(np.arange(n, dtype=np.float32), delta_t=1 / 256, epoch=start)
+
+    src = Src({"H1_CBC_CAT1": [(T0 - 50.5, T0 + 300)]})
+    man = write_manifest(src, ["H1"], T0, T0 + 10, tmp_path / "m.json", margin=100,
+                         extract_dir=str(tmp_path / "frames"))
+    m = man["ifos"]["H1"]
+    assert m["channel"] == "H1:RAVENKN_STRAIN" and m["original_frames"] == ["file://localhost/archive/huge.gwf"]
+    assert m["analysable"] == [(T0 - 50, T0 + 110)]
+    ms = ManifestSource.load(tmp_path / "m.json", sample_rate=256)
+    ts = ms.fetch("H1", T0, T0 + 10)
+    assert len(ts) == 2560 and ts.dtype == "float64" and float(ts[0]) == 50 * 256
+
+
+def test_extract_elsewhere_and_add_to_manifest(tmp_path):
+    """A detector whose archive is at another site: its strain is cut out there
+    and added to the manifest made where the search runs."""
+    from pycbc.frame import write_frame
+    from pycbc.types import TimeSeries
+    from raven_kn.targeted.datasource import ManifestSource, add_to_manifest, extract_strain, write_manifest
+    big = tmp_path / "V-V1O2Repro2A-1000000000-64.gwf"
+    write_frame(str(big), "V1:Hrec_hoft", TimeSeries(np.arange(64 * 256, dtype=np.float32), delta_t=1 / 256, epoch=T0))
+    entry = extract_strain([str(big)], "V1:Hrec_hoft", "V1", T0 + 10.5, T0 + 50, tmp_path / "out")
+    assert entry["extracted"] == [T0 + 11, T0 + 50] and entry["original_frames"] == [big.name]
+    write_manifest(FakePublic({}), [], T0 + 20, T0 + 30, tmp_path / "m.json", margin=20)
+    add_to_manifest(tmp_path / "m.json", "V1", entry, [(T0, T0 + 45)], [(T0 + 40, T0 + 41)], note="h(t) from tape")
+    m = ManifestSource.load(tmp_path / "m.json", sample_rate=256)
+    assert m.analysable("V1", T0, T0 + 40) == [(T0 + 11, T0 + 40)] and m.vetoed("V1", T0 + 30, T0 + 40) == []
+    ts = m.fetch("V1", T0 + 20, T0 + 30)
+    assert len(ts) == 2560 and float(ts[0]) == 20 * 256 and ts.dtype == "float64"
+    assert m.provenance()["original"]["V1"]["original_channel"] == "V1:Hrec_hoft"
+    assert m.provenance()["notes"]["V1"] == "h(t) from tape"
