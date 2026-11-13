@@ -132,6 +132,36 @@ def gw170817_reverse():
     plt.close(fig)
 
 
+def gw170817_reverse_snr():
+    d = json.loads((ROOT / "examples" / "gw170817_reverse" / "snr_timeseries.json").read_text())
+    t0, pk = d["gw170817_gps"], d["peak"]
+    fig, axes = plt.subplots(2, 1, figsize=(7.5, 6.2))
+    for ax, key, scale, unit in ((axes[0], "window", 1.0, "s"), (axes[1], "zoom", 1e3, "ms")):
+        s = d[key]
+        t = (np.asarray(s["t"]) - t0) * scale
+        for ifo, c in zip(d["ifos"], SERIES):
+            ax.plot(t, s[ifo], color=c, lw=1.2, label=f"{ifo}  {pk[ifo]:.1f}")
+        ax.plot(t, s["coherent"], color=TEXT, lw=1.8, label=f"coherent  {pk['coherent']:.1f}")
+        ax.set_xlim(t[0], t[-1])
+        ax.set_ylim(0, 34)
+        ax.set_ylabel("SNR")
+        ax.set_xlabel(f"time from the GW170817 merger ({unit})")
+    for g in d["gates"].get("L1", []):
+        axes[0].axvspan(g - t0 - 0.25, g - t0 + 0.25, color=SERIES[1], alpha=0.18, lw=0)
+        axes[0].text(g - t0, 27, "L1 glitch\ngated", ha="center", color=MUTED, fontsize=9)
+    grb = d["gps_end"] - 1.0 - t0
+    axes[0].axvline(grb, color=MUTED, lw=1, ls=":")
+    axes[0].text(grb + 0.06, 30, "GBM trigger", color=MUTED, fontsize=9)
+    axes[0].set_title("GW170817 in the 6 s GRB window: matched-filter SNR")
+    axes[0].text(0.01, 0.9, "peak per 10 ms", transform=axes[0].transAxes, color=MUTED, fontsize=9)
+    axes[1].set_title(f"Around the peak (chirp mass {d['mchirp']:.4f} M$_\\odot$, "
+                      "detectors aligned to the geocentre)", fontsize=11, fontweight="normal")
+    axes[1].legend(loc="upper left", fontsize=10, title="SNR at the peak", title_fontsize=9)
+    fig.tight_layout()
+    fig.savefig(OUT / "gw170817_reverse_snr.png", dpi=150)
+    plt.close(fig)
+
+
 def copy_fits():
     pairs = {
         "examples/validation/runs_fit3_Bu2019lm/A/nmma_out/AT2017gfo_A_bestfit_lightcurves.png":
@@ -149,5 +179,6 @@ if __name__ == "__main__":
     window_widths()
     gw170817_background()
     gw170817_reverse()
+    gw170817_reverse_snr()
     copy_fits()
     print("written to", OUT)
