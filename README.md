@@ -471,7 +471,9 @@ with `external_coinc`), 162 Fermi-GBM and 16 Einstein Probe notices; real SVOM-E
 parse too (fixtures in `tests/data/gcn_live/`). Topic names checked against the broker (SVOM:
 `gcn.notices.svom.voevent.eclairs`; Swift-BAT positions `gcn.classic.voevent.SWIFT_BAT_GRB_POS_ACK` added).
 Swift-XRT and SVOM-MXT added on 2026-11-13 from real notices (three XRT, one MXT).
-The listener runs on CIT as an HTCondor local-universe job (restarted if it exits).
+The listener runs on a server inside a `screen` session, with a restart loop and a cron check every
+5 minutes that starts it again after a reboot (`examples/listener_service/`; store layout and operation in
+`docs/listener.md`).
 
 ## Real case: S250818k / AT2025ulz
 

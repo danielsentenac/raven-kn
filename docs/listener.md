@@ -20,6 +20,47 @@ raven-kn add candidate.json --store kn_store/     # add or update a kilonova can
 | New candidate | `raven-kn add` | Matched against stored GRB notices and neutrino alerts (the latest one up to 3 days before its first detection) and against GW alerts of the last 14 days. |
 | Neutrino alert | `gcn.notices.icecube.gold_bronze_track_alerts` | Stored, and attached to candidates within 1.4× its 90 % error radius whose first detection follows within 3 days; their window becomes ±500 s around the neutrino, unless a GRB gives a tighter one. Updates refine the time and position; retractions remove the alert and detach it. |
 
+## The store
+
+Everything the listener knows is in the `--store` directory, as JSON files that can be read and edited by
+hand. `raven-kn listen`, `raven-kn add` and `raven-kn fink-listen` share it.
+
+| Subdirectory | Contents | Written when |
+|---|---|---|
+| `candidates/` | one file per kilonova candidate: position, photometry, host, attached GRB and neutrino, notes | `raven-kn add`, `raven-kn fink-listen`; updated when a notice is attached or detached |
+| `gw/` | latest alert per superevent, with its multi-order sky map (and RAVEN's combined map if any) | each GW alert; deleted on retraction; used for 14 days |
+| `grb/` | latest notice per trigger: time, position, radius, and the X-ray position when there is one | each GRB or X-ray notice |
+| `nu/` | latest alert per IceCube event | each neutrino alert; deleted on retraction |
+| `coinc/` | `<superevent>__<candidate>.json`: window, joint FAR and its factors | each GW alert or new candidate whose window contains the merger time |
+
+Each coincidence result is also printed on standard output as one JSON line. The log (standard error)
+records the topics subscribed to, the candidates updated by each notice, Kafka errors, and the traceback
+of any message that could not be handled; such a message is skipped and the listener goes on.
+
+## Running it permanently
+
+The listener is one long-lived process. `examples/listener_service/` holds the two scripts used for the
+production instance:
+
+| Script | Role |
+|---|---|
+| `run_listener.sh` | Reads the GCN credentials from `~/.config/gcn_kafka.env`, runs `raven-kn listen` in a loop and restarts it 60 s after any exit. Results go to `results.jsonl`, the log to `listener.log`. |
+| `ensure_listener.sh` | Starts `run_listener.sh` in a `screen` session if it is not running, and does nothing otherwise. |
+
+```bash
+mkdir ~/raven-kn-run && cp examples/listener_service/*.sh ~/raven-kn-run/
+crontab -e      # add:  */5 * * * * $HOME/raven-kn-run/ensure_listener.sh
+```
+
+The cron line brings the listener back within 5 minutes of a reboot or of a kill (tested by stopping it:
+cron restarted it at the next tick). An `@reboot` entry is not enough: it runs once, and failed on two
+consecutive boots of the production server, where the home directory is a network mount. With the fixed
+consumer group a restarted listener resumes from its last committed offset, so the messages of the gap
+are processed as long as the broker still retains them.
+
+To update the code (installed with `pip install -e`): `git pull` in the clone, then
+`pkill -f "raven-kn listen"`; the loop starts the new version 60 s later.
+
 ## Kilonova candidates from Fink
 
 `raven-kn fink-listen` fills the same store from the Fink broker's Kafka livestream (ZTF or Rubin):
@@ -62,5 +103,5 @@ nothing. Position radii are 3.6–4.7″ for XRT and 76″ for the MXT notice, a
 XRT notice of trigger 1519536 has the `Cosmic_Ray` flag set although the ground analysis confirmed its
 position 72 min later, 11″ away; the flag is therefore not used.
 
-Outbound port 9092 is blocked on some campus networks, so the listener may have to run elsewhere, e.g. on a
-cluster as an HTCondor local-universe job, or on a server inside a `screen` session with a restart loop.
+Outbound port 9092 is blocked on some campus networks, so the listener may have to run elsewhere: on a
+server as described [above](#running-it-permanently), or on a cluster as an HTCondor local-universe job.
