@@ -18,9 +18,9 @@
 
         <!-- ===== sources ===== -->
         <rect fill="#161b22" stroke="#8b96a8" stroke-width="1.2" x="20" y="60" width="220" height="76" rx="7"/>
-        <text font-family="Helvetica, Arial, 'DejaVu Sans', sans-serif" font-size="13.5" font-weight="600" fill="#e6edf3" x="34" y="83">Optical light curves</text>
-        <text font-family="Helvetica, Arial, 'DejaVu Sans', sans-serif" font-size="11.5" fill="#9da7b3" xml:space="preserve" x="34" y="102">ZTF · Rubin · ATLAS</text>
-        <text font-family="Menlo, 'DejaVu Sans Mono', Consolas, monospace" font-size="11" fill="#9da7b3" xml:space="preserve" x="34" y="120">ALeRCE ANTARES Fink ATLAS-FP</text>
+        <text font-family="Helvetica, Arial, 'DejaVu Sans', sans-serif" font-size="13.5" font-weight="600" fill="#e6edf3" x="34" y="83">Optical alerts &amp; light curves</text>
+        <text font-family="Helvetica, Arial, 'DejaVu Sans', sans-serif" font-size="11.5" fill="#9da7b3" xml:space="preserve" x="34" y="102">Fink live: ZTF KN, Rubin · ATLAS</text>
+        <text font-family="Menlo, 'DejaVu Sans Mono', Consolas, monospace" font-size="11" fill="#9da7b3" xml:space="preserve" x="34" y="120">ALeRCE ANTARES ZTF/ATLAS-FP</text>
 
         <rect fill="#161b22" stroke="#8b96a8" stroke-width="1.2" x="20" y="152" width="220" height="76" rx="7"/>
         <text font-family="Helvetica, Arial, 'DejaVu Sans', sans-serif" font-size="13.5" font-weight="600" fill="#e6edf3" x="34" y="175">Spectra &amp; host galaxy</text>
@@ -39,8 +39,8 @@
 
         <!-- sources → candidate -->
         <line stroke="#8b96a8" stroke-width="1.4" fill="none" x1="240" y1="98" x2="328" y2="98" marker-end="url(#ah)"/>
-        <text font-family="Menlo, 'DejaVu Sans Mono', Consolas, monospace" font-size="10.5" fill="#9da7b3" x="284" y="91" text-anchor="middle">detections</text>
-        <text font-family="Menlo, 'DejaVu Sans Mono', Consolas, monospace" font-size="10.5" fill="#9da7b3" x="284" y="113" text-anchor="middle">+ limits</text>
+        <text font-family="Menlo, 'DejaVu Sans Mono', Consolas, monospace" font-size="10.5" fill="#9da7b3" x="284" y="91" text-anchor="middle">candidates</text>
+        <text font-family="Menlo, 'DejaVu Sans Mono', Consolas, monospace" font-size="10.5" fill="#9da7b3" x="284" y="113" text-anchor="middle">det. + limits</text>
         <line stroke="#8b96a8" stroke-width="1.4" fill="none" x1="240" y1="190" x2="328" y2="190" marker-end="url(#ah)"/>
         <text font-family="Menlo, 'DejaVu Sans Mono', Consolas, monospace" font-size="10.5" fill="#9da7b3" x="284" y="183" text-anchor="middle">z, D_L</text>
         <text font-family="Menlo, 'DejaVu Sans Mono', Consolas, monospace" font-size="10.5" fill="#9da7b3" x="284" y="205" text-anchor="middle">class</text>

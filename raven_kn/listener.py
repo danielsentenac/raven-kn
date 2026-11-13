@@ -16,6 +16,10 @@ candidates, whose merger-time windows are hours to days long:
   ``dec``, ``ra_dec_error``): attach the GRB to candidates at a compatible
   position whose first detection follows it, which narrows their window to
   RAVEN's [-5, +1] s;
+* X-ray afterglow positions of a burst already known (Swift-XRT, SVOM-MXT):
+  they replace the position of the stored GRB notice with the same trigger
+  number, and keep its time (the X-ray time is that of the image, minutes
+  after the burst);
 * a kilonova candidate added later (from a broker, a circular, by hand) is
   matched against the GW alerts already received.
 
@@ -59,7 +63,13 @@ GRB_TOPICS = ("gcn.notices.swift.bat.guano", "gcn.notices.einstein_probe.wxt.ale
               "gcn.classic.voevent.SWIFT_BAT_GRB_POS_ACK",  # Swift-BAT on-board GRB positions
               # classic VOEvent (XML): Fermi-GBM flight / ground / final positions
               "gcn.classic.voevent.FERMI_GBM_FLT_POS", "gcn.classic.voevent.FERMI_GBM_GND_POS",
-              "gcn.classic.voevent.FERMI_GBM_FIN_POS")
+              "gcn.classic.voevent.FERMI_GBM_FIN_POS",
+              # X-ray afterglow positions (VOEvent), which refine the position of the
+              # stored burst with the same trigger number (checked 2026-11-13)
+              "gcn.classic.voevent.SWIFT_XRT_POSITION",     # Swift-XRT, a few arcsec
+              "gcn.notices.svom.voevent.mxt")               # SVOM-MXT, R90 < 5 arcmin
+# X-ray follow-up instrument -> instrument whose burst it localises
+XRAY_FOLLOWUP = {"Swift-XRT": "Swift-BAT", "SVOM-MXT": "SVOM-ECLAIRs"}
 # IceCube gold/bronze track alerts, unified JSON schema (checked against the live
 # broker, 2026-11-10); the same alerts also come as classic VOEvents
 # (gcn.classic.voevent.ICECUBE_ASTROTRACK_GOLD / _BRONZE), which parse too.
@@ -199,9 +209,15 @@ def parse_external_coinc(ec: Optional[dict]) -> tuple[Optional[dict], Optional[T
 
 
 def parse_voevent(xml: bytes | str) -> dict[str, Any]:
-    """Classic GCN VOEvent (Fermi-GBM, Swift-BAT...): ISOTime, C1/C2 and
-    Error2Radius (degrees) from WhereWhen; TrigID from the parameters. For
-    GBM the systematic error is added in quadrature."""
+    """GCN VOEvent (Fermi-GBM, Swift-BAT and XRT, SVOM...): ISOTime, C1/C2
+    and Error2Radius (degrees) from WhereWhen; trigger number from the
+    parameters (``TrigID``, SVOM ``Burst_Id``). For GBM the systematic error
+    is added in quadrature. Swift-XRT and SVOM-MXT notices are marked
+    ``xray``: their time is the start of the X-ray image (81 s and 131 s
+    after the burst in the two real notices of the tests), not the burst
+    time. The XRT ``Cosmic_Ray`` flag is not used: it is set in the real
+    on-board notice of trigger 1519536, whose position the ground analysis
+    confirmed 72 min later, 11 arcsec away."""
     import xml.etree.ElementTree as ET
     root = ET.fromstring(xml.encode() if isinstance(xml, str) else xml)
 
@@ -214,20 +230,23 @@ def parse_voevent(xml: bytes | str) -> dict[str, Any]:
     ra, dec, err = (find(k) for k in ("C1", "C2", "Error2Radius"))
     if "Fermi" in ivorn or "GBM" in ivorn:
         instrument = "Fermi-GBM"
-    elif "svom" in ivorn.lower():
-        instrument = "SVOM-ECLAIRs"            # ivorn says only "fsc" (French science centre)
+    elif "svom" in ivorn.lower():              # ivorn says only "fsc" (French science centre)
+        instrument = "SVOM-" + (params.get("Instrument") or "ECLAIRs")
     elif "SWIFT" in ivorn.upper():
-        instrument = "Swift-BAT"
+        instrument = "Swift-XRT" if "#XRT" in ivorn.upper() else "Swift-BAT"
     else:
         instrument = ivorn.split("/")[-1].split("#")[0]
     e = float(err.text) if err is not None else None
     if e is not None and instrument == "Fermi-GBM":
         e = float(np.hypot(e, GBM_SYS_ERR_DEG))
     return {"grb": GRBAssociation(gps=_gps(t), instrument=instrument,
-                                  graceid=params.get("TrigID")),
+                                  graceid=params.get("TrigID") or params.get("Burst_Id")),
             "ra": float(ra.text) if ra is not None else None,
             "dec": float(dec.text) if dec is not None else None,
-            "err_deg": e, "role": root.get("role")}
+            "err_deg": e, "role": root.get("role"),
+            "xray": instrument in XRAY_FOLLOWUP,
+            # SVOM "slewing" / "not-slewing": platform status, not a detection
+            "slew": ivorn.endswith("slewing")}
 
 
 def parse_grb_notice(msg: dict | bytes | str) -> dict[str, Any]:
@@ -346,21 +365,47 @@ class CandidateStore:
         jpath.write_text(json.dumps(meta, indent=1, default=str))
 
     # GRB notices (latest per trigger), kept so that a kilonova found later
-    # can still be matched to the GRB that preceded it
-    def save_grb(self, notice: dict) -> None:
-        g = notice["grb"]
+    # can still be matched to the GRB that preceded it. An X-ray afterglow
+    # position of the same trigger is kept beside the burst ("xray") and
+    # replaces its position; it may arrive first when a backlog is replayed.
+    def _grb_path(self, g: GRBAssociation) -> Path:
         key = g.graceid or f"{g.instrument}_{g.gps:.2f}"
         key = "".join(c if c.isalnum() or c in "-_." else "_" for c in key)
-        rec = {"grb": asdict(g), **{k: notice.get(k) for k in ("ra", "dec", "err_deg")}}
-        (self.root / "grb" / f"{key}.json").write_text(json.dumps(rec, indent=1))
+        return self.root / "grb" / f"{key}.json"
+
+    @staticmethod
+    def _grb_effective(rec: dict) -> Optional[dict]:
+        """Stored record -> notice: burst time, X-ray position if there is
+        one for this burst. None while only the X-ray position is known."""
+        x = rec.get("xray")
+        if not rec.get("grb"):
+            return None
+        out = {**rec, "grb": GRBAssociation(**rec["grb"])}
+        if x and XRAY_FOLLOWUP.get(x["instrument"]) == out["grb"].instrument:
+            out.update(ra=x["ra"], dec=x["dec"], err_deg=x["err_deg"],
+                       position_from=x["instrument"])
+        return out
+
+    def save_grb(self, notice: dict) -> Optional[dict]:
+        """Store a burst notice, or the X-ray position of a burst
+        (``notice["xray"]``). Returns the notice to match candidates against,
+        None if the burst itself has not been received yet."""
+        g = notice["grb"]
+        p = self._grb_path(g)
+        rec = json.loads(p.read_text()) if p.exists() else {}
+        pos = {k: notice.get(k) for k in ("ra", "dec", "err_deg")}
+        if notice.get("xray"):
+            rec["xray"] = {"instrument": g.instrument, "image_gps": g.gps, **pos}
+            rec.setdefault("grb", None)
+        else:
+            rec = {"grb": asdict(g), **pos, **({"xray": rec["xray"]} if rec.get("xray") else {})}
+        p.write_text(json.dumps(rec, indent=1))
+        return self._grb_effective(rec)
 
     def grb_notices(self) -> list[dict]:
-        out = []
-        for p in sorted((self.root / "grb").glob("*.json")):
-            rec = json.loads(p.read_text())
-            rec["grb"] = GRBAssociation(**rec["grb"])
-            out.append(rec)
-        return out
+        recs = (self._grb_effective(json.loads(p.read_text()))
+                for p in sorted((self.root / "grb").glob("*.json")))
+        return [r for r in recs if r is not None]
 
     # neutrino alerts (latest per event: updates refine time and position)
     @staticmethod
@@ -488,8 +533,14 @@ def _grb_match(kn: KNCandidate, n: dict, max_lead_days: float, min_err_deg: floa
 
 def _attach_grb(kn: KNCandidate, n: dict, sep: float, how: str) -> None:
     kn.grb = n["grb"]
-    kn.notes = (kn.notes + f" GRB {n['grb'].graceid or ''} ({n['grb'].instrument}) "
-                f"attached by listener ({how}), sep {sep:.2f} deg.").strip()
+    where = f", {n['position_from']} position" if n.get("position_from") else ""
+    kn.notes = (kn.notes + f" GRB {n['grb'].graceid or ''} ({n['grb'].instrument}{where}) "
+                f"attached by listener ({how}), sep {sep:.4g} deg.").strip()
+
+
+def _same_grb(a: Optional[GRBAssociation], b: GRBAssociation) -> bool:
+    return (a is not None and a.graceid is not None and a.graceid == b.graceid
+            and a.instrument == b.instrument)
 
 
 def handle_grb_notice(msg: dict | bytes | str, store: CandidateStore,
@@ -503,17 +554,38 @@ def handle_grb_notice(msg: dict | bytes | str, store: CandidateStore,
     that already have a GRB are left alone; test notices are ignored. The
     notice is stored, so that a candidate added later (the usual order: the
     GRB comes first, the optical counterpart hours later) is matched to it
-    by :func:`add_candidate`. Returns the names of the candidates updated."""
+    by :func:`add_candidate`. Returns the names of the candidates updated.
+
+    A Swift-XRT or SVOM-MXT notice gives the afterglow position of a burst
+    already received from Swift-BAT or SVOM-ECLAIRs (same trigger number).
+    It replaces the position of the stored burst and keeps its time.
+    Candidates are matched again with the X-ray radius: those inside are
+    attached, and a candidate the listener had attached to this burst and
+    that lies outside is detached. Without the burst notice the X-ray
+    position is only stored, since it gives no burst time."""
     n = parse_grb_notice(msg)
     if n.get("role") == "test" or n["ra"] is None or n["dec"] is None:
         return []
-    store.save_grb(n)
+    if n.get("slew"):
+        return []
+    n = store.save_grb(n)
+    if n is None:
+        log.info("X-ray position stored; its burst notice has not been received")
+        return []
     hits = []
     for kn in store.candidates():
-        if kn.grb is not None:
+        mine = _same_grb(kn.grb, n["grb"])
+        if kn.grb is not None and not (mine and n.get("position_from")):
             continue
         sep = _grb_match(kn, n, max_lead_days, min_err_deg, err_scale)
-        if sep is not None:
+        if mine:
+            if sep is None and "attached by listener" in kn.notes:
+                kn.grb = None
+                kn.notes = (kn.notes + f" GRB {n['grb'].graceid} detached: outside its "
+                            f"{n['position_from']} position.").strip()
+                store.save(kn)
+                hits.append(kn.name)
+        elif sep is not None:
             _attach_grb(kn, n, sep, "GRB after candidate")
             store.save(kn)
             hits.append(kn.name)

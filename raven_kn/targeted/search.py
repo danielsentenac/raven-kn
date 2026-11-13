@@ -334,12 +334,15 @@ def _condition(ts, f_low, gate_threshold, gate_width=0.25, gate_taper=0.25):
 
 def _taper_ends(ts, taper_s: float):
     """Cosine taper over ``taper_s`` at both ends of the data stretch, inside
-    the margins the search discards. The stretch is Fourier-transformed as a
-    whole: without a taper, the jump between its two ends is a transient that
-    leaks into every narrow chi-square bin, over the whole stretch. It is
-    large where strong spectral lines are present (data without line
-    subtraction, such as strain derived from RAW frames: noise chi-square 3
-    times too high with 125 bins)."""
+    the margins the search discards. It removes the start-up transient of the
+    high-pass filter, which is applied to the stretch itself and leaves its
+    first samples corrupted (PyCBC's pipeline reads ``--pad-data`` seconds
+    more on each side and drops them after filtering). The transient scales
+    with the power below the cutoff: negligible on calibrated h(t), 40 times
+    the rms on strain derived from RAW frames (L1, GW170817), where it leaked
+    into the chi-square bins of the whole stretch (reduced chi-square 4.6
+    instead of 1.2; 1.2 as well when the corrupted edges are cropped
+    instead)."""
     n = min(int(round(taper_s / ts.delta_t)), len(ts) // 4)
     if n < 2:
         return ts

@@ -222,9 +222,11 @@ LIVE = Path(__file__).parent / "data" / "gcn_live"
     ("gcn.notices.svom.voevent.eclairs.xml", "SVOM-ECLAIRs", 0.5),
     ("gcn.classic.voevent.FERMI_GBM_GND_POS.msg", "Fermi-GBM", 60.0),
     ("gcn.notices.einstein_probe.wxt.alert.msg", "WXT", 0.5),
+    ("gcn.classic.voevent.SWIFT_XRT_POSITION.xml", "Swift-XRT", 0.002),
+    ("gcn.notices.svom.voevent.mxt.xml", "SVOM-MXT", 0.1),
 ])
 def test_live_grb_notices_parse(fname, instrument, max_err):
-    """Real notices read from GCN Kafka on CIT (2026-11-10)."""
+    """Real notices read from GCN Kafka on CIT (2026-11-10; X-ray: 2026-11-13)."""
     g = parse_grb_notice((LIVE / fname).read_bytes())
     assert g["grb"].instrument == instrument
     assert -90 <= g["dec"] <= 90 and 0 <= g["ra"] < 360 and 0 < g["err_deg"] <= max_err
@@ -232,6 +234,91 @@ def test_live_grb_notices_parse(fname, instrument, max_err):
     if instrument == "Fermi-GBM":
         assert g["err_deg"] >= 3.7                     # systematic added in quadrature
 
+
+
+def _moved(xml: bytes, ra: float, dec: float, iso: str) -> str:
+    """A real notice put at another position and time."""
+    import re
+    xml = re.sub(r"<C1>[^<]*</C1>", f"<C1>{ra:.4f}</C1>", xml.decode())
+    xml = re.sub(r"<C2>[^<]*</C2>", f"<C2>{dec:.4f}</C2>", xml)
+    return re.sub(r"<ISOTime>[^<]*</ISOTime>", f"<ISOTime>{iso}</ISOTime>", xml)
+
+
+def test_live_xray_notices_belong_to_their_burst():
+    """Same trigger number as the burst, and an image time after it: the two
+    real XRT notices follow BAT trigger 1519536 by 81 s; MXT gives the burst
+    sequence time (Alert_Seq_T0) 131 s before its own."""
+    bat = parse_grb_notice((LIVE / "gcn.classic.voevent.SWIFT_BAT_GRB_POS_ACK.xml").read_bytes())
+    xrt = parse_grb_notice((LIVE / "gcn.classic.voevent.SWIFT_XRT_POSITION.xml").read_bytes())
+    assert xrt["xray"] and not bat["xray"]
+    assert xrt["grb"].graceid == bat["grb"].graceid == "1519536"
+    assert xrt["grb"].gps - bat["grb"].gps == pytest.approx(80.96, abs=0.01)
+    mxt = parse_grb_notice((LIVE / "gcn.notices.svom.voevent.mxt.xml").read_bytes())
+    ecl = parse_grb_notice((LIVE / "gcn.notices.svom.voevent.eclairs.xml").read_bytes())
+    assert mxt["xray"] and mxt["grb"].graceid == "sb26110812" and mxt["err_deg"] == 0.0212
+    assert not ecl["xray"] and ecl["grb"].graceid == "sb26102601"
+
+
+@pytest.mark.parametrize("burst,xray,order", [
+    ("gcn.classic.voevent.SWIFT_BAT_GRB_POS_ACK.xml", "gcn.classic.voevent.SWIFT_XRT_POSITION.xml",
+     "burst first"),
+    ("gcn.classic.voevent.SWIFT_BAT_GRB_POS_ACK.xml", "gcn.classic.voevent.SWIFT_XRT_POSITION.xml",
+     "x-ray first"),
+])
+def test_xray_position_refines_stored_burst(tmp_path, burst, xray, order):
+    """BAT attaches two candidates 2 arcmin apart; XRT keeps the one at its
+    position, detaches the other, and the burst time is unchanged."""
+    iso = Time(T0 + 1.74, format="gps").utc.isot
+    b = _moved((LIVE / burst).read_bytes(), RA + 0.02, DEC, iso)
+    x = _moved((LIVE / xray).read_bytes(), RA, DEC, Time(T0 + 83, format="gps").utc.isot)
+    store = CandidateStore(tmp_path)
+    store.save(make_kn())
+    off = make_kn(); off.name = "offset"; off.ra = RA + 0.04; store.save(off)
+    if order == "burst first":
+        assert sorted(handle_grb_notice(b, store)) == ["offset", "test"]
+        assert handle_grb_notice(x, store) == ["offset"]          # detached
+    else:
+        assert handle_grb_notice(x, store) == []                  # no burst time yet
+        assert store.grb_notices() == []
+        assert handle_grb_notice(b, store) == ["test"]
+    kn = {c.name: c for c in store.candidates()}
+    assert kn["offset"].grb is None
+    assert kn["test"].grb.instrument == "Swift-BAT"
+    assert kn["test"].grb.gps == pytest.approx(T0 + 1.74, abs=1e-3)   # burst, not image, time
+    (n,) = store.grb_notices()
+    assert n["position_from"] == "Swift-XRT" and n["ra"] == pytest.approx(RA, abs=1e-4)
+    assert n["err_deg"] == pytest.approx(0.0013)
+    # a candidate found later is matched with the X-ray position
+    late = make_kn(); late.name = "late"; add_candidate(late, store, now_gps=T0 + 86400)
+    far = make_kn(); far.name = "late_far"; far.ra = RA + 0.04
+    add_candidate(far, store, now_gps=T0 + 86400)
+    kn = {c.name: c for c in store.candidates()}
+    assert "Swift-XRT position" in kn["late"].notes and kn["late_far"].grb is None
+    # a later BAT notice of the same trigger does not undo the X-ray position
+    handle_grb_notice(b, store)
+    assert store.grb_notices()[0]["position_from"] == "Swift-XRT"
+    # the ground-analysis XRT notice of the same trigger replaces the on-board one
+    g = (LIVE / "gcn.classic.voevent.SWIFT_XRT_POSITION.ground.xml").read_bytes()
+    handle_grb_notice(_moved(g, RA + 0.001, DEC, iso), store)
+    (n,) = store.grb_notices()
+    assert n["ra"] == pytest.approx(RA + 0.001, abs=1e-4) and n["grb"].gps == pytest.approx(T0 + 1.74, abs=1e-3)
+
+
+def test_mxt_position_waits_for_its_eclairs_burst(tmp_path):
+    iso = Time(T0 + 1.74, format="gps").utc.isot
+    store = CandidateStore(tmp_path)
+    store.save(make_kn())
+    # SVOM-MXT position alone: stored, attached to nothing
+    m = _moved((LIVE / "gcn.notices.svom.voevent.mxt.xml").read_bytes(), RA, DEC, iso)
+    assert handle_grb_notice(m, store) == [] and store.candidates()[0].grb is None
+    # its ECLAIRs burst (same Burst_Id) then takes the MXT position
+    e = _moved((LIVE / "gcn.notices.svom.voevent.eclairs.xml").read_bytes(), RA + 0.1, DEC, iso)
+    e = e.replace("sb26102601", "sb26110812")
+    assert handle_grb_notice(e, store) == ["test"]
+    (n,) = store.grb_notices()
+    assert n["grb"].instrument == "SVOM-ECLAIRs" and n["position_from"] == "SVOM-MXT"
+    slew = e.replace("_eclairs-wakeup", "_slewing")
+    assert parse_grb_notice(slew)["slew"] and handle_grb_notice(slew, store) == []
 
 
 # ---------------- neutrino alerts (IceCube) ----------------

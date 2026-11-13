@@ -106,12 +106,31 @@ The event is found at the same time and chirp mass. L1 is unchanged; H1 loses 14
 front-end channel being neither noise-subtracted nor finally calibrated (12 % and 15° from the official
 h(t) in O2). Enough to detect, not to measure.
 
-RAW data has strong spectral lines, and this is what exposed a defect of the search: the data stretch was
-Fourier-transformed without tapering its ends, and the edge transient leaked into the narrow chi-square
-bins (reduced chi-square 2.9 on RAW-derived strain, reweighted SNR 19.0 instead of 27.8). The ends of
-each stretch are now tapered over the padding (`pad_s`), which is discarded anyway. On calibrated frames
-the effect is small: 29.36 → 29.42 here, 29.83 → 30.26 on the GWOSC frames (the tables above predate the
-taper).
+The RAW-derived strain is what exposed a defect of the light search. Its high-pass filter is applied to
+the data stretch itself and leaves a start-up transient in the first samples. On calibrated h(t) it is
+negligible; on RAW-derived strain, which has far more power below 20 Hz, it is 40 times the rms (L1) and
+leaked into the chi-square bins everywhere in the stretch: reduced chi-square 2.9 for the network (4.6
+in L1), reweighted SNR 19.0 instead of 27.8. PyCBC's own pipeline avoids this by reading 8 s more on each
+side and dropping them after filtering (`--pad-data`). The light search now tapers the ends of each
+stretch over the padding (`pad_s`), which zeroes the transient; cropping the corrupted edges instead gives
+the same chi-square. On calibrated frames the effect is small: 29.36 → 29.42 here, 29.83 → 30.26 on the
+GWOSC frames (the tables above predate the taper).
+
+PyGRB on the same extracted frames (`examples/light_gw170817_raw/pygrb/`: `pycbc_multi_inspiral` with
+the O2 GRB170817A arguments, one 256 s segment, the bank piece holding the loudest template, same Virgo
+h(t) in both columns) shows no penalty on RAW-derived strain either:
+
+| PyGRB | Calibrated h(t) + Virgo | RAW-derived + Virgo |
+|---|---|---|
+| Coherent SNR, raw / reweighted | 29.01 / 28.99 | 27.42 / 27.29 |
+| H1 / L1 / V1 | 17.89 / 22.86 / 3.28 | 14.76 / 22.95 / 3.28 |
+| Network reduced chi-square | 1.00 | 1.02 |
+| Null SNR | 3.43 | 1.87 |
+
+The light search's per-detector reduced chi-square on the same data is 1.04–1.13 (calibrated) and
+1.15–1.22 (RAW-derived), against PyGRB's 0.99–1.01 and 0.99–1.09. With 248 degrees of freedom one
+value scatters by 0.09, and the two codes use different bins, spectra and templates, so these agree
+within about two standard deviations.
 
 ## Data-quality vetoes
 

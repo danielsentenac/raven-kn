@@ -12,13 +12,26 @@ kilonova candidate → is a GW search worth it? → merger-time window, sky posi
 
 ## 1. Inputs
 
-| Input | Gives | Sources |
+Four kinds of alerts arrive as live streams; the rest is looked up when a candidate exists.
+
+| Alert stream | Gives | Source and topics | Command |
+|---|---|---|---|
+| Kilonova candidates, ZTF | new candidate or new photometry, Fink kilonova score | Fink Kafka livestream: `fink_kn_candidates_ztf`, `fink_early_kn_candidates_ztf`, `fink_rate_based_kn_candidates_ztf` | `raven-kn fink-listen --survey ztf` |
+| Transient candidates, Rubin | new candidate or new photometry (no kilonova score) | Fink Kafka livestream; no kilonova topic yet, closest are `fink_fast_transient_gvom_lsst` and `fink_extragalactic_new_candidate_lsst` | `raven-kn fink-listen --survey lsst --topics ...` |
+| GRB and X-ray notices | prompt-emission time and position | GCN Kafka: Fermi-GBM (flight, ground, final positions), Swift-BAT (GUANO, on-board positions), SVOM-ECLAIRs, Einstein Probe WXT; Swift-XRT and SVOM-MXT afterglow positions, which replace the position of their burst | `raven-kn listen` |
+| Neutrino alerts | arrival time and position | GCN Kafka: IceCube gold / bronze track alerts | `raven-kn listen` |
+| GW alerts | merger time, sky map, distance, FAR | GCN Kafka: LVK `igwn.gwalert` (preliminary, initial, update, retraction) | `raven-kn listen` |
+
+All streams fill the same store, and every new message is matched against what is already there,
+whichever arrives first. Both Fink streams and the GCN topics were checked on live alerts in November 2026.
+
+| Looked up per candidate | Gives | Sources |
 |---|---|---|
-| Optical light curves | detections, and non-detections with their depth | ZTF, Rubin and ATLAS through ALeRCE, ANTARES, Fink and ATLAS forced photometry |
+| Optical light curves | detections, and non-detections with their depth | ZTF, Rubin and ATLAS through ALeRCE, ANTARES, Fink, and ZTF and ATLAS forced photometry |
 | Spectra and host galaxy | classification, redshift, distance | TNS, NED / NED-D, GLADE+, DES Y6 |
-| GRB and X-ray notices | prompt-emission time and position | Fermi-GBM, Swift-BAT, SVOM-ECLAIRs, Einstein Probe through GCN Kafka |
-| Neutrino alerts | neutrino arrival time and position | IceCube gold / bronze track alerts through GCN Kafka |
 | Viewing angle | inclination prior | external: afterglow modelling, VLBI, light-curve fits |
+
+A candidate can also be added by hand (`raven-kn add`).
 
 GRB notices usually arrive hours before the optical counterpart is found (GW170817: GRB 170817A at
 12:41 UTC, AT2017gfo at 23:33 UTC). The listener therefore **stores every GRB notice** and attaches it to a
@@ -91,5 +104,9 @@ light PyCBC search itself, or writes a configuration for PyGRB, LVK's production
 
 ## 6. Real time
 
-The [listener](listener.md) runs branch 5a automatically for every GW alert and every stored candidate,
-and attaches GRB notices and neutrino alerts to candidates, whichever arrives first.
+Two processes share one store. The [GCN listener](listener.md) (`raven-kn listen`) runs branch 5a for
+every GW alert and every stored candidate, and attaches GRB notices and neutrino alerts to candidates,
+whichever arrives first. The [Fink listener](listener.md#kilonova-candidates-from-fink)
+(`raven-kn fink-listen`) creates and updates the candidates from the ZTF and Rubin alert streams and,
+with `--assess`, re-runs the decision of step 4 on every update, so that a search is triggered as soon
+as the light curve confirms a kilonova.

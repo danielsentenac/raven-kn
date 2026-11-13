@@ -429,6 +429,11 @@ raven-kn add candidate.json --store kn_store/            # a new or updated kilo
   the 3.7° GBM systematic added in quadrature): attached to candidates within 2× the error radius whose
   first detection follows within 3 days; their window becomes RAVEN's [−5, +1] s. With 1× the radius the
   GW170817 GBM ground position (24° from NGC 4993) would be missed. Test notices are ignored.
+- **X-ray afterglow position** (Swift-XRT `gcn.classic.voevent.SWIFT_XRT_POSITION`, SVOM-MXT
+  `gcn.notices.svom.voevent.mxt`): replaces the position of the stored Swift-BAT or SVOM-ECLAIRs burst
+  with the same trigger number (a few arcsec for XRT, under 5′ for MXT) and keeps the burst time, since
+  the X-ray time is that of the image, minutes later. Candidates are matched again; one that the listener
+  had attached to this burst and that lies outside 2× the X-ray radius is detached.
 - **Neutrino alert** (`gcn.notices.icecube.gold_bronze_track_alerts`, IceCube gold / bronze tracks; classic
   VOEvents parse too): stored, and attached to candidates within 1.4× the 90 % error radius (≈ 99 %) whose
   first detection follows within 3 days; their window becomes ±500 s around the neutrino (Baret et al.
@@ -465,6 +470,7 @@ replayed with no parse failure — 336 GW alerts (mock, 19200-pixel maps, prelim
 with `external_coinc`), 162 Fermi-GBM and 16 Einstein Probe notices; real SVOM-ECLAIRs and Swift-BAT notices
 parse too (fixtures in `tests/data/gcn_live/`). Topic names checked against the broker (SVOM:
 `gcn.notices.svom.voevent.eclairs`; Swift-BAT positions `gcn.classic.voevent.SWIFT_BAT_GRB_POS_ACK` added).
+Swift-XRT and SVOM-MXT added on 2026-11-13 from real notices (three XRT, one MXT).
 The listener runs on CIT as an HTCondor local-universe job (restarted if it exits).
 
 ## Real case: S250818k / AT2025ulz

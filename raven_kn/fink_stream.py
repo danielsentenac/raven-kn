@@ -25,9 +25,10 @@ Alert contents:
   :class:`~raven_kn.connection.FinkLSSTConnector` (S/N >= 5 detection, else
   a 5-sigma limit; TAI -> UTC).
 
-The Rubin field names follow the Rubin alert schema as served by Fink's REST
-API; check them on a first real alert (``finkctl stream -survey lsst --save``)
-when credentials are available.
+Both parsers were checked on live alerts on 2026-11-13 (ZTF:
+``fink_kn_candidates_ztf``, with ``rf_kn_vs_nonkn``; Rubin:
+``fink_extragalactic_new_candidate_lsst``). Rubin alerts carry no kilonova
+score (``clf`` holds supernova classifier scores only).
 """
 
 from __future__ import annotations
