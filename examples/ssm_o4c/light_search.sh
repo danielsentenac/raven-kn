@@ -1,6 +1,7 @@
 #!/bin/bash
 # Step 2 (HTCondor job): light search around one event.
 #   $1 event   $2 data kind (raw | hoft)   $3 bank (tmpl | equal)   $4 statistic (coherent | network)
+#   $5 (optional) polarisation of the coherent statistic: circular | face_on | face_away
 # tmpl : templates with the mass ratio and spins of the pipeline event, chirp mass +-1 %
 # equal: equal-mass non-spinning templates (the pipeline default), chirp mass +-1 %
 set -e
@@ -21,4 +22,5 @@ PY
 python -m raven_kn.cli targeted --ra $RA --dec $DEC --gps-start $A --gps-end $B --ifos $IFOS \
     --mchirp-min $MCA --mchirp-max $MCB --mass-ratio $Q --spin1z=$S1 --spin2z=$S2 --f-low $FLOW \
     --manifest manifest_$1_$2.json --frame-dir frames_$1_$2 --statistic $4 --n-slides 0 --n-offsource 20 \
-    --label $1_$2_$3_$4 --out .
+    --polarisation ${5:-free} \
+    --label $1_$2_$3_$4${5:+_$5} --out .

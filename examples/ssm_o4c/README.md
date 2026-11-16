@@ -18,5 +18,8 @@ parameter or result is distributed here.
      (`--mass-ratio`, `--spin1z`, `--spin2z`), chirp mass within 1 %;
    - `equal`: equal-mass non-spinning templates (the default bank), chirp mass within 1 %.
    Each job runs 20 off-source trials.
+   `condor_submit light_search_polarisation.sub` adds, on the calibrated strain with the pipeline
+   template, the coherent statistic restricted to a circular polarisation (`circular`, `face_on`,
+   `face_away`), to compare with the unrestricted one.
 4. `python summary.py`: one line per result (statistic, per-detector SNR, chirp mass, time
    offset from `t0`, off-source maximum and p-value).

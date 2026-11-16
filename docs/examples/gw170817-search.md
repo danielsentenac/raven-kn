@@ -132,6 +132,27 @@ The light search's per-detector reduced chi-square on the same data is 1.04–1.
 value scatters by 0.09, and the two codes use different bins, spectra and templates, so these agree
 within about two standard deviations.
 
+### Inclination prior: circular polarisation
+
+With an electromagnetic constraint on the inclination, the coherent statistic can be restricted to a
+circularly polarised signal (`--polarisation`, [Targeted GW search](../targeted-search.md)). The request
+of the reverse replay allows viewing angles up to 58° and selects the `circular` mode by itself. Same GRB
+window on the GWOSC frames, 69 templates (chirp mass 1.19–1.205 M☉), 100 off-source trials per mode
+(`examples/polarisation_gw170817/`, HTCondor jobs at CIT):
+
+| Mode | Reweighted coherent SNR | Null SNR | Reduced chi-square | Loudest off-source trial | Trials with a candidate |
+|---|---|---|---|---|---|
+| free (two polarisations) | 30.07 | 1.30 | 1.04 | 6.44 | 36 |
+| circular (either handedness) | 30.02 | 2.19 | 1.04 | 5.94 | 26 |
+| face-away | 30.02 | 2.19 | 1.04 | 5.89 | 23 |
+| face-on | 26.80 | 5.13 | 1.19 | 5.94 | 23 |
+
+The restriction costs 0.2 % of the SNR and the data choose face-away, as the known inclination of
+GW170817 (about 150°) requires; forcing face-on loses 11 % and raises the null SNR. The separation
+between the two handednesses is modest because H1 and L1 are nearly aligned and Virgo is weak. The
+loudest off-source trial is lower and fewer trials give a candidate; with 100 trials and a small bank
+the size of that gain is indicative only. The p-value stays at its floor, 1/101, in every mode.
+
 ## Data-quality vetoes
 
 DQSegDB queried live from CIT (O2 CBC veto definer, ±600 s around the merger): H1, L1 and V1 in science

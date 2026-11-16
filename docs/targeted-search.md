@@ -19,6 +19,14 @@ A PyCBC-based search that runs on a laptop or a single cluster node:
       √Σρ², counted only when two detectors exceed 4; or
     - *coherent* (`--statistic coherent`, as PyGRB): complex SNRs projected onto the network's response to
       the two polarisations at the known position; the remainder (null stream) is cut as in PyGRB.
+    - *Inclination prior* (`--polarisation circular|face_on|face_away`, coherent statistic): when the
+      electromagnetic data say the system is seen close to its axis (a GRB, an afterglow or VLBI
+      measurement), the signal is circularly polarised and the complex SNRs are projected onto that single
+      response instead of the two-polarisation plane, as PyGRB's left/right modes. The coherent SNR then
+      carries 2 noise degrees of freedom instead of 4, and two detectors are enough for a null stream.
+      `circular` takes the better of face-on and face-away; a request whose viewing angle is below 60°
+      selects it automatically (or a single handedness if the inclination prior excludes one hemisphere).
+      The result notes give the fraction of the SNR kept at the largest allowed viewing angle.
 - **Signal consistency**: a power chi-square where a detector's SNR exceeds 5.
     - *network*: 16 bins; each detector's SNR is replaced by its newSNR.
     - *coherent*: as PyGRB, one chi-square summed over the detectors reweights the coherent SNR, with

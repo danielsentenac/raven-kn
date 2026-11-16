@@ -36,7 +36,11 @@ the polarisation angle): rho_coh^2 = z^H P z, rho_null^2 = |z|^2 -
 rho_coh^2. With two detectors P = 1 (rho_coh = rho_net, no null stream);
 with three, rho_null (2 degrees of freedom in noise) rejects candidates
 whose phases and amplitudes no astrophysical signal from that direction can
-produce. Candidates are cut, as in PyGRB, if rho_null > ``null_min`` (or
+produce. With an EM constraint on the inclination (``polarisation``), z is
+projected instead onto the response to a circularly polarised signal,
+sigma_d (F+_d -/+ i Fx_d) for a face-on/face-away system: 2 instead of 4
+noise degrees of freedom in rho_coh, and a null stream even with two
+detectors. Candidates are cut, as in PyGRB, if rho_null > ``null_min`` (or
 ``null_min + null_grad (rho_coh - null_step)`` above ``null_step``). Per
 detector newSNR reweighting scales z_d before projection. Time slides shift
 whole samples; the loudest on-source candidate is removed from them by 1 s
@@ -109,6 +113,12 @@ class TargetedSearchConfig:
                                              # detector's SNR reweighted before the projection
     coherent_chisq_bins: str = "pygrb"       # coherent: "pygrb" = int(0.72 f^0.7), f the template's
                                              # ISCO frequency (~125 bins for a BNS); "fixed" = chisq_bins
+    polarisation: str = "free"               # coherent: "free" (any inclination, two polarisations);
+                                             # "circular" (close to face-on or face-away, the better
+                                             # of the two), "face_on" (inclination near 0), "face_away"
+                                             # (near 180 deg): one circular polarisation, so less
+                                             # noise in the statistic (PyGRB's left/right modes)
+    viewing_angle_max_deg: Optional[float] = None   # EM upper bound, reported with the SNR kept
     null_min: float = 5.25                   # coherent: null-SNR cut (PyGRB's --null-min/-grad/-step)
     null_grad: float = 0.2
     null_step: float = 20.0
@@ -122,8 +132,28 @@ class TargetedSearchConfig:
                   gps_end=r["gps_end"], label=r.get("candidate", "targeted"))
         if "mchirp_range" in r:
             kw["mchirp_min"], kw["mchirp_max"] = r["mchirp_range"]
+        kw.update(polarisation_from_priors(r.get("priors") or {}))
         kw.update(overrides)
         return cls(**kw)
+
+
+CIRCULAR_MAX_VIEWING_DEG = 60.0      # the circular statistic keeps > 99 % of the SNR up to there
+                                     # for a network equally sensitive to both polarisations
+
+
+def polarisation_from_priors(priors: dict) -> dict:
+    """Polarisation restriction of the coherent statistic implied by the EM
+    inclination prior of a search request: circular when the viewing angle
+    (from the nearer pole) is below ``CIRCULAR_MAX_VIEWING_DEG``; a single
+    handedness when the inclination ranges exclude one hemisphere."""
+    va = priors.get("viewing_angle_deg")
+    if not va or va[1] > CIRCULAR_MAX_VIEWING_DEG:
+        return {}
+    ranges = priors.get("inclination_ranges_rad") or []
+    on = any(a < math.pi / 2 for a, b in ranges)
+    away = any(b > math.pi / 2 for a, b in ranges)
+    mode = "face_on" if on and not away else "face_away" if away and not on else "circular"
+    return {"polarisation": mode, "viewing_angle_max_deg": float(va[1])}
 
 
 # --------------------------------------------------------------------------
@@ -708,6 +738,40 @@ def coherent_projector(sigmas: Sequence[float], fplus: Sequence[float],
     return w @ np.linalg.pinv(w.T @ w) @ w.T
 
 
+def circular_projectors(sigmas: Sequence[float], fplus: Sequence[float], fcross: Sequence[float],
+                        polarisation: str = "circular") -> list[np.ndarray]:
+    """Projectors onto the network response to a circularly polarised signal.
+    In LAL's convention the cross polarisation of a face-on system
+    (inclination 0) is -i times the plus one, so its complex SNRs lie along
+    sigma (F+ - i Fx); face-away (inclination pi): sigma (F+ + i Fx)."""
+    out = []
+    for name, sign in (("face_on", -1j), ("face_away", 1j)):
+        if polarisation in ("circular", name):
+            w = np.asarray(sigmas) * (np.asarray(fplus) + sign * np.asarray(fcross))
+            out.append(np.outer(w, w.conj()) / np.vdot(w, w).real)
+    if not out:
+        raise ValueError(f"unknown polarisation {polarisation!r}")
+    return out
+
+
+def circular_snr_fraction(sigmas: Sequence[float], fplus: Sequence[float], fcross: Sequence[float],
+                          inclination_rad: float, polarisation: str = "circular") -> float:
+    """Fraction of the coherent SNR of a signal of that inclination kept by
+    the circular statistic (the worst case over the polarisation angle)."""
+    wp = np.asarray(sigmas) * np.asarray(fplus)
+    wx = np.asarray(sigmas) * np.asarray(fcross)
+    c = math.cos(inclination_rad)
+    proj = circular_projectors(sigmas, fplus, fcross, polarisation)
+    worst = 1.0
+    for psi in np.linspace(0, math.pi / 2, 91):
+        c2, s2 = math.cos(2 * psi), math.sin(2 * psi)
+        s = 0.5 * (1 + c * c) * (c2 * wp + s2 * wx) - 1j * c * (-s2 * wp + c2 * wx)
+        tot = np.vdot(s, s).real
+        if tot > 0:
+            worst = min(worst, max(np.vdot(s, P @ s).real for P in proj) / tot)
+    return math.sqrt(max(worst, 0.0))
+
+
 def null_cut(rho_coh: np.ndarray, rho_null: np.ndarray, null_min: float = 5.25,
              null_grad: float = 0.2, null_step: float = 20.0) -> np.ndarray:
     """True where the candidate fails PyGRB's null-SNR cut."""
@@ -738,6 +802,16 @@ def _coherent_subsegment(cfg, bank, ifos, stilde, psds, delays, gates, start, en
     n_null_cut = 0
     t0 = None
     net_chisq = bool(cfg.chisq_bins) and cfg.coherent_chisq == "network"
+    has_null = len(ifos) >= 3 or cfg.polarisation != "free"    # circular: one null even with 2
+    pol_note = ""
+    if cfg.polarisation != "free":
+        pol_note = f", {cfg.polarisation.replace('_', '-')} polarisation"
+        if cfg.viewing_angle_max_deg is not None:
+            v = cfg.viewing_angle_max_deg
+            fr = [circular_snr_fraction(np.ones(len(ifos)), fp, fx, math.radians(x), cfg.polarisation)
+                  for x in {"face_on": (v,), "face_away": (180 - v,)}.get(cfg.polarisation, (v, 180 - v))]
+            pol_note += (f" (keeps >= {100 * min(fr):.1f} % of the SNR up to a viewing angle of "
+                         f"{cfg.viewing_angle_max_deg:.0f} deg, equal detector sensitivities)")
     for it, mc in enumerate(bank):
         m1, m2 = _masses(mc, cfg.mass_ratio)
         nb = (pygrb_chisq_bins(mc, cfg.mass_ratio) if cfg.coherent_chisq_bins == "pygrb"
@@ -782,7 +856,8 @@ def _coherent_subsegment(cfg, bank, ifos, stilde, psds, delays, gates, start, en
             z.append(zi)
             chi.append(ci)
             sig.append(4 * st.delta_f / norm)       # sqrt(sigmasq): matched_filter_core's norm
-        P = coherent_projector(sig, fp, fx)
+        proj = ([coherent_projector(sig, fp, fx)] if cfg.polarisation == "free"
+                else circular_projectors(sig, fp, fx, cfg.polarisation))
         above = [np.flatnonzero(np.abs(zi) >= thr) for zi in z]
         for k in range(len(shifts)):
             pos = np.concatenate([(a + sh[k, d]) % L for d, a in enumerate(above)])
@@ -794,7 +869,7 @@ def _coherent_subsegment(cfg, bank, ifos, stilde, psds, delays, gates, start, en
                 continue
             Z = np.stack([z[d][(cand - sh[k, d]) % L] for d in range(len(ifos))])   # (n_ifo, n_cand)
             net2 = np.sum(np.abs(Z) ** 2, axis=0)
-            coh2 = np.real(np.einsum("ic,ij,jc->c", Z.conj(), P, Z))
+            coh2 = np.max([np.real(np.einsum("ic,ij,jc->c", Z.conj(), P, Z)) for P in proj], axis=0)
             coh = np.sqrt(np.clip(coh2, 0, None))
             null = np.sqrt(np.clip(net2 - coh2, 0, None))
             stat = coh.copy()
@@ -803,7 +878,7 @@ def _coherent_subsegment(cfg, bank, ifos, stilde, psds, delays, gates, start, en
                 C = np.stack([chi[d][(cand - sh[k, d]) % L] for d in range(len(ifos))])
                 chir = C.sum(axis=0) / (dof * len(ifos))
                 stat = np.asarray(newsnr(coh, chir), dtype=float)
-            if len(ifos) >= 3:
+            if has_null:
                 cut = null_cut(coh, null, cfg.null_min, cfg.null_grad, cfg.null_step)
                 stat[cut] = 0.0
                 if k == 0:
@@ -844,8 +919,9 @@ def _coherent_subsegment(cfg, bank, ifos, stilde, psds, delays, gates, start, en
                               + f" ({'PyGRB-rule' if cfg.coherent_chisq_bins == 'pygrb' else cfg.chisq_bins}"
                               f"-bin{', gate-aware' if cfg.gate_aware_chisq else ''} chi-square at "
                               + ", ".join(f"{i}:{n_chisq[i]}" for i in ifos) + " points)")
+                           + pol_note
                            + (f", {n_null_cut} zero-lag samples failed the null cut"
-                              if len(ifos) >= 3 else ", 2 detectors: no null stream")
+                              if has_null else ", 2 detectors: no null stream")
                            + ", delays " + ", ".join(f"{i}:{delays[i] * 1e3:+.1f} ms" for i in ifos)
                            + (", loudest removed from background" if removed else ""),
                            statistic="coherent")

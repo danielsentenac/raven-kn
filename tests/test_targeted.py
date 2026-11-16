@@ -323,3 +323,50 @@ def test_masses_from_chirp_mass_and_ratio():
     assert _masses(0.5, 0.25) == pytest.approx((m1, m2))          # ratio given as m2/m1
     assert _masses(1.2) == pytest.approx((_mass_equal(1.2),) * 2)
     assert pygrb_chisq_bins(0.5, 4.0) < pygrb_chisq_bins(0.5)     # heavier system: lower ISCO
+
+
+def test_circular_projectors():
+    from raven_kn.targeted.search import circular_projectors, circular_snr_fraction, coherent_projector
+    sig, fp, fx = [1.0, 1.2, 0.5], np.array([0.3, -0.5, 0.1]), np.array([0.6, 0.2, -0.7])
+    on, away = circular_projectors(sig, fp, fx)
+    for P in (on, away):
+        assert np.allclose(P @ P, P) and np.trace(P).real == pytest.approx(1)
+    z = np.asarray(sig) * (fp - 1j * fx) * np.exp(0.7j)            # face-on signal, any phase
+    assert np.vdot(z, on @ z).real == pytest.approx(np.vdot(z, z).real)
+    assert np.vdot(z, away @ z).real < 0.9 * np.vdot(z, z).real
+    assert np.allclose(coherent_projector(sig, fp, fx) @ on, on)   # inside the two-polarisation plane
+    assert circular_snr_fraction(sig, fp, fx, 0.0) == pytest.approx(1)
+    assert circular_snr_fraction(sig, fp, fx, np.pi, "face_away") == pytest.approx(1)
+    assert circular_snr_fraction(sig, fp, fx, np.radians(30)) > 0.99
+    assert circular_snr_fraction(sig, fp, fx, np.radians(85)) < 0.9
+    assert len(circular_projectors(sig, fp, fx, "face_on")) == 1
+
+
+def test_polarisation_from_priors():
+    from raven_kn.targeted.search import polarisation_from_priors
+    both = [[0.0, 0.5], [np.pi - 0.5, np.pi]]
+    assert polarisation_from_priors({"viewing_angle_deg": [0, 30], "inclination_ranges_rad": both}) == \
+        {"polarisation": "circular", "viewing_angle_max_deg": 30.0}
+    assert polarisation_from_priors({"viewing_angle_deg": [0, 30], "inclination_ranges_rad": both[1:]}
+                                    )["polarisation"] == "face_away"
+    assert polarisation_from_priors({"viewing_angle_deg": [0, 80], "inclination_ranges_rad": both}) == {}
+    assert polarisation_from_priors({}) == {}
+
+
+def test_coherent_circular_statistic():
+    """The injection is face-on (inclination 0): the face-on and circular
+    statistics keep its coherent SNR, the face-away one does not, and the
+    two-detector network gains a null stream."""
+    f = synthetic_fetcher(inject=True)
+    free = run(_coh_cfg(), f, progress=False).subsegments[0]
+    on = run(_coh_cfg(polarisation="face_on"), f, progress=False).subsegments[0]
+    circ = run(_coh_cfg(polarisation="circular", viewing_angle_max_deg=30.0), f, progress=False).subsegments[0]
+    away = run(_coh_cfg(polarisation="face_away"), f, progress=False).subsegments[0]
+    assert on.loudest_rho_coh == pytest.approx(free.loudest_rho_coh, rel=0.01)
+    assert circ.loudest_rho_coh == pytest.approx(on.loudest_rho_coh)
+    assert abs(on.loudest_gps - T_INJ) < 0.01 and on.p_value == pytest.approx(1 / (len(on.background) + 1))
+    assert away.loudest_rho_net < 0.9 * on.loudest_rho_net
+    assert "keeps >=" in circ.notes
+    two = run(_coh_cfg(ifos=("H1", "L1"), polarisation="face_on"), f, progress=False).subsegments[0]
+    assert "null cut" in two.notes and two.loudest_rho_null < 4
+    assert two.loudest_rho_coh == pytest.approx(two.loudest_rho_network, rel=0.03)

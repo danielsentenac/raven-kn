@@ -1,0 +1,24 @@
+universe              = vanilla
+executable            = run.sh
+arguments             = $(mode)
+accounting_group      = ligo.dev.o4.cbc.grb.cohptfoffline
+accounting_group_user = daniel.sentenac
+request_cpus          = 1
+request_memory        = 4 GB
+request_disk          = 2 GB
++DESIRED_Sites        = "LIGO-CIT"
++flock_local          = True
+MY.POOLS              = "IGWN,CIT"
+should_transfer_files = YES
+when_to_transfer_output = ON_EXIT
+transfer_input_files  = raven_kn, run.py, SSS17a_targeted_search_request.json, frames/H-H1_GWOSC_4KHZ_R1-1187006835-4096.gwf, frames/L-L1_GWOSC_4KHZ_R1-1187006835-4096.gwf, frames/V-V1_GWOSC_4KHZ_R1-1187006835-4096.gwf
+transfer_output_files = pol_$(mode)_targeted_result.json
+output                = logs/$(mode).out
+error                 = logs/$(mode).err
+log                   = logs/run.log
+queue mode from (
+  free
+  circular
+  face_on
+  face_away
+)
