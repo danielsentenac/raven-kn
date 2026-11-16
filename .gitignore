@@ -20,3 +20,8 @@ examples/**/nmma_out/*_result.json
 examples/injections/runs_inj*/fits/**/*.png
 examples/injections/runs_inj*/run*.log
 site/
+
+# O4c sub-solar-mass example: scripts only (downloads, template parameters and results stay local)
+examples/ssm_o4c/gracedb/
+examples/ssm_o4c/events.json
+examples/ssm_o4c/*_targeted_result.json

@@ -1,0 +1,32 @@
+universe              = vanilla
+executable            = light_search.sh
+arguments             = $(ev) $(kind) $(bank) $(stat)
+accounting_group      = ligo.dev.o4.cbc.grb.cohptfoffline
+accounting_group_user = daniel.sentenac
+request_cpus          = 1
+request_memory        = 6 GB
+request_disk          = 2 GB
++DESIRED_Sites        = "LIGO-CIT"
++flock_local          = True
+MY.POOLS              = "IGWN,CIT"
+should_transfer_files = YES
+when_to_transfer_output = ON_EXIT
+transfer_input_files  = raven_kn, events.json, manifest_$(ev)_$(kind).json, frames_$(ev)_$(kind)
+transfer_output_files = $(ev)_$(kind)_$(bank)_$(stat)_targeted_result.json
+output                = logs/$(ev)_$(kind)_$(bank)_$(stat).out
+error                 = logs/$(ev)_$(kind)_$(bank)_$(stat).err
+log                   = logs/light_search.log
+queue ev, kind, bank, stat from (
+  S250720j raw tmpl coherent
+  S250720j raw tmpl network
+  S250720j hoft tmpl coherent
+  S250720j raw equal coherent
+  S250818k raw tmpl coherent
+  S250818k raw tmpl network
+  S250818k hoft tmpl coherent
+  S250818k raw equal coherent
+  S251112cm raw tmpl coherent
+  S251112cm raw tmpl network
+  S251112cm hoft tmpl coherent
+  S251112cm raw equal coherent
+)

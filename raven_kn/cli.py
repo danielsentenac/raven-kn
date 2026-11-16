@@ -90,6 +90,10 @@ def main(argv=None):
     g.add_argument("--ifos", default="H1,L1,V1")
     g.add_argument("--mchirp-min", type=float, default=1.0)
     g.add_argument("--mchirp-max", type=float, default=1.5)
+    g.add_argument("--mass-ratio", type=float, default=1.0,
+                   help="m1/m2 of every template (default: equal masses)")
+    g.add_argument("--spin1z", type=float, default=0.0, help="aligned spin of every template")
+    g.add_argument("--spin2z", type=float, default=0.0)
     g.add_argument("--f-low", type=float, default=30.0)
     g.add_argument("--subsegment", type=float, default=1024.0)
     g.add_argument("--n-slides", type=int, default=200)
@@ -322,7 +326,8 @@ def main(argv=None):
     if args.cmd == "targeted":
         from .targeted.search import (TargetedSearchConfig, file_fetcher, gwosc_fetcher, run)
         kw = dict(ifos=tuple(args.ifos.split(",")), mchirp_min=args.mchirp_min,
-                  mchirp_max=args.mchirp_max, f_low=args.f_low, subsegment_s=args.subsegment,
+                  mchirp_max=args.mchirp_max, mass_ratio=args.mass_ratio, spin1z=args.spin1z,
+                  spin2z=args.spin2z, f_low=args.f_low, subsegment_s=args.subsegment,
                   n_slides=args.n_slides, n_offsource=args.n_offsource, statistic=args.statistic,
                   gate_threshold=None if args.no_gating else 50.0)
         if args.request:

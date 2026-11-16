@@ -75,6 +75,9 @@ class TargetedSearchConfig:
     ifos: Sequence[str] = DEFAULT_IFOS
     mchirp_min: float = 1.0
     mchirp_max: float = 1.5
+    mass_ratio: float = 1.0                  # m1 / m2 >= 1 of every template (the bank is 1-D in
+    spin1z: float = 0.0                      # chirp mass); aligned spins of every template. E.g.
+    spin2z: float = 0.0                      # the template of a pipeline event to be re-examined
     f_low: float = 30.0
     sample_rate: int = 2048
     subsegment_s: float = 1024.0
@@ -131,6 +134,13 @@ def _mass_equal(mchirp: float) -> float:
     return mchirp * 2 ** (1 / 5)          # m1 = m2 for chirp mass mchirp
 
 
+def _masses(mchirp: float, mass_ratio: float = 1.0) -> tuple[float, float]:
+    """(m1, m2) with m1 / m2 = ``mass_ratio`` >= 1 and chirp mass ``mchirp``."""
+    q = max(mass_ratio, 1.0 / mass_ratio)
+    m2 = mchirp * (1 + q) ** 0.2 / q ** 0.6
+    return q * m2, m2
+
+
 def template_duration(mchirp: float, f_low: float) -> float:
     """Leading-order inspiral time from f_low (s)."""
     G_c3 = 4.925490947e-6                  # G Msun / c^3 in s
@@ -184,20 +194,22 @@ def _direct_match(mc_a: float, mc_b: float, f_low: float, sample_rate: int) -> f
 
 def build_bank(mchirp_min: float, mchirp_max: float, f_low: float = 30.0,
                min_match: float = 0.97, sample_rate: int = 2048,
-               max_templates: int = 20000, calibrate: bool = True) -> list[float]:
-    """Chirp masses of equal-mass, non-spinning TaylorF2 templates spaced with
+               max_templates: int = 20000, calibrate: bool = True,
+               mass_ratio: float = 1.0) -> list[float]:
+    """Chirp masses of TaylorF2 templates (equal-mass unless ``mass_ratio``) spaced with
     the analytic chirp-mass metric (aLIGO design PSD) so that a signal
     half-way between two neighbours keeps a match ``min_match`` (minimal
     match). The leading-order metric underestimates the mismatch at these
     step sizes; the step factor is calibrated once, at ``mchirp_min``, by
     bisection on direct TaylorF2 matches (it is nearly independent of Mc).
-    Upper frequency: ISCO of the equal-mass system, capped at Nyquist."""
+    Upper frequency: ISCO of the system, capped at Nyquist. The spacing comes
+    from the leading-order phase, which depends on the chirp mass only."""
     if mchirp_min >= mchirp_max:
         return [mchirp_min]
     psd = _aligo_psd()
 
     def step(mc, c):
-        f_isco = 4400.0 / (2 * _mass_equal(mc))
+        f_isco = 4400.0 / sum(_masses(mc, mass_ratio))
         g = _chirp_metric(mc, f_low, min(f_isco, sample_rate / 2), psd)
         return c * 2 * math.sqrt(2 * (1 - min_match) / g)
 
@@ -413,11 +425,11 @@ def slide_shifts(n_ifos: int, n_steps: int, n_slides: int) -> list[tuple[int, ..
     return out
 
 
-def pygrb_chisq_bins(mchirp: float) -> int:
+def pygrb_chisq_bins(mchirp: float, mass_ratio: float = 1.0) -> int:
     """Number of power chi-square bins as in LVK's PyGRB configuration,
-    int(0.72 f^0.7), with f the ISCO frequency of the equal-mass template in
-    place of IMRPhenomD's peak frequency (TaylorF2 templates end at ISCO)."""
-    m_tot = 2 * _mass_equal(mchirp)
+    int(0.72 f^0.7), with f the ISCO frequency of the template in place of
+    IMRPhenomD's peak frequency (TaylorF2 templates end at ISCO)."""
+    m_tot = sum(_masses(mchirp, mass_ratio))
     f_isco = 1.0 / (6 ** 1.5 * np.pi * m_tot * 4.925490947e-6)
     return max(int(0.72 * f_isco ** 0.7), 2)
 
@@ -596,10 +608,11 @@ def search_subsegment(cfg: TargetedSearchConfig, bank: Sequence[float], fetch: S
     n_chisq = {ifo: 0 for ifo in ifos}
     pooled = {ifo: [] for ifo in ifos}               # per template, pooled |snr| aligned to geocentre
     for mc in bank:
-        m = _mass_equal(mc)
+        m1, m2 = _masses(mc, cfg.mass_ratio)
         for ifo in ifos:
             st = stilde[ifo]
-            hp, _ = get_fd_waveform(approximant="TaylorF2", mass1=m, mass2=m,
+            hp, _ = get_fd_waveform(approximant="TaylorF2", mass1=m1, mass2=m2,
+                                    spin1z=cfg.spin1z, spin2z=cfg.spin2z,
                                     delta_f=st.delta_f, f_lower=cfg.f_low)
             hp.resize(len(st))
             snr_u, corr, norm = matched_filter_core(hp, st, psd=psds[ifo],
@@ -726,13 +739,15 @@ def _coherent_subsegment(cfg, bank, ifos, stilde, psds, delays, gates, start, en
     t0 = None
     net_chisq = bool(cfg.chisq_bins) and cfg.coherent_chisq == "network"
     for it, mc in enumerate(bank):
-        m = _mass_equal(mc)
-        nb = pygrb_chisq_bins(mc) if cfg.coherent_chisq_bins == "pygrb" else (cfg.chisq_bins or 0)
+        m1, m2 = _masses(mc, cfg.mass_ratio)
+        nb = (pygrb_chisq_bins(mc, cfg.mass_ratio) if cfg.coherent_chisq_bins == "pygrb"
+              else (cfg.chisq_bins or 0))
         dof = 2 * nb - 2
         z, sig, chi = [], [], []
         for ifo in ifos:
             st = stilde[ifo]
-            hp, _ = get_fd_waveform(approximant="TaylorF2", mass1=m, mass2=m,
+            hp, _ = get_fd_waveform(approximant="TaylorF2", mass1=m1, mass2=m2,
+                                    spin1z=cfg.spin1z, spin2z=cfg.spin2z,
                                     delta_f=st.delta_f, f_lower=cfg.f_low)
             hp.resize(len(st))
             t0 = float(st.start_time)
@@ -894,7 +909,8 @@ def subsegment_pvalue(r: "SubsegmentResult", min_slides: int = 20) -> float:
 def run(cfg: TargetedSearchConfig, fetch: StrainFetcher, out_dir: Optional[str | Path] = None,
         bank: Optional[Sequence[float]] = None, progress: bool = True) -> TargetedSearchResult:
     bank = list(bank) if bank is not None else build_bank(
-        cfg.mchirp_min, cfg.mchirp_max, cfg.f_low, cfg.min_match, cfg.sample_rate, cfg.max_templates)
+        cfg.mchirp_min, cfg.mchirp_max, cfg.f_low, cfg.min_match, cfg.sample_rate, cfg.max_templates,
+        mass_ratio=cfg.mass_ratio)
     edges = np.arange(cfg.gps_start, cfg.gps_end, cfg.subsegment_s).tolist() + [cfg.gps_end]
     subs = []
     short = cfg.gps_end - cfg.gps_start < 16       # e.g. a GRB window [-5, +1] s: search it whole

@@ -313,3 +313,13 @@ def test_coherent_network_chisq_suppresses_glitch():
     rw = run(TargetedSearchConfig(**base), _glitchy(), progress=False).subsegments[0]
     assert raw.loudest_rho_net > 10
     assert rw.loudest_rho_net < 0.7 * raw.loudest_rho_net
+
+
+def test_masses_from_chirp_mass_and_ratio():
+    from raven_kn.targeted.search import _mass_equal, _masses, pygrb_chisq_bins
+    m1, m2 = _masses(0.5, 4.0)
+    assert m1 / m2 == pytest.approx(4.0)
+    assert (m1 * m2) ** 0.6 / (m1 + m2) ** 0.2 == pytest.approx(0.5)
+    assert _masses(0.5, 0.25) == pytest.approx((m1, m2))          # ratio given as m2/m1
+    assert _masses(1.2) == pytest.approx((_mass_equal(1.2),) * 2)
+    assert pygrb_chisq_bins(0.5, 4.0) < pygrb_chisq_bins(0.5)     # heavier system: lower ISCO

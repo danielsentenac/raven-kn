@@ -1,0 +1,11 @@
+{
+ "S250720j":  {"t0": 1437012926.464, "window": [-3.73, 2.27], "ra": 225.917, "dec": -53.524,
+               "position": "maximum of the GW x Fermi-GBM map (combined-ext)", "ifos": "H1,L1",
+               "f_low": 45.0, "mchirp": null, "m1": null, "m2": null, "spin1z": null, "spin2z": null},
+ "S250818k":  {"t0": 1439515224.030, "window": [-3.0, 3.0], "ra": 237.9757129, "dec": 30.9023146,
+               "position": "AT2025ulz", "ifos": "H1,L1,V1",
+               "f_low": 30.0, "mchirp": null, "m1": null, "m2": null, "spin1z": null, "spin2z": null},
+ "S251112cm": {"t0": 1446995943.362, "window": [-3.0, 3.0], "ra": 148.975, "dec": 6.580,
+               "position": "maximum of the Bilby map", "ifos": "H1,L1,V1",
+               "f_low": 45.0, "mchirp": null, "m1": null, "m2": null, "spin1z": null, "spin2z": null}
+}
