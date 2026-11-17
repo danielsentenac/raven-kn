@@ -98,9 +98,20 @@ distance distributions. See [Distance, rate and joint FAR](coincidence.md).
 
 ## 5b. Without a GW alert: targeted search
 
-The window, sky position and chirp-mass range (from the distance) become a search request. RAVEN-KN runs a
-light PyCBC search itself, or writes a configuration for PyGRB, LVK's production targeted search. See
-[Targeted GW search](targeted-search.md).
+The window, the sky position and the electromagnetic priors become a search request: the distance and
+inclination ranges, and the chirp-mass range in the detector frame (source-frame range times 1 + z).
+RAVEN-KN runs a light PyCBC search itself, or writes a configuration for PyGRB, LVK's production targeted
+search.
+
+The light search uses the priors to restrict the signal it looks for:
+
+- **inclination**: a viewing angle below 60° restricts the coherent statistic to a circular polarisation;
+- **distance** (`--distance-prior`): candidates are ranked by the likelihood of a source at the
+  electromagnetic distance and inclination;
+- **redshift**: the template bank covers the detector-frame chirp masses.
+
+The loudest candidate can then be followed up with Bilby (`--pe em|gw|both`), sky position fixed, with or
+without the electromagnetic distance and inclination priors. See [Targeted GW search](targeted-search.md).
 
 ## 6. Real time
 

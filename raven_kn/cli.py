@@ -5,6 +5,7 @@ from __future__ import annotations
 
 import argparse
 import json
+from pathlib import Path
 import os
 
 from .connection import load_candidate
@@ -98,6 +99,19 @@ def main(argv=None):
                    help="coherent statistic: restrict to a circularly polarised signal (system seen "
                         "close to face-on and/or face-away, e.g. a GRB); default: from the request's "
                         "inclination prior, else free")
+    g.add_argument("--distance-prior", action="store_true",
+                   help="coherent statistic: rank candidates by the likelihood marginalised over the "
+                        "request's EM distance and inclination prior (or --distance-range)")
+    g.add_argument("--distance-range", help="EM luminosity distance interval in Mpc, as lo,hi")
+    g.add_argument("--pe", choices=["em", "gw", "both"],
+                   help="after the search, Bilby parameter estimation of the loudest candidate at the "
+                        "EM sky position: em = EM distance and inclination priors, gw = distance "
+                        "uniform in volume and isotropic orientation, both = the two, to compare")
+    g.add_argument("--pe-result", metavar="FILE",
+                   help="with --pe: take the candidate from this targeted result instead of searching")
+    g.add_argument("--pe-nlive", type=int, default=500)
+    g.add_argument("--pe-npool", type=int, default=1)
+    g.add_argument("--pe-duration", type=float, default=64.0, help="analysed data length (s)")
     g.add_argument("--f-low", type=float, default=30.0)
     g.add_argument("--subsegment", type=float, default=1024.0)
     g.add_argument("--n-slides", type=int, default=200)
@@ -334,6 +348,10 @@ def main(argv=None):
                   spin2z=args.spin2z, f_low=args.f_low, subsegment_s=args.subsegment,
                   n_slides=args.n_slides, n_offsource=args.n_offsource, statistic=args.statistic,
                   gate_threshold=None if args.no_gating else 50.0)
+        if args.distance_prior:
+            kw["distance_prior"] = True
+        if args.distance_range:
+            kw["distance_range_mpc"] = tuple(float(x) for x in args.distance_range.split(","))
         if args.polarisation:
             kw["polarisation"] = args.polarisation
         if args.request:
@@ -376,11 +394,23 @@ def main(argv=None):
                                   "errors": {i: m["error"] for i, m in man["ifos"].items() if "error" in m}},
                                  indent=2))
                 return
-        res = run(cfg, fetch, args.out)
-        print(json.dumps({"p_value": res.p_value,
-                          "p_value_extrapolated": res.loudest.get("p_value_extrapolated"),
-                          "bank_size": res.bank_size,
-                          "loudest": res.loudest}, indent=2, default=float))
+        if args.pe and args.pe_result:
+            loudest = json.loads(Path(args.pe_result).read_text())["loudest"]
+        else:
+            res = run(cfg, fetch, args.out)
+            loudest = res.loudest
+            print(json.dumps({"p_value": res.p_value,
+                              "p_value_extrapolated": res.loudest.get("p_value_extrapolated"),
+                              "bank_size": res.bank_size,
+                              "loudest": res.loudest}, indent=2, default=float))
+        if args.pe and loudest.get("loudest_rho_net", 0) > 0:
+            from .targeted.pe import run_pe
+            ifos = list(loudest.get("loudest_rho_ifo") or cfg.ifos)
+            for em in {"em": (True,), "gw": (False,), "both": (True, False)}[args.pe]:
+                out = run_pe(cfg, fetch, loudest["loudest_mchirp"], loudest["loudest_gps"], args.out,
+                             em=em, ifos=ifos, duration=args.pe_duration, nlive=args.pe_nlive,
+                             npool=args.pe_npool)
+                print(json.dumps(out, indent=2, default=float))
         return
     kn = load_candidate(args.candidate)
     if args.cmd == "nmma":

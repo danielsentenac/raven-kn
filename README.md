@@ -12,7 +12,7 @@ candidates (joint FAR) and/or a targeted search of archived strain.**
 
 ## Workflow
 
-![RAVEN-KN workflow: optical, spectroscopic, GRB and neutrino inputs build a kilonova candidate; treatment derives the merger-time window, distance and kilonova rate; with a GW alert these give a coincidence and a joint FAR; without one, a targeted PyCBC or PyGRB search runs once the transient is confirmed as a kilonova and is detectable](docs/raven-kn-workflow.svg)
+![RAVEN-KN workflow: optical, spectroscopic, GRB and neutrino inputs build a kilonova candidate; treatment derives the merger-time window, distance and kilonova rate; with a GW alert these give a coincidence and a joint FAR; without one, a targeted PyCBC or PyGRB search runs once the transient is confirmed as a kilonova and is detectable, with the electromagnetic distance and inclination as priors for the search and the parameter estimation](docs/raven-kn-workflow.svg)
 
 Everything downstream depends on the merger-time window (highlighted). With a GW alert it sets the
 coincidence; without one it sets the stretch of strain data to search. A targeted search is triggered only

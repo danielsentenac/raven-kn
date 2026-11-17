@@ -115,6 +115,14 @@ def calc_signif_gracedb(kn: KNCandidate, superevent: dict, window: MergerTimeWin
     return res
 
 
+def redshift_range(distance_range_mpc) -> list[float]:
+    """Redshifts of a luminosity-distance interval (Planck 2018)."""
+    from astropy import units as u
+    from astropy.cosmology import Planck18, z_at_value
+    return [float(z_at_value(Planck18.luminosity_distance, max(d, 1e-3) * u.Mpc, zmax=10.0))
+            for d in distance_range_mpc]
+
+
 def assess(kn: KNCandidate, out_dir: Optional[str | Path] = None,
            ranges_mpc: dict[str, float] = DEFAULT_RANGES_MPC,
            snr_threshold: float = 6.0, p_min: float = 0.1,
@@ -122,6 +130,7 @@ def assess(kn: KNCandidate, out_dir: Optional[str | Path] = None,
            segments=None, duty_cycle=None, d_max_prior: float = 1500.0,
            nside: int = 512, model_sys_frac: float = 0.75,
            chirp_mass_msun: Optional[float] = None, require_kn_evidence: bool = True,
+           mchirp_source_range: tuple[float, float] = (1.0, 1.5),
            kn_evidence_kw: Optional[dict] = None) -> dict:
     """Targeted-search trigger decision for one kilonova candidate.
 
@@ -132,6 +141,9 @@ def assess(kn: KNCandidate, out_dir: Optional[str | Path] = None,
     :func:`raven_kn.treatment.kilonova_evidence.kilonova_evidence`);
     (5) decision: search if detectable and (with ``require_kn_evidence``)
     confirmed as a kilonova.
+    The request's chirp-mass range is in the detector frame: the source-frame
+    ``mchirp_source_range`` times (1 + z) over the redshifts of the distance
+    prior (``chirp_mass_msun``, if given, is taken as is, +-10 %).
     If ``out_dir`` is given, write the decision, the 3D sky map, the
     posterior samples and the targeted-search request there.
     """
@@ -163,12 +175,17 @@ def assess(kn: KNCandidate, out_dir: Optional[str | Path] = None,
                             post if post.constraints else None)
         np.savez(out / f"{stem}_dist_incl_samples.npz", luminosity_distance=post.d_mpc,
                  cos_iota=post.cos_iota)
+        z_range = redshift_range(decision["search_priors"]["luminosity_distance_mpc"]) \
+            if post.constraints else [0.0, 0.0]
         request = {
             "candidate": kn.name, "ra_deg": kn.ra, "dec_deg": kn.dec,
             "gps_start": window.gps_start, "gps_end": window.gps_end,
             "priors": decision["search_priors"], "skymap": fits.name,
             "mchirp_range": ([0.9 * chirp_mass_msun, 1.1 * chirp_mass_msun] if chirp_mass_msun
-                             else [1.0, 1.5]),
+                             else [mchirp_source_range[0] * (1 + z_range[0]),
+                                   mchirp_source_range[1] * (1 + z_range[1])]),
+            "mchirp_source_range": None if chirp_mass_msun else list(mchirp_source_range),
+            "redshift_range": z_range,
             "samples": f"{stem}_dist_incl_samples.npz",
             "note": "split windows longer than a few hours into sub-segments (Earth rotation)",
         }

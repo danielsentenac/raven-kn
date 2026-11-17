@@ -40,7 +40,11 @@ produce. With an EM constraint on the inclination (``polarisation``), z is
 projected instead onto the response to a circularly polarised signal,
 sigma_d (F+_d -/+ i Fx_d) for a face-on/face-away system: 2 instead of 4
 noise degrees of freedom in rho_coh, and a null stream even with two
-detectors. Candidates are cut, as in PyGRB, if rho_null > ``null_min`` (or
+detectors. With an EM distance as well (``distance_prior``), candidates are
+ranked by sqrt(2 ln L), L the likelihood ratio of z for a signal from the
+source against noise, marginalised over the distance and inclination prior,
+the polarisation angle and the phase: noise too weak for a source at that
+distance drops out of the background. Candidates are cut, as in PyGRB, if rho_null > ``null_min`` (or
 ``null_min + null_grad (rho_coh - null_step)`` above ``null_step``). Per
 detector newSNR reweighting scales z_d before projection. Time slides shift
 whole samples; the loudest on-source candidate is removed from them by 1 s
@@ -119,6 +123,15 @@ class TargetedSearchConfig:
                                              # (near 180 deg): one circular polarisation, so less
                                              # noise in the statistic (PyGRB's left/right modes)
     viewing_angle_max_deg: Optional[float] = None   # EM upper bound, reported with the SNR kept
+    distance_prior: bool = False             # coherent: rank candidates by the likelihood of the data
+                                             # marginalised over the EM distance and inclination
+                                             # (below), sqrt(2 ln L): a candidate too weak for a
+                                             # source at that distance is not a candidate
+    distance_range_mpc: Optional[Sequence[float]] = None        # EM priors (search request)
+    inclination_ranges_rad: Optional[Sequence[Sequence[float]]] = None
+    prior_samples: Optional[str] = None      # npz with joint luminosity_distance, cos_iota samples
+    distance_prior_floor: float = 5.0        # evaluated where the reweighted coherent SNR exceeds this
+    distance_prior_n: int = 1024             # prior draws
     null_min: float = 5.25                   # coherent: null-SNR cut (PyGRB's --null-min/-grad/-step)
     null_grad: float = 0.2
     null_step: float = 20.0
@@ -132,7 +145,14 @@ class TargetedSearchConfig:
                   gps_end=r["gps_end"], label=r.get("candidate", "targeted"))
         if "mchirp_range" in r:
             kw["mchirp_min"], kw["mchirp_max"] = r["mchirp_range"]
-        kw.update(polarisation_from_priors(r.get("priors") or {}))
+        pr = r.get("priors") or {}
+        kw.update(polarisation_from_priors(pr))
+        if pr.get("luminosity_distance_mpc"):
+            kw["distance_range_mpc"] = tuple(pr["luminosity_distance_mpc"])
+        if pr.get("inclination_ranges_rad"):
+            kw["inclination_ranges_rad"] = [tuple(x) for x in pr["inclination_ranges_rad"]]
+        if r.get("samples") and (Path(path).parent / r["samples"]).exists():
+            kw["prior_samples"] = str(Path(path).parent / r["samples"])
         kw.update(overrides)
         return cls(**kw)
 
@@ -332,6 +352,10 @@ class SubsegmentResult:
     loudest_rho_null: Optional[float] = None
     loudest_rho_network: Optional[float] = None
     loudest_chisq_r: Optional[float] = None  # coherent, network chi-square: reduced value
+    loudest_prior_lnl: Optional[float] = None            # coherent with distance_prior: ln likelihood ratio
+    loudest_distance_circular_mpc: Optional[float] = None   # coherent: distance of the loudest candidate
+                                                            # if seen face-on or face-away (upper bound
+                                                            # on the distance for other inclinations)
 
 
 @dataclass
@@ -772,6 +796,54 @@ def circular_snr_fraction(sigmas: Sequence[float], fplus: Sequence[float], fcros
     return math.sqrt(max(worst, 0.0))
 
 
+def prior_draws(cfg: "TargetedSearchConfig", seed: int = 0) -> tuple[np.ndarray, np.ndarray, np.ndarray]:
+    """Draws (a_plus, a_cross, psi) from the EM prior: the joint distance and
+    inclination samples of the request if present, else distance uniform in
+    volume within ``distance_range_mpc`` and isotropic orientation within
+    ``inclination_ranges_rad`` (all orientations if not given); polarisation
+    angle uniform. Amplitudes in units of the template at 1 Mpc:
+    a_plus = (1 + cos^2 i) / (2 D), a_cross = cos i / D."""
+    rng = np.random.default_rng(seed)
+    n = cfg.distance_prior_n
+    if cfg.prior_samples:
+        f = np.load(cfg.prior_samples)
+        k = rng.integers(0, len(f["luminosity_distance"]), n)
+        d, c = np.asarray(f["luminosity_distance"])[k], np.asarray(f["cos_iota"])[k]
+    else:
+        if not cfg.distance_range_mpc:
+            raise ValueError("distance_prior needs distance_range_mpc or prior_samples")
+        lo, hi = cfg.distance_range_mpc
+        d = (lo ** 3 + rng.random(n) * (hi ** 3 - lo ** 3)) ** (1 / 3)
+        ranges = cfg.inclination_ranges_rad or [(0.0, math.pi)]
+        cr = np.array([[math.cos(b), math.cos(a)] for a, b in ranges])      # cos decreasing in i
+        k = rng.choice(len(cr), n, p=(cr[:, 1] - cr[:, 0]) / (cr[:, 1] - cr[:, 0]).sum())
+        c = cr[k, 0] + rng.random(n) * (cr[k, 1] - cr[k, 0])
+    return 0.5 * (1 + c * c) / d, c / d, rng.random(n) * math.pi
+
+
+def prior_lnl(Z: np.ndarray, sigmas: Sequence[float], fplus: Sequence[float], fcross: Sequence[float],
+              draws: tuple[np.ndarray, np.ndarray, np.ndarray], chunk: int = 1024) -> np.ndarray:
+    """ln of the likelihood ratio (signal from the EM source against Gaussian
+    noise) of the complex SNRs ``Z`` (n_ifo, n_cand), marginalised over the
+    prior draws and, analytically, the coalescence phase:
+    ln mean_k I0(|s_k^H z|) exp(-|s_k|^2 / 2), with s_k the expected complex
+    SNRs sigma_d (F+_d a_plus - i Fx_d a_cross) for draw k (F rotated by its
+    polarisation angle)."""
+    from scipy.special import ive, logsumexp
+    ap, ax, psi = draws
+    wp, wx = np.asarray(sigmas) * np.asarray(fplus), np.asarray(sigmas) * np.asarray(fcross)
+    c2, s2 = np.cos(2 * psi), np.sin(2 * psi)
+    up = ap[:, None] * (c2[:, None] * wp + s2[:, None] * wx)            # (n_draw, n_ifo), real
+    ux = ax[:, None] * (-s2[:, None] * wp + c2[:, None] * wx)
+    S = up - 1j * ux
+    half = 0.5 * np.sum(np.abs(S) ** 2, axis=1)
+    out = np.empty(Z.shape[1])
+    for a in range(0, Z.shape[1], chunk):
+        x = np.abs(S.conj() @ Z[:, a:a + chunk])                        # (n_draw, n_cand)
+        out[a:a + chunk] = logsumexp(np.log(ive(0, x)) + x - half[:, None], axis=0) - math.log(len(ap))
+    return out
+
+
 def null_cut(rho_coh: np.ndarray, rho_null: np.ndarray, null_min: float = 5.25,
              null_grad: float = 0.2, null_step: float = 20.0) -> np.ndarray:
     """True where the candidate fails PyGRB's null-SNR cut."""
@@ -803,6 +875,7 @@ def _coherent_subsegment(cfg, bank, ifos, stilde, psds, delays, gates, start, en
     t0 = None
     net_chisq = bool(cfg.chisq_bins) and cfg.coherent_chisq == "network"
     has_null = len(ifos) >= 3 or cfg.polarisation != "free"    # circular: one null even with 2
+    draws = prior_draws(cfg) if cfg.distance_prior else None
     pol_note = ""
     if cfg.polarisation != "free":
         pol_note = f", {cfg.polarisation.replace('_', '-')} polarisation"
@@ -883,11 +956,27 @@ def _coherent_subsegment(cfg, bank, ifos, stilde, psds, delays, gates, start, en
                 stat[cut] = 0.0
                 if k == 0:
                     n_null_cut += int(cut.sum())
+            lnl = None
+            if draws is not None:    # EM distance and inclination: marginal likelihood as the statistic
+                sel = np.flatnonzero(stat >= cfg.distance_prior_floor)
+                lnl = np.zeros(len(stat))
+                if len(sel):
+                    lnl[sel] = prior_lnl(Z[:, sel], sig, fp, fx, draws)
+                    scale = stat[sel] / np.maximum(coh[sel], 1e-9)       # chi-square reweighting kept
+                    new = np.sqrt(2 * np.clip(lnl[sel], 0, None)) * scale
+                stat = np.zeros(len(stat))
+                if len(sel):
+                    stat[sel] = new
             np.maximum.at(blockmax[k], cand // blk, stat)
             if k == 0:
                 j = int(np.argmax(stat))
                 if stat[j] > best["stat"]:
+                    wc = np.asarray(sig) * (fp - 1j * fx)
+                    wa = np.asarray(sig) * (fp + 1j * fx)
+                    d_eff = min(np.vdot(w, w).real / max(abs(np.vdot(w, Z[:, j])), 1e-12)
+                                for w in (wc, wa))
                     best = {"stat": float(stat[j]), "it": it, "ib": int(cand[j]),
+                            "lnl": float(lnl[j]) if lnl is not None else None, "d_eff": float(d_eff),
                             "coh": float(coh[j]), "null": float(null[j]),
                             "chir": float(chir[j]) if chir is not None else None,
                             "net": float(np.sqrt(net2[j])),
@@ -920,6 +1009,12 @@ def _coherent_subsegment(cfg, bank, ifos, stilde, psds, delays, gates, start, en
                               f"-bin{', gate-aware' if cfg.gate_aware_chisq else ''} chi-square at "
                               + ", ".join(f"{i}:{n_chisq[i]}" for i in ifos) + " points)")
                            + pol_note
+                           + ((", ranked by the likelihood marginalised over the EM distance and "
+                               "inclination prior ("
+                               + ("joint samples" if cfg.prior_samples else
+                                  f"{cfg.distance_range_mpc[0]:.0f}-{cfg.distance_range_mpc[1]:.0f} Mpc")
+                               + f", candidates above {cfg.distance_prior_floor:g})")
+                              if cfg.distance_prior else "")
                            + (f", {n_null_cut} zero-lag samples failed the null cut"
                               if has_null else ", 2 detectors: no null stream")
                            + ", delays " + ", ".join(f"{i}:{delays[i] * 1e3:+.1f} ms" for i in ifos)
@@ -929,6 +1024,8 @@ def _coherent_subsegment(cfg, bank, ifos, stilde, psds, delays, gates, start, en
         res.loudest_rho_coh, res.loudest_rho_null = best["coh"], best["null"]
         res.loudest_rho_network = best["net"]
         res.loudest_chisq_r = best.get("chir")
+        res.loudest_prior_lnl = best.get("lnl")
+        res.loudest_distance_circular_mpc = best.get("d_eff")
     res.p_value_extrapolated = p_ext
     res.extrapolation_reach = reach
     if reach is not None and reach > 3:

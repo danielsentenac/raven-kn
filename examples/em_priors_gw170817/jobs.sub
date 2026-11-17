@@ -1,0 +1,27 @@
+# The three searches; then pe.sub
+universe              = vanilla
+executable            = job.sh
+arguments             = $(kind) $(mode)
+accounting_group      = ligo.dev.o4.cbc.grb.cohptfoffline
+accounting_group_user = daniel.sentenac
+request_memory        = 6 GB
+request_disk          = 3 GB
++DESIRED_Sites        = "LIGO-CIT"
++flock_local          = True
+MY.POOLS              = "IGWN,CIT"
+should_transfer_files = YES
+when_to_transfer_output = ON_EXIT
+G                     = GWOSC_4KHZ_R1-1187006835-4096.gwf
+INPUTS                = raven_kn, SSS17a_targeted_search_request.json, frames/H-H1_$(G), frames/V-V1_$(G)
+output                = logs/$(kind)_$(mode).out
+error                 = logs/$(kind)_$(mode).err
+log                   = logs/jobs.log
+
+request_cpus          = 1
+transfer_input_files  = $(INPUTS), frames/L-L1_$(G)
+transfer_output_files = search_$(mode)_targeted_result.json
+queue kind, mode from (
+  search free
+  search circular
+  search distance
+)

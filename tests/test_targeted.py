@@ -86,6 +86,21 @@ def test_config_from_assess_request(tmp_path):
     cfg = TargetedSearchConfig.from_request(tmp_path / "test_targeted_search_request.json")
     assert cfg.mchirp_min == pytest.approx(1.08) and cfg.mchirp_max == pytest.approx(1.32)
     assert cfg.gps_start < cfg.gps_end and cfg.ra_deg == pytest.approx(197.450374)
+    assert cfg.polarisation == "circular" and cfg.distance_range_mpc[0] < 43 < cfg.distance_range_mpc[1]
+    assert cfg.prior_samples and len(cfg.inclination_ranges_rad) == 2
+
+
+def test_request_mass_range_in_detector_frame(tmp_path):
+    import json
+    from raven_kn.search import assess, redshift_range
+    from test_pipeline import make_kn
+    assert redshift_range([43.0, 1000.0]) == pytest.approx([0.0097, 0.199], rel=0.03)
+    assess(make_kn(z=0.05), tmp_path, require_kn_evidence=False, d_max_useful_mpc=None, p_min=0.0)
+    r = json.loads((tmp_path / "test_targeted_search_request.json").read_text())
+    zlo, zhi = r["redshift_range"]
+    assert 0.02 < zlo < 0.05 < zhi < 0.09
+    assert r["mchirp_source_range"] == [1.0, 1.5]
+    assert r["mchirp_range"] == pytest.approx([1.0 * (1 + zlo), 1.5 * (1 + zhi)])
 
 
 def _glitchy():
@@ -370,3 +385,39 @@ def test_coherent_circular_statistic():
     two = run(_coh_cfg(ifos=("H1", "L1"), polarisation="face_on"), f, progress=False).subsegments[0]
     assert "null cut" in two.notes and two.loudest_rho_null < 4
     assert two.loudest_rho_coh == pytest.approx(two.loudest_rho_network, rel=0.03)
+
+
+def test_prior_lnl_prefers_the_expected_amplitude():
+    from raven_kn.targeted.search import prior_draws, prior_lnl
+    sig, fp, fx = np.array([900.0, 1100.0, 400.0]), np.array([0.3, -0.5, 0.1]), np.array([0.6, 0.2, -0.7])
+    face_on = [(0.0, 0.3)]
+    cfg = TargetedSearchConfig(RA, DEC, 0, 1, distance_range_mpc=(90.0, 110.0), inclination_ranges_rad=face_on)
+    ap, ax, psi = prior_draws(cfg)
+    assert len(ap) == 1024 and np.all(ap > 0.95 / 110) and np.all(ap < 1 / 90) and np.all(ax > 0)
+    z = lambda d: (sig * (fp - 1j * fx) / d * np.exp(1.1j))[:, None]      # face-on signal at d Mpc
+    rho2 = float(np.sum(np.abs(z(100.0)) ** 2))
+    at = prior_lnl(z(100.0), sig, fp, fx, (ap, ax, psi))[0]
+    assert 0.8 * rho2 / 2 < at < rho2 / 2                    # close to the maximum, rho^2 / 2
+    weak = prior_lnl(z(400.0), sig, fp, fx, (ap, ax, psi))[0]   # 4 times too weak for the prior
+    assert weak < 0
+    away = prior_lnl(z(100.0).conj(), sig, fp, fx, (ap, ax, psi))[0]   # wrong handedness
+    assert away < at
+    with pytest.raises(ValueError):
+        prior_draws(TargetedSearchConfig(RA, DEC, 0, 1))
+
+
+def test_coherent_distance_prior():
+    """Injection at 120 Mpc, face-on. A prior around that distance keeps it
+    (statistic close to the coherent SNR) and gives its distance; a prior that
+    puts the source 5 times closer leaves no candidate, in signal or noise."""
+    f = synthetic_fetcher(inject=True)
+    near = [(0.0, 0.5), (np.pi - 0.5, np.pi)]
+    ok = run(_coh_cfg(distance_prior=True, distance_range_mpc=(90.0, 150.0), inclination_ranges_rad=near,
+                      n_slides=20), f, progress=False).subsegments[0]
+    assert ok.loudest_prior_lnl > 0 and abs(ok.loudest_gps - T_INJ) < 0.01
+    assert 0.9 * ok.loudest_rho_coh < ok.loudest_rho_net <= ok.loudest_rho_coh
+    assert ok.loudest_distance_circular_mpc == pytest.approx(120.0, rel=0.15)
+    assert max(ok.background) < 6 and "marginalised" in ok.notes
+    bad = run(_coh_cfg(distance_prior=True, distance_range_mpc=(20.0, 25.0), inclination_ranges_rad=near,
+                       n_slides=20), f, progress=False).subsegments[0]
+    assert bad.loudest_rho_net == 0.0 and max(bad.background) == 0.0

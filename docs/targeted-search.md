@@ -27,6 +27,15 @@ A PyCBC-based search that runs on a laptop or a single cluster node:
       `circular` takes the better of face-on and face-away; a request whose viewing angle is below 60°
       selects it automatically (or a single handedness if the inclination prior excludes one hemisphere).
       The result notes give the fraction of the SNR kept at the largest allowed viewing angle.
+    - *Distance prior* (`--distance-prior`, coherent statistic): candidates are ranked by √(2 ln L), L
+      being the likelihood ratio of the detectors' complex SNRs for a signal from the source against
+      noise, marginalised over the request's distance and inclination (the joint samples when present,
+      else the intervals), the polarisation angle and the phase. For a signal at the expected distance
+      this is close to the coherent SNR; noise that is too weak for a source at that distance gets no
+      weight and leaves the background. It is evaluated for candidates above a reweighted coherent SNR
+      of 5 and keeps the chi-square reweighting and the null cut. Not enabled by default: a wrong EM
+      distance (a kilonova-only estimate, for instance) would remove a real signal. The result also
+      gives the distance the loudest candidate would have if seen face-on, to compare with the prior.
 - **Signal consistency**: a power chi-square where a detector's SNR exceeds 5.
     - *network*: 16 bins; each detector's SNR is replaced by its newSNR.
     - *coherent*: as PyGRB, one chi-square summed over the detectors reweights the coherent SNR, with
@@ -41,6 +50,15 @@ A PyCBC-based search that runs on a laptop or a single cluster node:
   removed from the background only if loud in two detectors. Optionally, off-source trials
   (`--n-offsource N`) sample the data around the window, as PyGRB does.
 - **Significance**: a p-value per sub-segment, combined over sub-segments with a trials factor.
+- **Masses**: the request gives the chirp-mass range in the detector frame, the source-frame range
+  (1.0–1.5 M☉ by default) times 1 + z over the redshifts of the distance prior.
+- **Parameter estimation** (`--pe em|gw|both`, `raven_kn/targeted/pe.py`): Bilby on the loudest
+  candidate with the sky position fixed at the EM position and narrow priors on the time and chirp mass
+  from the search. `em` takes the EM distance and inclination as priors, `gw` a distance uniform in
+  volume and an isotropic orientation; comparing the two shows what the EM measurement adds (the
+  distance–inclination degeneracy of the GW amplitude is broken). Aligned-spin IMRPhenomD without
+  tides, relative-binning likelihood, dynesty: a follow-up of a candidate, not a replacement of the LVK
+  parameter-estimation pipelines.
 
 ```bash
 raven-kn targeted --request out/<name>_targeted_search_request.json --out targeted_out

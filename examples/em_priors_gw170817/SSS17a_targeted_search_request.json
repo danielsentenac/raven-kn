@@ -1,0 +1,36 @@
+{
+  "candidate": "SSS17a",
+  "ra_deg": 197.450371,
+  "dec_deg": -23.381486,
+  "gps_start": 1187008879.47,
+  "gps_end": 1187008885.47,
+  "priors": {
+    "luminosity_distance_mpc": [
+      30.35336115842825,
+      54.385490201409105
+    ],
+    "viewing_angle_deg": [
+      0.0,
+      58.39519977632281
+    ],
+    "inclination_ranges_rad": [
+      [
+        0.0,
+        1.0191885034566894
+      ],
+      [
+        2.1224041501331037,
+        3.141592653589793
+      ]
+    ],
+    "credible_level": 0.99,
+    "pad": 0.2
+  },
+  "skymap": "SSS17a_skymap.fits",
+  "mchirp_range": [
+    1.0,
+    1.5
+  ],
+  "samples": "SSS17a_dist_incl_samples.npz",
+  "note": "split windows longer than a few hours into sub-segments (Earth rotation)"
+}
