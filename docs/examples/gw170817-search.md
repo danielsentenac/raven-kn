@@ -164,7 +164,8 @@ the candidates are ranked by the likelihood of a source at that distance and inc
 |---|---|---|---|---|
 | free (two polarisations) | 30.07 | 1.30 | 6.44 | 36 |
 | circular | 30.02 | 2.19 | 5.94 | 26 |
-| circular + distance prior | 29.79 | 2.19 | none | 0 |
+| circular + distance prior, intervals | 29.79 | 2.19 | none | 0 |
+| circular + distance prior, joint samples | 29.76 | 2.19 | none | 0 |
 
 The signal keeps 99 % of its statistic and no off-source trial leaves a candidate: noise at SNR 6 would
 need a source several times farther than 54 Mpc. The p-value stays at its floor, 1/101; with an empty
@@ -173,32 +174,41 @@ prior distance. The face-on distance estimate of the candidate is 54 Mpc, at the
 GW170817 passes because inclined orientations at 40 Mpc fit, but a wrong or too narrow electromagnetic
 distance would remove a real signal, which is why the option is not selected automatically.
 
+The last row replaces the intervals by the joint distance–inclination samples of the kilonova posterior
+(41.6 Mpc, 39.3–44.0; viewing angle 22°, 6–41°), written by `assess` next to the request and used when
+the file is there. The samples span 36–48 Mpc, below the face-on estimate of 54 Mpc, and the signal still
+keeps 99 % of its statistic. The background is empty in both cases, so the two priors are not told apart
+here.
+
 ### Parameter estimation with and without the EM priors
 
 Bilby on the candidate of the unrestricted search (`--pe em|gw`,
 [Targeted GW search](../targeted-search.md)), sky position fixed at AT2017gfo, L1 frame with the glitch
-subtracted, 30–896 Hz, 64 s. The two runs differ only by the distance and orientation priors: `em` takes
-the request's intervals (30–54 Mpc, viewing angle below 58°), `gw` a distance uniform in volume from 1 to
-272 Mpc and an isotropic orientation. Medians and 90 % intervals (`examples/em_priors_gw170817/`,
-HTCondor jobs at CIT, 3.6 h and 4.7 h on 8 cores):
+subtracted, 30–896 Hz, 64 s. The three runs differ only by the distance and orientation priors: `gw` takes
+a distance uniform in volume from 1 to 272 Mpc and an isotropic orientation; `em` takes the request's
+intervals (30–54 Mpc, viewing angle below 58°) or, when the samples file of the kilonova posterior is next
+to the request, the marginals of its samples (41.6 Mpc, 39.3–44.0; viewing angle 22°, 6–41°). Medians and
+90 % intervals (`examples/em_priors_gw170817/`, HTCondor jobs at CIT, 4.7 h, 3.6 h and 2.5 h on 8 cores):
 
-| | With EM priors (`em`) | Without (`gw`) |
-|---|---|---|
-| Luminosity distance (Mpc) | 40.6 (32.1–46.9) | 39.6 (26.7–46.6) |
-| Viewing angle (°) | 30 (8–49) | 33 (9–59) |
-| Chirp mass, detector frame (M☉) | 1.19740 (1.19726–1.19755) | 1.19740 (1.19726–1.19754) |
-| Mass ratio | 0.79 (0.67–0.97) | 0.80 (0.67–0.96) |
-| Log Bayes factor, signal against noise | 537.7 ± 0.3 | 532.5 ± 0.3 |
+| | Without EM priors (`gw`) | EM intervals (`em`) | EM samples (`em`) |
+|---|---|---|---|
+| Luminosity distance (Mpc) | 39.6 (26.7–46.6) | 40.6 (32.1–46.9) | 42.0 (39.7–44.2) |
+| Viewing angle (°) | 33 (9–59) | 30 (8–49) | 25 (15–33) |
+| Chirp mass, detector frame (M☉) | 1.19740 (1.19726–1.19754) | 1.19740 (1.19726–1.19755) | 1.19741 (1.19726–1.19754) |
+| Mass ratio | 0.80 (0.67–0.96) | 0.79 (0.67–0.97) | 0.80 (0.66–0.97) |
+| Log Bayes factor, signal against noise | 532.5 ± 0.3 | 537.7 ± 0.3 | 539.1 ± 0.2 |
 
 The run without EM priors gives 39.6 +7.0/−13.0 Mpc, against 40 +8/−14 Mpc in the LVK discovery paper.
-The maximum-likelihood SNR is 33.5 and both log Bayes factors stay below its bound, SNR²/2 = 562.6.
+The maximum-likelihood SNR is 33.5 and the three log Bayes factors stay below its bound, SNR²/2 = 562.6.
 
-On this event the EM priors remove the inclined, nearby end of the distance–inclination degeneracy: the
-lower distance bound rises from 26.7 to 32.1 Mpc and the upper viewing angle falls from 59° to 49°. The
-medians and the masses do not move. The evidence is higher by 5.2 ± 0.4 in the logarithm with the EM
-priors, mostly because they concentrate the prior where the data are. The gain is modest because the
-request carries wide intervals and no joint distance–inclination samples; the samples path
-(`prior_samples`) is not tested on real data.
+The intervals only remove the inclined, nearby end of the distance–inclination degeneracy: the lower
+distance bound rises from 26.7 to 32.1 Mpc and the upper viewing angle falls from 59° to 49°. The samples
+break the degeneracy: the distance becomes the electromagnetic one, known to 4 %, and the 90 % width of
+the viewing angle goes from 50° to 18°. That interval, 15–33°, is narrower than the electromagnetic
+prior (6–41°): with the distance fixed, the GW amplitude measures the inclination. The inclination is
+155° (147–164°), face-away although the prior is symmetric. The masses do not move. The evidence rises
+with each prior, by 5.2 ± 0.4 then 1.4 ± 0.4 in the logarithm, as the prior concentrates where the data
+are.
 
 ## Data-quality vetoes
 

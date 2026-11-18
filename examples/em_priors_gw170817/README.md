@@ -11,7 +11,12 @@ HTCondor jobs (CIT) on public data, from the request of the reverse replay
   distance and inclination priors (`em`) or without (`gw`).
 - `jobs.sub`: the three searches; `pe.sub`: the two parameter estimations (8 cores each), to submit
   once the `free` search result is back.
+- `samples/`: the same request next to `SSS17a_dist_incl_samples.npz`, the joint distance-inclination
+  samples of the kilonova posterior (written by `assess` in the reverse replay). A request with this file
+  beside it uses the samples instead of its intervals. `job.sh search distance_samples` and
+  `job.sh pe em_samples` run on it; `samples.sub` submits both.
 
-Results: `search_<free|circular|distance>_targeted_result.json` and
-`SSS17a_pe_<em|gw>_pe_summary.json` (medians and 90 % intervals; the full Bilby results stay at CIT).
+Results: `search_<free|circular|distance|distance_samples>_targeted_result.json`,
+`SSS17a_pe_<em|gw>_pe_summary.json` and `SSS17a_samples_pe_em_pe_summary.json` (medians and 90 %
+intervals; the full Bilby results stay at CIT).
 Discussion in `docs/examples/gw170817-search.md`.
