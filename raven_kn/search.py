@@ -18,7 +18,7 @@ from typing import Optional
 
 import numpy as np
 
-from .connection import GraceDbConnector, KNCandidate
+from .connection import GraceDbConnector, OpticalTransient
 from .skymap import (distance_overlap, distance_overlap_valid, kn_skymap_3d, read_gw_skymap,
                      skymap_overlap_integral, write_skymap)
 from .treatment.kilonova_evidence import kilonova_evidence
@@ -37,7 +37,7 @@ def query(gracedb: GraceDbConnector, window: MergerTimeWindow,
     return gracedb.superevents(window.gps_start, window.gps_end, far_max=far_max)
 
 
-def search(kn: KNCandidate, window: MergerTimeWindow, gracedb: GraceDbConnector,
+def search(kn: OpticalTransient, window: MergerTimeWindow, gracedb: GraceDbConnector,
            far_max: Optional[float] = None, upload: bool = True) -> list[dict]:
     """Look for GW superevents in the kilonova's window; log the result to
     GraceDB (on the kilonova's External event if it has one, and on each
@@ -49,7 +49,7 @@ def search(kn: KNCandidate, window: MergerTimeWindow, gracedb: GraceDbConnector,
             gracedb.write_log(kn.graceid, f"RAVEN-KN: no superevent in t0 window {span}", tags=TAGS)
         for se in found:
             gracedb.write_log(se["superevent_id"],
-                              f"RAVEN-KN: kilonova candidate {kn.name} (RA {kn.ra:.5f}, Dec {kn.dec:.5f}) "
+                              f"RAVEN-KN: optical transient {kn.name} (RA {kn.ra:.5f}, Dec {kn.dec:.5f}) "
                               f"has this superevent inside its t0 window {span}", tags=TAGS)
             if kn.graceid:
                 gracedb.write_log(kn.graceid,
@@ -58,14 +58,14 @@ def search(kn: KNCandidate, window: MergerTimeWindow, gracedb: GraceDbConnector,
     return found
 
 
-def coinc_far(kn: KNCandidate, superevent: dict, window: MergerTimeWindow,
+def coinc_far(kn: OpticalTransient, superevent: dict, window: MergerTimeWindow,
               gw_skymap: Optional[dict | str | Path] = None,
               post: Optional[DistanceInclinationPosterior] = None,
               kn_rate: Optional[float] = None,
               ranges_mpc: dict[str, float] = DEFAULT_RANGES_MPC,
               chirp_mass_msun: Optional[float] = None,
               score_survival=None) -> dict:
-    """Joint FAR of a superevent and a kilonova candidate (RAVEN keys + distance).
+    """Joint FAR of a superevent and an optical transient (RAVEN keys + distance).
 
     ``kn_rate``: rate of external triggers like this one; default from the
     candidate (:func:`raven_kn.treatment.far.candidate_rate`: spectroscopic
@@ -90,7 +90,7 @@ def coinc_far(kn: KNCandidate, superevent: dict, window: MergerTimeWindow,
             dist = distance_overlap(gw, kn.ra, kn.dec, post, d_ref_mpc=d_ref)
             dist_valid = distance_overlap_valid(post, d_ref)
     rate_note = "given"
-    if kn_rate is None:     # from the candidate: spectroscopic class, classifier score, filter
+    if kn_rate is None:     # from the optical transient: spectroscopic class, classifier score, filter
         kn_rate, rate_note = candidate_rate(kn, score_survival=score_survival)
     out = coinc_far_kn(window.duration, far_gw, kn_rate, sky, dist)
     out["kn_rate_note"] = rate_note
@@ -102,12 +102,12 @@ def coinc_far(kn: KNCandidate, superevent: dict, window: MergerTimeWindow,
     return out
 
 
-def calc_signif_gracedb(kn: KNCandidate, superevent: dict, window: MergerTimeWindow,
+def calc_signif_gracedb(kn: OpticalTransient, superevent: dict, window: MergerTimeWindow,
                         gracedb: GraceDbConnector, **kw) -> dict:
     """Compute :func:`coinc_far` and upload ``coincidence_far_kn.json``."""
     res = coinc_far(kn, superevent, window, **kw)
     payload = json.dumps(res)
-    msg = f"RAVEN-KN: joint FAR(s) in Hz with kilonova candidate {kn.name}"
+    msg = f"RAVEN-KN: joint FAR(s) in Hz with optical transient {kn.name}"
     gracedb.write_log(superevent["superevent_id"], msg, "coincidence_far_kn.json", payload, TAGS)
     if kn.graceid:
         gracedb.write_log(kn.graceid, f"RAVEN-KN: joint FAR(s) in Hz with {superevent['superevent_id']}",
@@ -123,7 +123,7 @@ def redshift_range(distance_range_mpc) -> list[float]:
             for d in distance_range_mpc]
 
 
-def assess(kn: KNCandidate, out_dir: Optional[str | Path] = None,
+def assess(kn: OpticalTransient, out_dir: Optional[str | Path] = None,
            ranges_mpc: dict[str, float] = DEFAULT_RANGES_MPC,
            snr_threshold: float = 6.0, p_min: float = 0.1,
            d_max_useful_mpc: Optional[float] = 500.0,
@@ -132,7 +132,7 @@ def assess(kn: KNCandidate, out_dir: Optional[str | Path] = None,
            chirp_mass_msun: Optional[float] = None, require_kn_evidence: bool = True,
            mchirp_source_range: tuple[float, float] = (1.0, 1.5),
            kn_evidence_kw: Optional[dict] = None) -> dict:
-    """Targeted-search trigger decision for one kilonova candidate.
+    """Targeted-search trigger decision for one optical transient.
 
     Steps: (1) distance/inclination posterior from EM data; (2) t0 window,
     with the distance used to decide which non-detections constrain it;
@@ -157,7 +157,7 @@ def assess(kn: KNCandidate, out_dir: Optional[str | Path] = None,
     ev = kilonova_evidence(kn, d_med, **(kn_evidence_kw or {}))
     trigger = det.worth_search and (ev.confirmed or not require_kn_evidence)
     decision = {
-        "candidate": kn.name, "ra": kn.ra, "dec": kn.dec,
+        "optical": kn.name, "ra": kn.ra, "dec": kn.dec,
         "t0_window": {**asdict(window), "duration_h": window.duration / 3600},
         "distance_inclination": post.summary(),
         "search_priors": post.search_priors(),
@@ -178,7 +178,7 @@ def assess(kn: KNCandidate, out_dir: Optional[str | Path] = None,
         z_range = redshift_range(decision["search_priors"]["luminosity_distance_mpc"]) \
             if post.constraints else [0.0, 0.0]
         request = {
-            "candidate": kn.name, "ra_deg": kn.ra, "dec_deg": kn.dec,
+            "optical": kn.name, "ra_deg": kn.ra, "dec_deg": kn.dec,
             "gps_start": window.gps_start, "gps_end": window.gps_end,
             "priors": decision["search_priors"], "skymap": fits.name,
             "mchirp_range": ([0.9 * chirp_mass_msun, 1.1 * chirp_mass_msun] if chirp_mass_msun

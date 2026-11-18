@@ -6,7 +6,7 @@ LIGO/Virgo alert:
 
 1. Fermi-GBM trigger 524666471 at 12:41:06.47 UTC, ground position
    RA 176.8, Dec -39.8, 11.6 deg (1 sigma, statistical; GCN 21506, 21520).
-   The listener stores the notice; no kilonova candidate exists yet.
+   The listener stores the notice; no optical transient exists yet.
 2. SSS17a / AT2017gfo found by Swope at 2017-08-17 23:33 UTC, i = 16.0
    (GCN 21529), 24 deg from the GBM position. Added as a candidate, it is
    matched to the stored GRB notice: its merger-time window becomes RAVEN's
@@ -37,8 +37,8 @@ from pathlib import Path
 import numpy as np
 from astropy.time import Time
 
-from raven_kn.connection import KNCandidate, PhotometryPoint, Redshift, find_host
-from raven_kn.listener import CandidateStore, add_candidate, handle_grb_notice
+from raven_kn.connection import OpticalTransient, PhotometryPoint, Redshift, find_host
+from raven_kn.listener import AlertStore, add_optical, handle_grb_notice
 from raven_kn.search import assess
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -103,16 +103,16 @@ def main():
         report["timeline"].append({"hours_after_grb": round(h, 2), "event": what, **kw})
 
     # 1. GRB notice first: stored, nothing to attach to yet
-    store = CandidateStore(work / "store")
+    store = AlertStore(work / "store")
     hits = handle_grb_notice(gbm_notice(), store)
     log(t_grb.mjd, f"Fermi-GBM notice {GBM['TrigID']} stored; candidates updated: {hits}")
 
     # 2. Swope discovery ~11 h later: matched to the stored GRB; host galaxy
-    kn = KNCandidate(name="SSS17a", ra=SSS17A["ra"], dec=SSS17A["dec"], pos_err_arcsec=0.5,
+    kn = OpticalTransient(name="SSS17a", ra=SSS17A["ra"], dec=SSS17A["dec"], pos_err_arcsec=0.5,
                      source="Swope (GCN 21529)", photometry=[discovery_point()])
     t_disc = discovery_point().mjd
-    add_candidate(kn, store, now_gps=Time(SWOPE_ISO, scale="utc").gps)
-    kn = next(c for c in store.candidates() if c.name == "SSS17a")
+    add_optical(kn, store, now_gps=Time(SWOPE_ISO, scale="utc").gps)
+    kn = next(c for c in store.transients() if c.name == "SSS17a")
     log(t_disc, f"SSS17a discovered (i = 16.0); GRB attached: {kn.grb is not None}",
         notes=kn.notes)
     try:

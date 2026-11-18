@@ -7,7 +7,7 @@ the t0 window and a polarisation angle uniformly; the SNR in each detector is
 
 with D_h the optimal horizon (overhead, face-on, SNR 8) and D_h = 2.264 x
 the BNS range (sky/orientation-averaged, 1.4+1.4 Msun) quoted in detector
-summary pages. F+, Fx come from LAL at the candidate's position and the
+summary pages. F+, Fx come from LAL at the optical transient's position and the
 drawn time (Earth rotation over a multi-day window matters). Without LAL a
 sky-averaged F^2 = 2/5 is used.
 

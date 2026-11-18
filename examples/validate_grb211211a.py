@@ -24,7 +24,7 @@ from pathlib import Path
 import numpy as np
 from astropy.time import Time
 
-from raven_kn.connection import KNCandidate, PhotometryPoint, Redshift
+from raven_kn.connection import OpticalTransient, PhotometryPoint, Redshift
 from raven_kn.treatment import lightcurve_fit as lcf
 from raven_kn.treatment.distance_inclination import posterior_for
 from raven_kn.treatment.t0 import estimate_window, window_from_bracket
@@ -39,7 +39,7 @@ EXE = os.path.expanduser(os.environ.get("RAVEN_KN_NMMA_EXE",
                                         "~/miniforge3/envs/nmma/bin/lightcurve-analysis"))
 
 
-def candidate(data: str, case: str) -> KNCandidate:
+def candidate(data: str, case: str) -> OpticalTransient:
     phot, seen = [], set()
     for line in Path(data).read_text().split("\n"):
         if not line.strip():
@@ -53,7 +53,7 @@ def candidate(data: str, case: str) -> KNCandidate:
         phot.append(PhotometryPoint(Time(t, format="isot", scale="utc").mjd, band, float(m),
                                     None if np.isinf(e) else e, upper_limit=bool(np.isinf(e)),
                                     survey=survey))
-    kn = KNCandidate(f"GRB211211A_{case}", RA, DEC, photometry=phot)
+    kn = OpticalTransient(f"GRB211211A_{case}", RA, DEC, photometry=phot)
     if case == "C":
         kn.redshift = Redshift(Z_HOST, 1e-4, source="host galaxy")
     return kn

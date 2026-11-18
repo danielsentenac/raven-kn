@@ -1,10 +1,10 @@
-"""Connection module: kilonova candidate events and data connectors.
+"""Connection module: optical transient events and data connectors.
 
-Analogue of ``ligo.raven.gracedb_events``. :class:`KNCandidate` plays the
+Analogue of ``ligo.raven.gracedb_events``. :class:`OpticalTransient` plays the
 role of RAVEN's ``ExtTrig``: one object gathering everything known about an
 external (here: kilonova) trigger, whichever service it came from.
 
-Connectors only translate external formats into :class:`KNCandidate` fields;
+Connectors only translate external formats into :class:`OpticalTransient` fields;
 no physics is done here. Network clients are injectable so that tests and
 offline use never touch the network.
 """
@@ -83,7 +83,7 @@ class GRBAssociation:
 @dataclass
 class NeutrinoAssociation:
     """A high-energy neutrino alert (IceCube gold/bronze track) attached to a
-    candidate: arrival time, position and its 90 % error radius, IceCube's
+    optical transient: arrival time, position and its 90 % error radius, IceCube's
     signalness (``p_astro``) and false-alarm rate."""
     gps: float
     instrument: str = "IceCube"
@@ -96,8 +96,8 @@ class NeutrinoAssociation:
 
 
 @dataclass
-class KNCandidate:
-    """A kilonova candidate seen as an external trigger (RAVEN ``ExtTrig``).
+class OpticalTransient:
+    """An optical transient seen as an external trigger (RAVEN ``ExtTrig``).
 
     Only ``name``, ``ra`` and ``dec`` are mandatory; every other field is a
     piece of information that, when present, tightens the merger-time
@@ -166,7 +166,7 @@ class KNCandidate:
         return asdict(self)
 
     @classmethod
-    def from_dict(cls, d: dict[str, Any]) -> "KNCandidate":
+    def from_dict(cls, d: dict[str, Any]) -> "OpticalTransient":
         d = dict(d)
         d["photometry"] = [PhotometryPoint(**p) for p in d.get("photometry", [])]
         for key, klass in (("redshift", Redshift),
@@ -198,13 +198,13 @@ class KNCandidate:
 # Connectors
 # --------------------------------------------------------------------------
 
-def load_candidate(path: str | Path) -> KNCandidate:
-    """Load a candidate from the package's JSON format (see examples/)."""
+def load_optical(path: str | Path) -> OpticalTransient:
+    """Load an optical transient from the package's JSON format (see examples/)."""
     with open(path) as f:
-        return KNCandidate.from_dict(json.load(f))
+        return OpticalTransient.from_dict(json.load(f))
 
 
-def save_candidate(kn: KNCandidate, path: str | Path) -> None:
+def save_optical(kn: OpticalTransient, path: str | Path) -> None:
     with open(path, "w") as f:
         json.dump(kn.to_dict(), f, indent=2)
 
@@ -258,19 +258,19 @@ class FinkConnector:
                                            float(row["i:sigmapsf"]), survey="ZTF"))
         return pts
 
-    def candidate(self, object_id: str, **extra) -> KNCandidate:
+    def transient(self, object_id: str, **extra) -> OpticalTransient:
         rows = self.fetch_rows(object_id)
         if not rows:
             raise LookupError(f"Fink returned no data for {object_id}")
         valid = [r for r in rows if r.get("d:tag", "valid") == "valid"]
         ref = valid[0] if valid else rows[0]
-        return KNCandidate(name=object_id, ra=float(ref["i:ra"]),
+        return OpticalTransient(name=object_id, ra=float(ref["i:ra"]),
                            dec=float(ref["i:dec"]), source="Fink",
                            photometry=self.parser(rows), **extra)
 
-    def add_to(self, kn: KNCandidate, object_id: str) -> KNCandidate:
+    def add_to(self, kn: OpticalTransient, object_id: str) -> OpticalTransient:
         """Add this survey's photometry (and pre-discovery limits) to a
-        candidate found elsewhere: the multi-survey last-non-detection step."""
+        optical transient found elsewhere: the multi-survey last-non-detection step."""
         kn.add_photometry(self.parser(self.fetch_rows(object_id)))
         return kn
 
@@ -350,16 +350,16 @@ class FinkLSSTConnector:
                     by_visit[key] = p
         return sorted(by_visit.values(), key=lambda p: p.mjd)
 
-    def candidate(self, dia_object_id: str | int, **extra) -> KNCandidate:
+    def transient(self, dia_object_id: str | int, **extra) -> OpticalTransient:
         src = self.fetch_sources(dia_object_id)
         if not src:
             raise LookupError(f"Fink/LSST: no source for {dia_object_id}")
-        return KNCandidate(name=f"LSST-{dia_object_id}",
+        return OpticalTransient(name=f"LSST-{dia_object_id}",
                            ra=float(np.median([r["r:ra"] for r in src])),
                            dec=float(np.median([r["r:dec"] for r in src])), source="Fink/LSST",
                            photometry=self.parse(src, self.fetch_forced(dia_object_id)), **extra)
 
-    def add_to(self, kn: KNCandidate, dia_object_id: str | int) -> KNCandidate:
+    def add_to(self, kn: OpticalTransient, dia_object_id: str | int) -> OpticalTransient:
         kn.add_photometry(self.parse(self.fetch_sources(dia_object_id),
                                      self.fetch_forced(dia_object_id)))
         return kn
@@ -405,16 +405,16 @@ class ALeRCEConnector:
                                        float(n["diffmaglim"]), upper_limit=True, survey="ZTF"))
         return pts
 
-    def candidate(self, oid: str, **extra) -> KNCandidate:
+    def transient(self, oid: str, **extra) -> OpticalTransient:
         lc = self.fetch(oid)
         dets = [d for d in lc.get("detections", []) if d.get("ra") is not None]
         if not dets:
             raise LookupError(f"ALeRCE: no detection for {oid}")
-        return KNCandidate(name=oid, ra=float(np.median([d["ra"] for d in dets])),
+        return OpticalTransient(name=oid, ra=float(np.median([d["ra"] for d in dets])),
                            dec=float(np.median([d["dec"] for d in dets])), source="ALeRCE",
                            photometry=self.parse(lc), **extra)
 
-    def add_to(self, kn: KNCandidate, oid: str) -> KNCandidate:
+    def add_to(self, kn: OpticalTransient, oid: str) -> OpticalTransient:
         kn.add_photometry(self.parse(self.fetch(oid)))
         return kn
 
@@ -515,16 +515,16 @@ class ANTARESConnector:
                                        float(p.get("ant_magerr") or 0.1), survey=survey))
         return sorted(pts, key=lambda q: q.mjd)
 
-    def candidate(self, ra: float, dec: float, radius_arcsec: float = 2.0, **extra) -> KNCandidate:
+    def transient(self, ra: float, dec: float, radius_arcsec: float = 2.0, **extra) -> OpticalTransient:
         loci = self.cone(ra, dec, radius_arcsec)
         if not loci:
             raise LookupError(f"ANTARES: no locus within {radius_arcsec}\" of {ra}, {dec}")
         lo = loci[0]
-        return KNCandidate(name=lo["ztf_object_id"] or lo["locus_id"], ra=float(lo["ra"]),
+        return OpticalTransient(name=lo["ztf_object_id"] or lo["locus_id"], ra=float(lo["ra"]),
                            dec=float(lo["dec"]), source="ANTARES",
                            photometry=self.parse(self.alerts(lo["locus_id"])), **extra)
 
-    def add_to(self, kn: KNCandidate, radius_arcsec: float = 2.0) -> KNCandidate:
+    def add_to(self, kn: OpticalTransient, radius_arcsec: float = 2.0) -> OpticalTransient:
         loci = self.cone(kn.ra, kn.dec, radius_arcsec)
         if loci:
             kn.add_photometry(self.parse(self.alerts(loci[0]["locus_id"])))
@@ -548,7 +548,7 @@ class ZTFForcedPhotometryConnector:
     sends positions (at most 1500 per batch); :meth:`lightcurve_urls` lists
     the finished light-curve files of the account (30-day history, rebuilt
     at the top of each hour, so a new request appears there only after the
-    next rebuild; an empty history is an HTTP 400 "Zero records" page); :meth:`fetch_for` downloads the file of a candidate (matched on
+    next rebuild; an empty history is an HTTP 400 "Zero records" page); :meth:`fetch_for` downloads the file of an optical transient (matched on
     the requested position in its header) and :meth:`add_to` merges it.
     IPAC asks that the same position not be resubmitted within 90 days:
     :meth:`submit` keeps a local log and refuses a repeat unless ``force``.
@@ -651,10 +651,10 @@ class ZTFForcedPhotometryConnector:
         dec = re.search(r"Requested input Dec\.\s*=\s*([-+0-9.eE]+)", text)
         return (float(ra.group(1)) if ra else None, float(dec.group(1)) if dec else None)
 
-    def fetch_for(self, kn: "KNCandidate", radius_arcsec: float = 1.5,
+    def fetch_for(self, kn: "OpticalTransient", radius_arcsec: float = 1.5,
                   urls: Optional[Sequence[str]] = None) -> Optional[str]:
         """The newest finished light-curve file whose requested position is
-        within ``radius_arcsec`` of the candidate, or None if not ready."""
+        within ``radius_arcsec`` of the optical transient, or None if not ready."""
         for url in reversed(list(urls if urls is not None else self.lightcurve_urls())):
             text = self.download(url)
             ra, dec = self.requested_position(text)
@@ -721,8 +721,8 @@ class ZTFForcedPhotometryConnector:
                                            upper_limit=True, survey="ZTF-FP"))
         return sorted(pts, key=lambda p: p.mjd)
 
-    def add_to(self, kn: "KNCandidate", text: Optional[str] = None) -> int:
-        """Merge the candidate's forced photometry; returns the number of
+    def add_to(self, kn: "OpticalTransient", text: Optional[str] = None) -> int:
+        """Merge the optical transient's forced photometry; returns the number of
         points added (0 if its file is not ready yet)."""
         text = text if text is not None else self.fetch_for(kn)
         if not text:
@@ -735,7 +735,7 @@ class ZTFForcedPhotometryConnector:
 class ATLASForcedPhotometryConnector:
     """ATLAS forced photometry server (https://fallingstar-data.com/forcedphot/),
     queue-based REST API with a personal token. Gives forced flux at the
-    candidate position on every ATLAS image: detections and 5-sigma limits
+    optical transient position on every ATLAS image: detections and 5-sigma limits
     (``mag5sig``) in cyan 'c' / orange 'o', mapped to NMMA ``atlasc``/``atlaso``.
 
     Interface written from the server's API guide. A task the server ends
@@ -815,16 +815,16 @@ class ATLASForcedPhotometryConnector:
                                            survey="ATLAS"))
         return pts
 
-    def add_to(self, kn: KNCandidate, days_before: float = 10.0) -> KNCandidate:
+    def add_to(self, kn: OpticalTransient, days_before: float = 10.0) -> OpticalTransient:
         fd = kn.first_detection
         t_ref = fd.mjd if fd else Time.now().mjd
         kn.add_photometry(self.parse(self.request(kn.ra, kn.dec, t_ref - days_before)))
         return kn
 
 
-def last_nondetection(kn: KNCandidate, depth_mag: Optional[float] = None) -> Optional[PhotometryPoint]:
+def last_nondetection(kn: OpticalTransient, depth_mag: Optional[float] = None) -> Optional[PhotometryPoint]:
     """Latest non-detection before the first detection, over all surveys merged
-    into the candidate; with ``depth_mag``, only limits at least that deep."""
+    into the optical transient; with ``depth_mag``, only limits at least that deep."""
     fd = kn.first_detection
     if fd is None:
         return None
@@ -846,7 +846,7 @@ def helio_to_cmb(z_helio: float, ra: float, dec: float) -> float:
 
 @dataclass
 class HostGalaxy:
-    """A galaxy near the candidate (GLADE+ row) with its association measures."""
+    """A galaxy near the optical transient (GLADE+ row) with its association measures."""
     name: str
     ra: float
     dec: float
@@ -972,7 +972,7 @@ class GladePlusConnector:
         return sorted(gals, key=lambda g: (g.p_chance if g.p_chance is not None else 1.0,
                                            g.offset_kpc))
 
-    def add_to(self, kn: KNCandidate, max_p_chance: float = 0.1, overwrite: bool = False,
+    def add_to(self, kn: OpticalTransient, max_p_chance: float = 0.1, overwrite: bool = False,
                **kw) -> Optional[HostGalaxy]:
         """Set ``kn.redshift`` from the most probable host if its P_cc is below
         ``max_p_chance``; a redshift already present (e.g. from a spectrum)
@@ -1088,7 +1088,7 @@ class DESY6Connector:
 
 class NEDConnector:
     """NASA/IPAC Extragalactic Database: redshifts of galaxies near the
-    candidate (TAP, ``NEDTAP.objdir``: SDSS, DESI, 6dF, literature, often
+    optical transient (TAP, ``NEDTAP.objdir``: SDSS, DESI, 6dF, literature, often
     more complete in spectroscopic redshifts than GLADE+ beyond 100 Mpc) and
     redshift-independent distances of a galaxy (NED-D: SBF, TRGB, Cepheids,
     SNe Ia, Tully-Fisher, FP...).
@@ -1252,8 +1252,8 @@ class TNSConnector:
                 "host_redshift": float(hz) if hz not in (None, "") else None,
                 "spectra": spectra}
 
-    def add_to(self, kn: KNCandidate, objname: str, overwrite: bool = False) -> dict[str, Any]:
-        """Classification and redshift into the candidate. A redshift reported
+    def add_to(self, kn: OpticalTransient, objname: str, overwrite: bool = False) -> dict[str, Any]:
+        """Classification and redshift into the optical transient. A redshift reported
         with a spectroscopic classification counts as spectroscopic (host or
         transient lines); the host redshift is preferred when both exist."""
         info = self.parse(self.fetch(objname))
@@ -1271,7 +1271,7 @@ class TNSConnector:
         return info
 
 
-def find_host(kn: KNCandidate, ned: Optional[NEDConnector] = None,
+def find_host(kn: OpticalTransient, ned: Optional[NEDConnector] = None,
               glade: Optional[GladePlusConnector] = None,
               des: Optional["DESY6Connector"] = None, use_des: bool = True,
               max_offset_kpc: float = 50.0,
@@ -1279,7 +1279,7 @@ def find_host(kn: KNCandidate, ned: Optional[NEDConnector] = None,
               overwrite: bool = False) -> dict[str, Any]:
     """Host galaxy, redshift and (if nearby) redshift-independent distance.
 
-    Order: a spectroscopic redshift already in the candidate (from a
+    Order: a spectroscopic redshift already in the optical transient (from a
     spectrum, TNS or a circular) is kept unless ``overwrite``; otherwise
     NED's nearest galaxy with a spectroscopic redshift within
     ``max_offset_kpc``; otherwise GLADE+ (lowest chance probability, may be
@@ -1390,3 +1390,11 @@ def mjd_to_gps(mjd: float | np.ndarray) -> float | np.ndarray:
 
 def gps_to_mjd(gps: float | np.ndarray) -> float | np.ndarray:
     return Time(gps, format="gps").utc.mjd
+
+
+# names before the rename of the optical transient (2026-11): kept for scripts written with them
+for _c in (FinkConnector, FinkLSSTConnector, ALeRCEConnector, ANTARESConnector):
+    _c.candidate = _c.transient
+KNCandidate = OpticalTransient
+load_candidate = load_optical
+save_candidate = save_optical

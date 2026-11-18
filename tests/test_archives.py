@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 
 from raven_kn.connection import (ALeRCEConnector, ANTARESConnector, ATLASForcedPhotometryConnector,
-                                 KNCandidate, PhotometryPoint, last_nondetection)
+                                 OpticalTransient, PhotometryPoint, last_nondetection)
 
 DATA = Path(__file__).parent / "data"
 
@@ -29,7 +29,7 @@ def test_alerce_parse_real_lightcurve():
         def get(self, url, timeout):
             assert url.endswith("/objects/ZTF21abdpqpq/lightcurve")
             return _Resp(lc)
-    kn = ALeRCEConnector(session=Sess()).candidate("ZTF21abdpqpq")
+    kn = ALeRCEConnector(session=Sess()).transient("ZTF21abdpqpq")
     assert len(kn.detections) == 3 and len(kn.upper_limits) == 91
     assert kn.first_detection.mjd == pytest.approx(59369.3157, abs=1e-3)
     assert {p.band for p in kn.photometry} <= {"g", "r", "i"}
@@ -53,7 +53,7 @@ def test_atlas_queue_poll_parse():
             if url.endswith("/queue/1/"):
                 return _Resp({"finishtimestamp": "now", "result_url": "https://x/result.txt"})
             return _Resp(text=table)
-    kn = KNCandidate("t", 10.0, 20.0, photometry=[PhotometryPoint(60000.5, "g", 19.0, 0.1)])
+    kn = OpticalTransient("t", 10.0, 20.0, photometry=[PhotometryPoint(60000.5, "g", 19.0, 0.1)])
     ATLASForcedPhotometryConnector("TOKEN", session=Sess(), poll_s=0).add_to(kn, days_before=10)
     assert calls[0][2] == "Token TOKEN" and calls[0][3] == pytest.approx(59990.5)
     atl = [p for p in kn.photometry if p.survey == "ATLAS"]
@@ -92,14 +92,14 @@ def test_atlas_parse_real_reply():
     assert bad.mag < 11
     # just before the first detection ATLAS has a non-detection only to ~9.8 (bad error);
     # the last limit deep enough to matter is hours before discovery
-    kn = KNCandidate("SN2023ixf", 210.910674, 54.3117, photometry=pts)
+    kn = OpticalTransient("SN2023ixf", 210.910674, 54.3117, photometry=pts)
     assert last_nondetection(kn).mag < 11
     last = last_nondetection(kn, depth_mag=19.0)
     assert last.band == "o" and 60082.4 < last.mjd < 60082.5 and 19.1 < last.mag < 19.5
 
 
 def test_last_nondetection_depth():
-    kn = KNCandidate("t", 0, 0, photometry=[PhotometryPoint(10.0, "r", 19.0, 0.1),
+    kn = OpticalTransient("t", 0, 0, photometry=[PhotometryPoint(10.0, "r", 19.0, 0.1),
                                             PhotometryPoint(9.5, "r", 18.0, upper_limit=True),
                                             PhotometryPoint(9.0, "r", 21.0, upper_limit=True)])
     assert last_nondetection(kn).mjd == 9.5
@@ -124,7 +124,7 @@ def test_fink_lsst_flux_to_mag_and_limits():
                     return src if url.endswith("sources") else fp
             return R()
     c = FinkLSSTConnector(session=S())
-    kn = c.candidate("170591538829590749")
+    kn = c.transient("170591538829590749")
     assert kn.ra == pytest.approx(src[0]["r:ra"]) and kn.photometry
     # one point per visit (forced photometry kept), sorted, TAI -> UTC
     assert len(kn.photometry) == len({r["r:visit"] for r in src} | {r["r:visit"] for r in fp})
@@ -154,7 +154,7 @@ class _AntaresSess:
 
 def test_antares_matches_alerce():
     sess = _AntaresSess()
-    kn = ANTARESConnector(session=sess).candidate(241.3264025, 13.9156065)
+    kn = ANTARESConnector(session=sess).transient(241.3264025, 13.9156065)
     assert kn.name == "ZTF21abdpqpq" and kn.source == "ANTARES"
     dets = [p for p in kn.photometry if not p.upper_limit]
     uls = [p for p in kn.photometry if p.upper_limit]
@@ -201,7 +201,7 @@ def _zfps_file(rows):
 
 
 def test_ztf_forced_photometry_parse_detections_limits_and_cuts():
-    from raven_kn.connection import KNCandidate, ZTFForcedPhotometryConnector as Z
+    from raven_kn.connection import OpticalTransient, ZTFForcedPhotometryConnector as Z
     text = _zfps_file([
         {"filter": "ZTF_r", "jd": 2460080.8, "flux": 30.0, "unc": 20.0},       # S/N 1.5: limit
         {"filter": "ZTF_g", "jd": 2460084.7, "flux": 4000.0, "unc": 40.0},     # detection
@@ -218,7 +218,7 @@ def test_ztf_forced_photometry_parse_detections_limits_and_cuts():
     assert not det.upper_limit and det.band == "g"
     assert det.mag == pytest.approx(26 - 2.5 * np.log10(4000)) and det.mag_err == pytest.approx(0.0109, abs=1e-3)
     assert det.mjd == pytest.approx(2460084.7 - 2400000.5) and det.survey == "ZTF-FP"
-    kn = KNCandidate("sn", 210.910674, 54.3117)
+    kn = OpticalTransient("sn", 210.910674, 54.3117)
     assert z.add_to(kn, text) == 2 and z.add_to(kn, text) == 0     # merged once
 
 

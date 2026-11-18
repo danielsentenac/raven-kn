@@ -11,7 +11,7 @@ from astropy.table import Table
 from astropy.time import Time
 
 from raven_kn.listener import (parse_grb_notice, parse_neutrino_notice, handle_neutrino_notice,
-                               CandidateStore, add_candidate, handle_grb_notice,
+                               AlertStore, add_optical, handle_grb_notice,
                                handle_gw_alert, moc_lookup, moc_to_flat, uniq_to_order_ipix)
 from test_pipeline import T0, make_kn
 
@@ -66,7 +66,7 @@ def test_moc_decoding():
 
 
 def test_gw_alert_in_window_gives_joint_far(tmp_path):
-    store = CandidateStore(tmp_path)
+    store = AlertStore(tmp_path)
     store.save(make_kn())
     far_kn = make_kn(); far_kn.name = "elsewhere"; far_kn.ra += 120
     store.save(far_kn)
@@ -85,7 +85,7 @@ def test_mock_superevents_skipped_unless_asked(tmp_path):
     """LVK sends a mock superevent (MS...) every hour on igwn.gwalert outside
     observing runs (seen live on CIT, 2026-11-10): ignored by default."""
     from raven_kn.listener import is_mock
-    store = CandidateStore(tmp_path)
+    store = AlertStore(tmp_path)
     store.save(make_kn())
     assert handle_gw_alert(gw_alert(sid="MS261007w"), store) == []
     assert not (tmp_path / "gw" / "MS261007w.json").exists()
@@ -116,7 +116,7 @@ def test_external_coinc_parsed_kept_and_reported(tmp_path):
     assert "combined_skymap" not in a["external_coinc"] and a["combined_skymap"] is not None
     assert parse_gw_alert(gw_alert())["external_coinc"] is None
 
-    store = CandidateStore(tmp_path)
+    store = AlertStore(tmp_path)
     store.save(make_kn())
     res = handle_gw_alert(msg, store)[0]
     assert res["raven_external_coinc"]["time_difference"] == -1.74
@@ -131,12 +131,12 @@ def test_external_coinc_parsed_kept_and_reported(tmp_path):
     # combined map for the sky factor on request
     res3 = handle_gw_alert(msg, store, use_combined=True)[0]
     assert res3["skymap_used"] == "combined"
-    late = add_candidate(make_kn(), store, now_gps=T0 + 86400, use_combined=True)[0]
+    late = add_optical(make_kn(), store, now_gps=T0 + 86400, use_combined=True)[0]
     assert late["skymap_used"] == "combined" and late["raven_external_coinc"]["observatory"] == "Fermi"
 
 
 def test_gw_alert_outside_window_ignored_and_retraction(tmp_path):
-    store = CandidateStore(tmp_path)
+    store = AlertStore(tmp_path)
     store.save(make_kn())
     assert handle_gw_alert(gw_alert(t_gps=T0 - 5 * 86400, sid="S1"), store) == []
     assert (tmp_path / "gw" / "S1.json").exists()
@@ -145,20 +145,20 @@ def test_gw_alert_outside_window_ignored_and_retraction(tmp_path):
 
 
 def test_late_candidate_matched_to_stored_alert(tmp_path):
-    store = CandidateStore(tmp_path)
+    store = AlertStore(tmp_path)
     assert handle_gw_alert(gw_alert(), store) == []          # no candidate yet
-    res = add_candidate(make_kn(), store, now_gps=T0 + 2 * 86400)
+    res = add_optical(make_kn(), store, now_gps=T0 + 2 * 86400)
     assert len(res) == 1 and res[0]["skymap_overlap"] > 100
-    assert add_candidate(make_kn(), store, now_gps=T0 + 30 * 86400) == []   # alert too old
+    assert add_optical(make_kn(), store, now_gps=T0 + 30 * 86400) == []   # alert too old
 
 
 def test_grb_notice_attached_and_narrows_window(tmp_path):
-    store = CandidateStore(tmp_path)
+    store = AlertStore(tmp_path)
     kn = make_kn(); store.save(kn)
     notice = {"trigger_time": Time(T0 + 1.74, format="gps").utc.isot + "Z",
               "instrument": "BAT", "id": ["x"], "ra": RA + 1.0, "dec": DEC, "ra_dec_error": 3.0}
     assert handle_grb_notice(notice, store) == ["test"]
-    kn2 = store.candidates()[0]
+    kn2 = store.transients()[0]
     assert kn2.grb.gps == pytest.approx(T0 + 1.74, abs=1e-3)
     far = {**notice, "ra": RA + 60}
     kn3 = make_kn(); kn3.name = "other"; store.save(kn3)
@@ -171,18 +171,18 @@ def test_grb_notice_attached_and_narrows_window(tmp_path):
 
 def test_grb_before_candidate_is_stored_and_attached_later(tmp_path):
     """Usual order: the GRB notice arrives hours before the optical counterpart."""
-    store = CandidateStore(tmp_path)
+    store = AlertStore(tmp_path)
     notice = {"trigger_time": Time(T0 + 1.74, format="gps").utc.isot + "Z",
               "instrument": "BAT", "id": ["x"], "ra": RA + 1.0, "dec": DEC, "ra_dec_error": 3.0}
     assert handle_grb_notice(notice, store) == []            # nothing to attach to yet
     assert len(store.grb_notices()) == 1
-    add_candidate(make_kn(), store, now_gps=T0 + 86400)
-    kn = store.candidates()[0]
+    add_optical(make_kn(), store, now_gps=T0 + 86400)
+    kn = store.transients()[0]
     assert kn.grb is not None and kn.grb.gps == pytest.approx(T0 + 1.74, abs=1e-3)
-    assert "GRB before candidate" in kn.notes
+    assert "GRB before optical transient" in kn.notes
     other = make_kn(); other.name = "far"; other.ra = RA + 60
-    add_candidate(other, store, now_gps=T0 + 86400)
-    assert next(c for c in store.candidates() if c.name == "far").grb is None
+    add_optical(other, store, now_gps=T0 + 86400)
+    assert next(c for c in store.transients() if c.name == "far").grb is None
 
 GBM_VOEVENT = """<?xml version='1.0' encoding='UTF-8'?>
 <voe:VOEvent xmlns:voe="http://www.ivoa.net/xml/VOEvent/v2.0" role="{role}" version="2.0"
@@ -203,7 +203,7 @@ def test_gbm_voevent_attached(tmp_path):
     n = parse_grb_notice(xml.encode())
     assert n["grb"].instrument == "Fermi-GBM" and n["grb"].graceid == "524666471"
     assert n["err_deg"] == pytest.approx(np.hypot(11.6, 3.7))
-    store = CandidateStore(tmp_path)
+    store = AlertStore(tmp_path)
     store.save(make_kn())
     assert handle_grb_notice(GBM_VOEVENT.format(role="test", iso=iso, ra=RA, dec=DEC), store) == []
     # GW170817's GBM ground position is 24 deg from NGC 4993: inside 2 x 12.2 deg
@@ -271,7 +271,7 @@ def test_xray_position_refines_stored_burst(tmp_path, burst, xray, order):
     iso = Time(T0 + 1.74, format="gps").utc.isot
     b = _moved((LIVE / burst).read_bytes(), RA + 0.02, DEC, iso)
     x = _moved((LIVE / xray).read_bytes(), RA, DEC, Time(T0 + 83, format="gps").utc.isot)
-    store = CandidateStore(tmp_path)
+    store = AlertStore(tmp_path)
     store.save(make_kn())
     off = make_kn(); off.name = "offset"; off.ra = RA + 0.04; store.save(off)
     if order == "burst first":
@@ -281,7 +281,7 @@ def test_xray_position_refines_stored_burst(tmp_path, burst, xray, order):
         assert handle_grb_notice(x, store) == []                  # no burst time yet
         assert store.grb_notices() == []
         assert handle_grb_notice(b, store) == ["test"]
-    kn = {c.name: c for c in store.candidates()}
+    kn = {c.name: c for c in store.transients()}
     assert kn["offset"].grb is None
     assert kn["test"].grb.instrument == "Swift-BAT"
     assert kn["test"].grb.gps == pytest.approx(T0 + 1.74, abs=1e-3)   # burst, not image, time
@@ -289,10 +289,10 @@ def test_xray_position_refines_stored_burst(tmp_path, burst, xray, order):
     assert n["position_from"] == "Swift-XRT" and n["ra"] == pytest.approx(RA, abs=1e-4)
     assert n["err_deg"] == pytest.approx(0.0013)
     # a candidate found later is matched with the X-ray position
-    late = make_kn(); late.name = "late"; add_candidate(late, store, now_gps=T0 + 86400)
+    late = make_kn(); late.name = "late"; add_optical(late, store, now_gps=T0 + 86400)
     far = make_kn(); far.name = "late_far"; far.ra = RA + 0.04
-    add_candidate(far, store, now_gps=T0 + 86400)
-    kn = {c.name: c for c in store.candidates()}
+    add_optical(far, store, now_gps=T0 + 86400)
+    kn = {c.name: c for c in store.transients()}
     assert "Swift-XRT position" in kn["late"].notes and kn["late_far"].grb is None
     # a later BAT notice of the same trigger does not undo the X-ray position
     handle_grb_notice(b, store)
@@ -306,11 +306,11 @@ def test_xray_position_refines_stored_burst(tmp_path, burst, xray, order):
 
 def test_mxt_position_waits_for_its_eclairs_burst(tmp_path):
     iso = Time(T0 + 1.74, format="gps").utc.isot
-    store = CandidateStore(tmp_path)
+    store = AlertStore(tmp_path)
     store.save(make_kn())
     # SVOM-MXT position alone: stored, attached to nothing
     m = _moved((LIVE / "gcn.notices.svom.voevent.mxt.xml").read_bytes(), RA, DEC, iso)
-    assert handle_grb_notice(m, store) == [] and store.candidates()[0].grb is None
+    assert handle_grb_notice(m, store) == [] and store.transients()[0].grb is None
     # its ECLAIRs burst (same Burst_Id) then takes the MXT position
     e = _moved((LIVE / "gcn.notices.svom.voevent.eclairs.xml").read_bytes(), RA + 0.1, DEC, iso)
     e = e.replace("sb26102601", "sb26110812")
@@ -347,18 +347,18 @@ def _nu_notice(dt_s=-100.0, dra=0.3, err=0.5, alert_type="initial", name="IceCub
 
 
 def test_neutrino_before_candidate_sets_500s_window(tmp_path):
-    store = CandidateStore(tmp_path)
+    store = AlertStore(tmp_path)
     assert handle_neutrino_notice(_nu_notice(), store) == []        # stored, nothing to attach yet
-    add_candidate(make_kn(), store, now_gps=T0 + 86400)
-    kn = store.candidates()[0]
+    add_optical(make_kn(), store, now_gps=T0 + 86400)
+    kn = store.transients()[0]
     assert kn.neutrino is not None and kn.neutrino.event_name == "IceCube-170817A"
     from raven_kn.treatment.t0 import estimate_window
     w = estimate_window(kn)
     assert w.method == "neutrino" and w.duration == pytest.approx(1000.0)
     assert w.gps_start < T0 < w.gps_end
     far = make_kn(); far.name = "far"; far.ra = RA + 5     # 5 deg away: outside 1.4 x 0.5 deg
-    add_candidate(far, store, now_gps=T0 + 86400)
-    assert next(c for c in store.candidates() if c.name == "far").neutrino is None
+    add_optical(far, store, now_gps=T0 + 86400)
+    assert next(c for c in store.transients() if c.name == "far").neutrino is None
 
 
 def test_grb_window_wins_over_neutrino():
@@ -371,22 +371,22 @@ def test_grb_window_wins_over_neutrino():
 
 
 def test_neutrino_after_candidate_update_and_retraction(tmp_path):
-    store = CandidateStore(tmp_path)
+    store = AlertStore(tmp_path)
     store.save(make_kn())
     assert handle_neutrino_notice(_nu_notice(), store) == ["test"]
     upd = _nu_notice(dt_s=-90.0, alert_type="update")
     assert handle_neutrino_notice(upd, store) == ["test"]
-    assert store.candidates()[0].neutrino.gps == pytest.approx(T0 - 90.0, abs=1e-3)
+    assert store.transients()[0].neutrino.gps == pytest.approx(T0 - 90.0, abs=1e-3)
     other = _nu_notice(name="IceCube-170817B", dt_s=-50)       # a second event leaves the first alone
     assert handle_neutrino_notice(other, store) == []
     assert handle_neutrino_notice(_nu_notice(alert_type="retraction"), store) == ["test"]
-    kn = store.candidates()[0]
+    kn = store.transients()[0]
     assert kn.neutrino is None and "retracted" in kn.notes
     assert [n["nu"].event_name for n in store.nu_notices()] == ["IceCube-170817B"]
 
 
 def test_test_neutrino_notices_ignored(tmp_path):
-    store = CandidateStore(tmp_path)
+    store = AlertStore(tmp_path)
     store.save(make_kn())
     d = _nu_notice()
     d["$schema"] = d["$schema"].replace("/icecube/", "/icecube/test/")

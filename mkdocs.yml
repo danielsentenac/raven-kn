@@ -40,6 +40,7 @@ nav:
       - Distance, rate and joint FAR: coincidence.md
       - Targeted GW search: targeted-search.md
       - Real-time listener: listener.md
+      - Logbook and its application: logbook.md
       - Modules and commands: modules.md
   - Examples:
       - Overview: examples/index.md

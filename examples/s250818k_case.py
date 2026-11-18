@@ -20,7 +20,7 @@ from pathlib import Path
 import numpy as np
 from astropy.time import Time
 
-from raven_kn.connection import KNCandidate, PhotometryPoint, Redshift
+from raven_kn.connection import OpticalTransient, PhotometryPoint, Redshift
 from raven_kn.skymap import (conditional_distance, distance_overlap, distance_overlap_valid,
                              read_gw_skymap, skymap_overlap_integral)
 from raven_kn.treatment.detectability import (BNS_CHIRP_MASS, HORIZON_OVER_RANGE,
@@ -43,7 +43,7 @@ def main():
     ranges_bns = {k: float(v) for k, v in (kv.split("=") for kv in a.ranges.split(","))}
 
     first = Time("2025-08-18T04:02:00", scale="utc").mjd
-    kn = KNCandidate("AT2025ulz", RA, DEC, pos_err_arcsec=0.5, source="ZTF/GCN 41414",
+    kn = OpticalTransient("AT2025ulz", RA, DEC, pos_err_arcsec=0.5, source="ZTF/GCN 41414",
                      photometry=[PhotometryPoint(first, "r", 21.29, 0.13, survey="ZTF")],
                      redshift=Redshift(0.084840, 1e-5, source="DESI host"))
     post = posterior_for(kn)

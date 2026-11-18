@@ -259,4 +259,16 @@ def run_pe(cfg: TargetedSearchConfig, fetch: StrainFetcher, mchirp: float, gps: 
     summary["distance_at_prior_edge"] = ("lower" if np.median(d) < d_lo + edge else
                                          "upper" if np.median(d) > d_hi - edge else None)
     Path(out_dir, f"{label}_pe_summary.json").write_text(json.dumps(summary, indent=2))
+    # thinned samples for plots (the logbook application): distance and viewing angle
+    post = res.posterior
+    step = max(1, len(post) // 2000)
+    thin = {"label": label, "em_priors": em, "n_total": int(len(post)),
+            "luminosity_distance": [round(float(x), 3) for x in d[::step]]}
+    if "theta_jn" in post:
+        th = np.degrees(np.asarray(post["theta_jn"]))[::step]
+        thin["theta_jn_deg"] = [round(float(x), 2) for x in th]
+        thin["viewing_angle_deg"] = [round(float(min(x, 180 - x)), 2) for x in th]
+    if "chirp_mass" in post:
+        thin["chirp_mass"] = [round(float(x), 6) for x in np.asarray(post["chirp_mass"])[::step]]
+    Path(out_dir, f"{label}_pe_samples.json").write_text(json.dumps(thin))
     return summary

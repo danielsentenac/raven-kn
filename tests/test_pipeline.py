@@ -3,7 +3,7 @@ import json
 import numpy as np
 import pytest
 
-from raven_kn.connection import (FinkConnector, GraceDbConnector, KNCandidate,
+from raven_kn.connection import (FinkConnector, GraceDbConnector, OpticalTransient,
                                  PhotometryPoint, Redshift, ViewingAngleMeasurement, gps_to_mjd)
 from raven_kn.search import assess, calc_signif_gracedb, coinc_far, search
 from raven_kn.skymap import (ansatz_from_moments, distance_overlap, kn_skymap_3d,
@@ -21,7 +21,7 @@ def make_kn(ul_hours_before=3.0, ul_mag=24.5, grb=False, z=0.009783, theta=20.0)
     phot = [PhotometryPoint(t0 - ul_hours_before * H, "g", ul_mag, upper_limit=True, survey="LSST"),
             PhotometryPoint(t0 + 10.9 * H, "i", 17.1, 0.03, survey="LSST"),
             PhotometryPoint(t0 + 1.4, "r", 17.6, 0.03, survey="LSST")]
-    kn = KNCandidate("test", 197.450374, -23.381495, photometry=phot,
+    kn = OpticalTransient("test", 197.450374, -23.381495, photometry=phot,
                      redshift=Redshift(z, 1e-5) if z else None,
                      viewing_angle=ViewingAngleMeasurement(theta, 5.0) if theta else None)
     if grb:
@@ -152,7 +152,7 @@ def test_fink_parser():
                 def raise_for_status(self): pass
                 def json(self): return rows
             return R()
-    kn = FinkConnector(session=Sess()).candidate("ZTF00test")
+    kn = FinkConnector(session=Sess()).transient("ZTF00test")
     assert len(kn.photometry) == 2 and kn.upper_limits[0].mag == 20.5
     assert kn.first_detection.band == "r"
 

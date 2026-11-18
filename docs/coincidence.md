@@ -46,7 +46,7 @@ $$
 
 - **I_sky**: the overlap of the GW sky map with the kilonova position (RAVEN's own overlap function is
   used if installed);
-- **I_dist**: the overlap of the GW distance distribution along the candidate's direction with the EM
+- **I_dist**: the overlap of the GW distance distribution along the optical transient's direction with the EM
   distance, relative to the network horizon. Valid only for GW maps with distance layers, and only for
   hosts inside the reference horizon.
 

@@ -20,7 +20,7 @@ from typing import Optional, Sequence
 
 import numpy as np
 
-from ..connection import KNCandidate
+from ..connection import OpticalTransient
 
 DAY = 86400.0
 
@@ -124,7 +124,7 @@ def distance_modulus(d_mpc: float | np.ndarray) -> float | np.ndarray:
     return 5 * np.log10(np.asarray(d_mpc) * 1e6 / 10)
 
 
-def window_from_bracket(kn: KNCandidate,
+def window_from_bracket(kn: OpticalTransient,
                         d_mpc_upper: Optional[float] = None,
                         early_abs_mag: float = -15.0,
                         t_visible_d: float = 0.5,
@@ -134,7 +134,7 @@ def window_from_bracket(kn: KNCandidate,
     the first detection.
 
     A non-detection at t_UL with limiting magnitude m_lim constrains the
-    merger only if a kilonova at the candidate's distance would have been
+    merger only if a kilonova at the optical transient's distance would have been
     brighter than m_lim at t_UL, had the merger already happened. Model
     (deliberately simple, to be calibrated on Jamsin et al. injections):
     from ``t_visible_d`` after merger until the first detection, the
@@ -188,7 +188,7 @@ def window_from_bracket(kn: KNCandidate,
                             used.gps if used else None, t_det)
 
 
-def estimate_window(kn: KNCandidate, d_mpc_upper: Optional[float] = None,
+def estimate_window(kn: OpticalTransient, d_mpc_upper: Optional[float] = None,
                     credible_level: float = 0.9, model_sys_frac: float = 0.75,
                     model_sys_min_h: float = 1.0, **bracket_kw) -> MergerTimeWindow:
     """Best available window: GRB > neutrino > (light-curve fit + model margin)

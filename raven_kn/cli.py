@@ -1,5 +1,5 @@
-"""Command line: ``raven-kn assess candidate.json --out DIR``
-and ``raven-kn coinc candidate.json --superevent-far HZ --gw-skymap FILE``."""
+"""Command line: ``raven-kn assess optical.json --out DIR``
+and ``raven-kn coinc optical.json --superevent-far HZ --gw-skymap FILE``."""
 
 from __future__ import annotations
 
@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 import os
 
-from .connection import load_candidate
+from .connection import load_optical
 from .search import assess, coinc_far
 from .treatment.detectability import DEFAULT_RANGES_MPC
 from .treatment.distance_inclination import posterior_for
@@ -37,8 +37,10 @@ def main(argv=None):
     sub = p.add_subparsers(dest="cmd", required=True)
 
     a = sub.add_parser("assess", help="targeted-search trigger decision")
-    a.add_argument("candidate")
+    a.add_argument("optical", help="JSON file of the optical transient")
     a.add_argument("--out", default=None)
+    a.add_argument("--store", default=None,
+                   help="write the decision in the logbook of this store (when it changed)")
     a.add_argument("--ranges", help="BNS ranges in Mpc, e.g. H1=150,L1=160,V1=55")
     a.add_argument("--snr-threshold", type=float, default=6.0)
     a.add_argument("--p-min", type=float, default=0.1)
@@ -54,7 +56,7 @@ def main(argv=None):
                         "transient is a kilonova (spectrum, light curve or classifier score)")
 
     c = sub.add_parser("coinc", help="joint FAR with a GW superevent")
-    c.add_argument("candidate")
+    c.add_argument("optical", help="JSON file of the optical transient")
     c.add_argument("--superevent-id", default="S000000")
     c.add_argument("--superevent-far", type=float, required=True)
     c.add_argument("--gw-skymap")
@@ -62,7 +64,7 @@ def main(argv=None):
                    help="superevent chirp mass in Msun (distance-factor horizon); default BNS")
 
     n = sub.add_parser("nmma", help="NMMA light-curve fit -> t0 posterior")
-    n.add_argument("candidate")
+    n.add_argument("optical", help="JSON file of the optical transient")
     n.add_argument("--workdir", required=True)
     n.add_argument("--model", default="Bu2019lm")
     n.add_argument("--model-prior", help="NMMA prior file for models without a built-in prior")
@@ -77,7 +79,7 @@ def main(argv=None):
                    help="broad distance/inclination priors (fit result reusable as constraint)")
     n.add_argument("--dry-run", action="store_true", help="write inputs and print the command")
     n.add_argument("--import-only", action="store_true", help="read a finished run in --workdir")
-    n.add_argument("--save", help="write the updated candidate JSON here")
+    n.add_argument("--save", help="write the updated optical transient JSON here")
     n.add_argument("--executable", default=os.environ.get("RAVEN_KN_NMMA_EXE", "lightcurve-analysis"),
                    help="NMMA lightcurve-analysis path (default: $RAVEN_KN_NMMA_EXE or PATH), "
                         "e.g. ~/miniforge3/envs/nmma/bin/lightcurve-analysis")
@@ -150,6 +152,8 @@ def main(argv=None):
                                        "e.g. /etc/pki/tls/certs/ca-bundle.crt")
     g.add_argument("--label", default=None)
     g.add_argument("--out", default="targeted_out")
+    g.add_argument("--visibility", choices=["public", "lvk"], default=None,
+                   help="logbook visibility of this run (default: public for public data, else lvk)")
 
     y = sub.add_parser("pygrb", help="PyGRB override configs (one per sub-segment) + bank")
     y.add_argument("--request", required=True, help="targeted search request JSON from assess")
@@ -175,9 +179,9 @@ def main(argv=None):
     y.add_argument("--segment-url", default="https://segments.igwn.org")
 
     li = sub.add_parser("listen", help="GCN Kafka listener: GW alerts, GRB notices and neutrino alerts vs stored "
-                                       "kilonova candidates (credentials: $GCN_CLIENT_ID, "
+                                       "optical transients (credentials: $GCN_CLIENT_ID, "
                                        "$GCN_CLIENT_SECRET)")
-    li.add_argument("--store", required=True, help="candidate/alert/result directory")
+    li.add_argument("--store", required=True, help="optical transient/alert/result directory")
     li.add_argument("--group-id", default="raven-kn",
                     help="Kafka consumer group: a restart resumes where it stopped ('' for none)")
     li.add_argument("--include-mock", action="store_true",
@@ -190,9 +194,9 @@ def main(argv=None):
                     help="when an alert carries a RAVEN coincidence (external_coinc), use its "
                          "combined GW x GRB map for the sky factor instead of the GW-only map")
 
-    ad = sub.add_parser("add", help="add a candidate to the listener store and match it against "
+    ad = sub.add_parser("add", help="add an optical transient to the listener store and match it against "
                                     "GW alerts already received")
-    ad.add_argument("candidate")
+    ad.add_argument("optical", help="JSON file of the optical transient")
     ad.add_argument("--store", required=True)
     ad.add_argument("--find-host", action="store_true",
                     help="look up the host redshift/distance (NED, GLADE+) before matching")
@@ -200,34 +204,53 @@ def main(argv=None):
 
     h = sub.add_parser("host", help="host galaxy, redshift and redshift-independent distance "
                                     "(NED, then GLADE+, then DES Y6; NED-D for nearby hosts)")
-    h.add_argument("candidate")
+    h.add_argument("optical", help="JSON file of the optical transient")
     h.add_argument("--max-offset-kpc", type=float, default=50.0)
     h.add_argument("--overwrite", action="store_true",
-                   help="replace a spectroscopic redshift already in the candidate")
+                   help="replace a spectroscopic redshift already in the optical transient")
     h.add_argument("--no-des", action="store_true", help="skip the DES Y6 Gold photo-z fallback")
-    h.add_argument("--save", help="write the updated candidate JSON here")
+    h.add_argument("--save", help="write the updated optical transient JSON here")
 
     t = sub.add_parser("tns", help="TNS classification, redshift and spectra "
                                    "($TNS_BOT_ID, $TNS_BOT_NAME, $TNS_API_KEY)")
-    t.add_argument("candidate")
+    t.add_argument("optical", help="JSON file of the optical transient")
     t.add_argument("--objname", required=True, help="e.g. AT2025ulz")
     t.add_argument("--save")
 
     z = sub.add_parser("ztffp", help="ZTF forced photometry from IPAC's ZFPS "
                                      "($ZTF_FPS_EMAIL, $ZTF_FPS_USERPASS)")
     z.add_argument("action", choices=["submit", "fetch"],
-                   help="submit: queue the candidate's position; fetch: merge the finished "
-                        "light curve into the candidate (results take minutes to days)")
-    z.add_argument("candidate")
+                   help="submit: queue the optical transient's position; fetch: merge the finished "
+                        "light curve into the optical transient (results take minutes to days)")
+    z.add_argument("optical", help="JSON file of the optical transient")
     z.add_argument("--days-before", type=float, default=60.0,
                    help="submit: JD range starts this long before the first detection (or now)")
     z.add_argument("--days-after", type=float, default=30.0,
                    help="submit: and ends this long after it (capped at now)")
     z.add_argument("--force", action="store_true",
                    help="submit even if the position was submitted in the last 90 days")
-    z.add_argument("--save", help="fetch: write the updated candidate JSON here")
+    z.add_argument("--save", help="fetch: write the updated optical transient JSON here")
 
-    fl = sub.add_parser("fink-listen", help="kilonova candidates from a Fink Kafka livestream "
+    rl = sub.add_parser("runlog", help="mark a search or PE run in the logbook (e.g. submitted to a cluster)")
+    rl.add_argument("out", help="output directory of the run")
+    rl.add_argument("--request", required=True, help="the targeted-search request (gives the optical transient)")
+    rl.add_argument("--label", default=None,
+                    help="run name: the --label of the targeted command (default: the optical transient)")
+    rl.add_argument("--stage", default="submitted", choices=["submitted"])
+    rl.add_argument("--note", default="")
+    rl.add_argument("--visibility", choices=["public", "lvk"], default="lvk")
+
+    sv = sub.add_parser("serve", help="read-only HTTP service on a store, for the logbook application")
+    sv.add_argument("--store", required=True)
+    sv.add_argument("--host", default="127.0.0.1")
+    sv.add_argument("--port", type=int, default=8765)
+    sv.add_argument("--token-file", default=None,
+                    help="file with the access token (else RAVEN_KN_TOKEN); required")
+    sv.add_argument("--lvk-token-file", default=None,
+                    help="file with the token that also shows runs on non-public data "
+                         "(else RAVEN_KN_LVK_TOKEN)")
+
+    fl = sub.add_parser("fink-listen", help="optical transients from a Fink Kafka livestream "
                                             "(credentials: finkctl auth register)")
     fl.add_argument("--survey", choices=["ztf", "lsst"], required=True)
     fl.add_argument("--store", required=True, help="the listener's store (shared with raven-kn listen)")
@@ -238,20 +261,37 @@ def main(argv=None):
                     help="re-run assess on every update; decisions in <store>/assess/")
     fl.add_argument("--ranges", help="BNS ranges in Mpc for --assess, e.g. H1=150,L1=160,V1=55")
     fl.add_argument("--find-host", action="store_true",
-                    help="look up the host galaxy once per new candidate (needed for the "
+                    help="look up the host galaxy once per new optical transient (needed for the "
                          "light-curve kilonova test)")
     fl.add_argument("--max-alerts", type=int, default=None)
 
     args = p.parse_args(argv)
+    if args.cmd == "serve":
+        from .serve import serve
+        tok = (Path(args.token_file).read_text().strip() if args.token_file
+               else os.environ.get("RAVEN_KN_TOKEN", ""))
+        lvk = (Path(args.lvk_token_file).read_text().strip() if args.lvk_token_file
+               else os.environ.get("RAVEN_KN_LVK_TOKEN", ""))
+        if not tok and not lvk:
+            p.error("an access token is required (--token-file or RAVEN_KN_TOKEN)")
+        serve(args.store, args.host, args.port, tok or None, lvk or None)
+        return
+    if args.cmd == "runlog":
+        from .journal import RunLog
+        req = json.loads(Path(args.request).read_text())
+        cand = req.get("optical") or req.get("candidate", "unknown")
+        RunLog(args.out, cand, args.label or cand,
+               visibility=args.visibility).submitted(args.note)
+        return
     if args.cmd == "fink-listen":
         import logging
         from .fink_stream import ZTF_KN_TOPICS, stream
-        from .listener import CandidateStore
+        from .listener import AlertStore
         topics = args.topics if args.topics else (list(ZTF_KN_TOPICS) if args.survey == "ztf" else None)
         if not topics:
             p.error("--topics is required for --survey lsst (Fink has no Rubin kilonova topic yet)")
         logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
-        n = stream(CandidateStore(args.store), args.survey, topics,
+        n = stream(AlertStore(args.store, source=f"fink-{args.survey}"), args.survey, topics,
                    assess_kw={"ranges_mpc": _ranges(args.ranges)} if args.assess else None,
                    find_host=args.find_host, max_alerts=args.max_alerts,
                    on_result=lambda r: print(json.dumps(r, default=float), flush=True))
@@ -259,8 +299,8 @@ def main(argv=None):
         return
     if args.cmd == "ztffp":
         from astropy.time import Time
-        from .connection import ZTFForcedPhotometryConnector, save_candidate
-        kn = load_candidate(args.candidate)
+        from .connection import ZTFForcedPhotometryConnector, save_optical
+        kn = load_optical(args.optical)
         zc = ZTFForcedPhotometryConnector(os.environ["ZTF_FPS_EMAIL"], os.environ["ZTF_FPS_USERPASS"])
         if args.action == "submit":
             now = float(Time.now().jd)
@@ -272,16 +312,16 @@ def main(argv=None):
                               "jdend": jd1, "http_status": codes}, indent=2))
         else:
             n = zc.add_to(kn)
-            res = {"candidate": kn.name, "points_added": n,
+            res = {"optical": kn.name, "points_added": n,
                    "status": "merged" if n else "no finished light curve for this position yet"}
             if args.save and n:
-                save_candidate(kn, args.save)
+                save_optical(kn, args.save)
                 res["saved"] = args.save
             print(json.dumps(res, indent=2))
         return
     if args.cmd in ("host", "tns"):
-        from .connection import TNSConnector, find_host, save_candidate
-        kn = load_candidate(args.candidate)
+        from .connection import TNSConnector, find_host, save_optical
+        kn = load_optical(args.optical)
         if args.cmd == "host":
             res = find_host(kn, max_offset_kpc=args.max_offset_kpc, overwrite=args.overwrite,
                             use_des=not args.no_des)
@@ -292,20 +332,20 @@ def main(argv=None):
         res["distance"] = kn.distance.__dict__ if kn.distance else None
         res["classification"] = kn.classification
         if args.save:
-            save_candidate(kn, args.save)
+            save_optical(kn, args.save)
             res["saved"] = args.save
         print(json.dumps(res, indent=2, default=float))
         return
     if args.cmd in ("listen", "add"):
         import logging
-        from .listener import GRB_TOPICS, NU_TOPICS, CandidateStore, add_candidate, listen
-        store = CandidateStore(args.store)
+        from .listener import GRB_TOPICS, NU_TOPICS, AlertStore, add_optical, listen
+        store = AlertStore(args.store, source="listen" if args.cmd == "listen" else "cli")
         if args.cmd == "add":
-            kn = load_candidate(args.candidate)
+            kn = load_optical(args.optical)
             if args.find_host:
                 from .connection import find_host
                 find_host(kn)
-            print(json.dumps(add_candidate(kn, store,
+            print(json.dumps(add_optical(kn, store,
                                            use_combined=args.use_combined_skymap),
                              indent=2, default=float))
             return
@@ -394,27 +434,52 @@ def main(argv=None):
                                   "errors": {i: m["error"] for i, m in man["ifos"].items() if "error" in m}},
                                  indent=2))
                 return
-        if args.pe and args.pe_result:
-            loudest = json.loads(Path(args.pe_result).read_text())["loudest"]
-        else:
-            res = run(cfg, fetch, args.out)
-            loudest = res.loudest
-            print(json.dumps({"p_value": res.p_value,
-                              "p_value_extrapolated": res.loudest.get("p_value_extrapolated"),
-                              "bank_size": res.bank_size,
-                              "loudest": res.loudest}, indent=2, default=float))
-        if args.pe and loudest.get("loudest_rho_net", 0) > 0:
-            from .targeted.pe import run_pe
-            ifos = list(loudest.get("loudest_rho_ifo") or cfg.ifos)
-            for em in {"em": (True,), "gw": (False,), "both": (True, False)}[args.pe]:
-                out = run_pe(cfg, fetch, loudest["loudest_mchirp"], loudest["loudest_gps"], args.out,
-                             em=em, ifos=ifos, duration=args.pe_duration, nlive=args.pe_nlive,
-                             npool=args.pe_npool)
-                print(json.dumps(out, indent=2, default=float))
+        # logbook: <label>_state.json and <label>_journal.jsonl in the output directory (raven_kn.journal)
+        from .journal import RunLog, pe_warnings
+        src = getattr(fetch, "name", "gwosc" if fetch is gw else "files")
+        vis = args.visibility or ("public" if src in ("public", "gwosc") else "lvk")
+        req = json.loads(Path(args.request).read_text()) if args.request else {}
+        cand = req.get("optical") or req.get("candidate") or cfg.label
+        only_pe = bool(args.pe and args.pe_result)
+        with RunLog(args.out, cand, cfg.label, visibility=vis,
+                    kind="pe" if only_pe else "search") as rlog:
+            rlog.state["data_source"] = src
+            if only_pe:
+                loudest = json.loads(Path(args.pe_result).read_text())["loudest"]
+            else:
+                rlog.stage("searching", f"{cfg.label}: search on {src} data, window "
+                           f"[{cfg.gps_start:.2f}, {cfg.gps_end:.2f}], {cfg.statistic} statistic",
+                           data_source=src)
+                res = run(cfg, fetch, args.out, on_progress=lambda i, n, r: rlog.subsegment(
+                    i, n, {"rho_net": r.loudest_rho_net, "gps": r.loudest_gps,
+                           "mchirp": r.loudest_mchirp, "p_value": r.p_value}))
+                loudest = res.loudest
+                rlog.state["p_value"] = res.p_value
+                rlog.log("search_result", f"{cfg.label}: loudest {loudest.get('loudest_rho_net', 0):.2f}"
+                         f", p-value {res.p_value:.3g}, {res.bank_size} templates",
+                         p_value=res.p_value, bank_size=res.bank_size, loudest=loudest,
+                         result_file=f"{cfg.label}_targeted_result.json")
+                print(json.dumps({"p_value": res.p_value,
+                                  "p_value_extrapolated": res.loudest.get("p_value_extrapolated"),
+                                  "bank_size": res.bank_size,
+                                  "loudest": res.loudest}, indent=2, default=float))
+            if args.pe and loudest.get("loudest_rho_net", 0) > 0:
+                from .targeted.pe import run_pe
+                ifos = list(loudest.get("loudest_rho_ifo") or cfg.ifos)
+                for em in {"em": (True,), "gw": (False,), "both": (True, False)}[args.pe]:
+                    which = "em" if em else "gw"
+                    rlog.pe(which, "running")
+                    out = run_pe(cfg, fetch, loudest["loudest_mchirp"], loudest["loudest_gps"], args.out,
+                                 em=em, ifos=ifos, duration=args.pe_duration, nlive=args.pe_nlive,
+                                 npool=args.pe_npool)
+                    rlog.pe(which, "done", summary=out,
+                            warnings=pe_warnings(out, loudest.get("loudest_rho_coh")
+                                                 or loudest.get("loudest_rho_net")))
+                    print(json.dumps(out, indent=2, default=float))
         return
-    kn = load_candidate(args.candidate)
+    kn = load_optical(args.optical)
     if args.cmd == "nmma":
-        from .connection import save_candidate
+        from .connection import save_optical
         from .treatment import lightcurve_fit as lcf
         if args.import_only:
             lcf.import_result(kn, args.workdir)
@@ -435,15 +500,22 @@ def main(argv=None):
                                 "duration_h": w.duration / 3600, "method": w.method,
                                 "notes": w.notes}
         if args.save:
-            save_candidate(kn, args.save)
+            save_optical(kn, args.save)
             res["saved"] = args.save
         print(json.dumps(res, indent=2, default=float))
         return
     if args.cmd == "assess":
+        prev = None
+        if args.out:
+            pp = Path(args.out) / f"{kn.name.replace(' ', '_')}_decision.json"
+            prev = json.loads(pp.read_text()) if pp.exists() else None
         res = assess(kn, args.out, _ranges(args.ranges), args.snr_threshold, args.p_min,
                      args.d_max_useful, model_sys_frac=args.model_sys_frac,
                      chirp_mass_msun=args.chirp_mass,
                      require_kn_evidence=not args.no_kn_evidence)
+        if args.store:
+            from .journal import Journal, log_decision
+            log_decision(Journal.for_store(args.store, "cli"), res, prev)
     else:
         post = posterior_for(kn)
         win = estimate_window(kn)

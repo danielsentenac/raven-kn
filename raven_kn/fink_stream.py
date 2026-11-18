@@ -1,9 +1,9 @@
-"""Kilonova candidates from the Fink broker's Kafka livestream (ZTF or Rubin).
+"""Optical transients from the Fink broker's Kafka livestream (ZTF or Rubin).
 
 Each alert of the subscribed Fink topics becomes (or updates) a
-:class:`~raven_kn.connection.KNCandidate` in the listener's store, through
-:func:`raven_kn.listener.add_candidate`: it is then matched against stored GRB
-notices, neutrino alerts and GW alerts, exactly like a candidate added by
+:class:`~raven_kn.connection.OpticalTransient` in the listener's store, through
+:func:`raven_kn.listener.add_optical`: it is then matched against stored GRB
+notices, neutrino alerts and GW alerts, exactly like an optical transient added by
 hand. Optionally, :func:`raven_kn.search.assess` is re-run on every update
 and the decision written to ``<store>/assess/``; a change to "trigger" is
 logged, so the kilonova gate (light curve, spectrum or classifier score)
@@ -39,7 +39,7 @@ from typing import Any, Callable, Iterable, Optional
 
 import numpy as np
 
-from .connection import FinkLSSTConnector, KNCandidate, PhotometryPoint
+from .connection import FinkLSSTConnector, OpticalTransient, PhotometryPoint
 
 log = logging.getLogger("raven_kn.fink_stream")
 
@@ -68,9 +68,9 @@ def _ztf_points(rows: Iterable[dict]) -> list[PhotometryPoint]:
     return pts
 
 
-def ztf_alert_to_candidate(alert: dict) -> KNCandidate:
+def ztf_alert_to_optical(alert: dict) -> OpticalTransient:
     c = alert["candidate"]
-    kn = KNCandidate(name=str(alert["objectId"]), ra=float(c["ra"]), dec=float(c["dec"]),
+    kn = OpticalTransient(name=str(alert["objectId"]), ra=float(c["ra"]), dec=float(c["dec"]),
                      pos_err_arcsec=0.5, source="Fink ZTF livestream")
     kn.add_photometry(_ztf_points([c] + list(alert.get("prv_candidates") or [])))
     for k in KN_SCORE_FIELDS:
@@ -81,14 +81,14 @@ def ztf_alert_to_candidate(alert: dict) -> KNCandidate:
     return kn
 
 
-def lsst_alert_to_candidate(alert: dict, snr_det: float = 5.0) -> KNCandidate:
+def lsst_alert_to_optical(alert: dict, snr_det: float = 5.0) -> OpticalTransient:
     conv = FinkLSSTConnector(snr_det=snr_det)
     obj = alert.get("diaObject") or {}
     src = alert.get("diaSource") or {}
     oid = obj.get("diaObjectId", src.get("diaObjectId"))
     ra = obj.get("ra", src.get("ra"))
     dec = obj.get("dec", src.get("dec"))
-    kn = KNCandidate(name=f"LSST{oid}", ra=float(ra), dec=float(dec), pos_err_arcsec=0.2,
+    kn = OpticalTransient(name=f"LSST{oid}", ra=float(ra), dec=float(dec), pos_err_arcsec=0.2,
                      source="Fink Rubin livestream")
     rows = [src] + list(alert.get("prvDiaSources") or []) + list(alert.get("prvDiaForcedSources") or [])
     pts, seen = [], set()
@@ -107,19 +107,19 @@ def lsst_alert_to_candidate(alert: dict, snr_det: float = 5.0) -> KNCandidate:
     return kn
 
 
-def alert_to_candidate(alert: dict, survey: str) -> KNCandidate:
+def alert_to_optical(alert: dict, survey: str) -> OpticalTransient:
     if survey == "ztf":
-        return ztf_alert_to_candidate(alert)
+        return ztf_alert_to_optical(alert)
     if survey == "lsst":
-        return lsst_alert_to_candidate(alert)
+        return lsst_alert_to_optical(alert)
     raise ValueError(f"unknown survey {survey!r}")
 
 
-def merge_into_store(kn: KNCandidate, store) -> KNCandidate:
-    """Merge a new alert's candidate into the stored one of the same name
+def merge_into_store(kn: OpticalTransient, store) -> OpticalTransient:
+    """Merge a new alert's optical transient into the stored one of the same name
     (new photometry added; the stored classification, redshift, GRB,
     neutrino and host information kept)."""
-    for old in store.candidates():
+    for old in store.transients():
         if old.name == kn.name:
             old.add_photometry(kn.photometry)
             if kn.kn_score is not None:
@@ -130,34 +130,43 @@ def merge_into_store(kn: KNCandidate, store) -> KNCandidate:
 
 def handle_alert(alert: dict, survey: str, store, assess_kw: Optional[dict] = None,
                  find_host: bool = False, **add_kw) -> dict:
-    """One Fink alert: candidate created or updated, matched against stored
+    """One Fink alert: optical transient created or updated, matched against stored
     GRB, neutrino and GW alerts, and (with ``assess_kw`` not None) assessed.
     Returns a summary (name, coincidences, decision, trigger change)."""
-    from .listener import add_candidate
-    new = not any(c.name == alert_to_candidate(alert, survey).name for c in store.candidates())
-    kn = merge_into_store(alert_to_candidate(alert, survey), store)
+    from .listener import add_optical
+    new = not any(c.name == alert_to_optical(alert, survey).name for c in store.transients())
+    kn = merge_into_store(alert_to_optical(alert, survey), store)
     # the kilonova gate needs a distance (absolute magnitude): look the host up
-    # once per candidate (recorded in its notes, also when nothing is found)
+    # once per optical transient (recorded in its notes, also when nothing is found)
     if find_host and kn.redshift is None and "host lookup:" not in kn.notes:
         from .connection import find_host as _find_host
+        from .journal import journal_of
         try:
             res = _find_host(kn)
             msg = "found" if kn.redshift is not None else "no host redshift"
+            journal_of(store).log("host_lookup", f"{kn.name}: host lookup, {msg}", optical=kn.name,
+                                  host=(res or {}).get("host") if isinstance(res, dict) else None,
+                                  redshift=kn.redshift.__dict__ if kn.redshift else None)
         except Exception as e:                   # network or catalogue failure: keep going
             log.warning("host lookup failed for %s: %s", kn.name, e)
             msg = f"failed ({type(e).__name__})"
+            journal_of(store).log("lookup_failed", f"{kn.name}: host lookup failed "
+                                  f"({type(e).__name__}: {e})"[:300], level="warning",
+                                  optical=kn.name, lookup="host", error=repr(e)[:500])
         kn.notes = (kn.notes + f" host lookup: {msg}.").strip()
-    coincs = add_candidate(kn, store, **add_kw)
-    out = {"candidate": kn.name, "new": new, "n_photometry": len(kn.photometry),
+    coincs = add_optical(kn, store, **add_kw)
+    out = {"optical": kn.name, "new": new, "n_photometry": len(kn.photometry),
            "coincidences": coincs}
     if assess_kw is not None:
         import json
         from .search import assess
         adir = Path(store.root) / "assess"
         prev_path = adir / f"{kn.name}_decision.json"
-        prev = json.loads(prev_path.read_text()).get("trigger_targeted_search") \
-            if prev_path.exists() else None
+        from .journal import journal_of, log_decision
+        prev_d = json.loads(prev_path.read_text()) if prev_path.exists() else None
+        prev = prev_d.get("trigger_targeted_search") if prev_d else None
         d = assess(kn, out_dir=adir, **assess_kw)
+        log_decision(journal_of(store), d, prev_d)
         out["trigger"] = d["trigger_targeted_search"]
         out["trigger_changed"] = bool(d["trigger_targeted_search"]) != bool(prev)
         out["kilonova_evidence"] = d["kilonova_evidence"]["by"]
@@ -180,25 +189,37 @@ def stream(store, survey: str, topics: Iterable[str], credentials: Optional[dict
         config["password"] = creds["password"]
     timeout = timeout_s if timeout_s is not None else creds.get("maxtimeout", 10)
     n = 0
+    hb = None
+    if getattr(store, "journal", None) is not None:
+        from .journal import Heartbeat
+        hb = Heartbeat(store.root, store.journal.source, store.journal, topics)
     with AlertConsumer(list(topics), config, survey=survey) as consumer:
         log.info("Fink %s livestream: %s", survey, ", ".join(topics))
         while max_alerts is None or n < max_alerts:
+            if hb:
+                hb.tick()
             try:
                 topic, alert, _ = consumer.poll(timeout)
-            except Exception:
+            except Exception as e:
                 log.exception("Fink poll failed")
+                if hb:
+                    hb.kafka_error(f"poll failed: {e!r}")
                 continue
             if alert is None:
                 continue
             n += 1
+            if hb:
+                hb.message(topic)
             try:
                 res = handle_alert(alert, survey, store, assess_kw, find_host, **add_kw)
                 res["topic"] = topic
                 if res.get("trigger_changed") and res.get("trigger"):
-                    log.info("search now worth it for %s (%s)", res["candidate"],
+                    log.info("search now worth it for %s (%s)", res["optical"],
                              ", ".join(res.get("kilonova_evidence") or []))
                 if on_result:
                     on_result(res)
-            except Exception:                    # one bad alert must not stop the stream
+            except Exception as e:               # one bad alert must not stop the stream
                 log.exception("failed on a %s alert from %s", survey, topic)
+                if hb:
+                    hb.failure(topic, e)
     return n

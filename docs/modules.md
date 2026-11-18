@@ -6,19 +6,21 @@ The package mirrors LVK RAVEN so that it can be merged into it later.
 
 | Module | Role | RAVEN analogue |
 |---|---|---|
-| `raven_kn.connection` | `KNCandidate` and connectors: Fink (ZTF, Rubin), ALeRCE, ANTARES, ATLAS, ZTF forced photometry (IPAC), GraceDB, GCN JSON, NED / NED-D, GLADE+, DES Y6, TNS, local JSON | `gracedb_events.ExtTrig` / `SE` |
+| `raven_kn.connection` | `OpticalTransient` and connectors: Fink (ZTF, Rubin), ALeRCE, ANTARES, ATLAS, ZTF forced photometry (IPAC), GraceDB, GCN JSON, NED / NED-D, GLADE+, DES Y6, TNS, local JSON | `gracedb_events.ExtTrig` / `SE` |
 | `raven_kn.treatment.t0` | merger-time window: GRB, light-curve-fit posterior with margin, photometric bracket | fixed `tl, th` |
-| `raven_kn.treatment.lightcurve_fit` | NMMA wrapper: candidate → NMMA files and command → t0, distance and inclination samples | — |
+| `raven_kn.treatment.lightcurve_fit` | NMMA wrapper: optical transient → NMMA files and command → t0, distance and inclination samples | — |
 | `raven_kn.treatment.distance_inclination` | joint (D_L, cos ι) posterior and search priors | — |
 | `raven_kn.treatment.detectability` | expected network SNR over the window; trigger decision | — |
 | `raven_kn.treatment.far` | joint FARs, targeted-search p-values and trials | `search.coinc_far` |
 | `raven_kn.skymap` | kilonova 2D/3D HEALPix map, GW map reader, sky and distance overlaps | `search.skymap_overlap_integral` |
 | `raven_kn.listener` | GCN Kafka listener | `listen` / `handle_*` |
-| `raven_kn.fink_stream` | Fink livestream (ZTF, Rubin) → candidates | — |
+| `raven_kn.journal` | logbook: journal, listener heartbeat, run state, sky-map versions ([Logbook](logbook.md)) | — |
+| `raven_kn.serve` | read-only HTTP service on a store, for the logbook application | — |
+| `raven_kn.fink_stream` | Fink livestream (ZTF, Rubin) → optical transients | — |
 | `raven_kn.search` | `query`, `search`, `coinc_far`, `calc_signif_gracedb`, `assess` | `search.*` |
 | `raven_kn.targeted` | light PyCBC search, public (GWOSC) and LVK data sources, PyGRB configuration, DQSegDB segments | — |
 
-`KNCandidate.to_raven_event_dict()` gives a GraceDB external-event dictionary accepted by
+`OpticalTransient.to_raven_event_dict()` gives a GraceDB external-event dictionary accepted by
 `ligo.raven.gracedb_events.ExtTrig(..., event_dict=..., use_radec=True)`.
 
 ## Commands
@@ -34,8 +36,10 @@ The package mirrors LVK RAVEN so that it can be merged into it later.
 | `raven-kn targeted --request REQ.json` | light targeted search (`--statistic network\|coherent`) |
 | `raven-kn pygrb --request REQ.json` | PyGRB configuration per sub-segment |
 | `raven-kn listen --store DIR` | real-time GCN listener |
-| `raven-kn fink-listen --survey ztf\|lsst --store DIR` | kilonova candidates from Fink's livestream into the same store |
-| `raven-kn add CAND.json --store DIR` | add a candidate to the listener's store |
+| `raven-kn fink-listen --survey ztf\|lsst --store DIR` | optical transients from Fink's livestream into the same store |
+| `raven-kn add OPTICAL.json --store DIR` | add an optical transient to the listener's store |
+| `raven-kn serve --store DIR` | read-only HTTP service for the logbook application |
+| `raven-kn runlog OUT --request REQ.json` | mark a search or PE run as submitted in the logbook |
 
 ## Main parameters
 

@@ -1,8 +1,8 @@
 """NMMA wrapper: kilonova light-curve fit -> merger-time (t0) posterior.
 
-Turns a :class:`KNCandidate` into NMMA (>= 1.0, ``lightcurve-analysis``)
+Turns a :class:`OpticalTransient` into NMMA (>= 1.0, ``lightcurve-analysis``)
 inputs, runs it (or prints the command for a cluster), and reads the
-posterior back into the candidate:
+posterior back into the optical transient:
 
 * ``kn.t0_samples_gps``  <- trigger_time + ``timeshift``
 * ``kn.lc_fit_samples``  <- ``luminosity_distance``, ``inclination`` (from
@@ -45,8 +45,8 @@ from typing import Optional
 import numpy as np
 from astropy.time import Time
 
-from ..connection import KNCandidate
-from .distance_inclination import combine, constraints_from_candidate
+from ..connection import OpticalTransient
+from .distance_inclination import combine, constraints_from_optical
 
 DAY = 86400.0
 
@@ -233,10 +233,10 @@ def _model_prior_lines(model: str, model_prior: Optional[str | Path]) -> list[st
     return keep
 
 
-def distance_prior(kn: KNCandidate, informed: bool = True,
+def distance_prior(kn: OpticalTransient, informed: bool = True,
                    d_max: float = 1500.0) -> tuple[str, Optional[str], float]:
     """(prior line, note, upper bound in Mpc) for ``luminosity_distance``."""
-    cons = [c for c in constraints_from_candidate(kn) if not c.name.startswith("lc_fit")]
+    cons = [c for c in constraints_from_optical(kn) if not c.name.startswith("lc_fit")]
     if informed and cons:
         post = combine(cons, d_max=d_max)
         m, s = float(np.mean(post.d_mpc)), float(np.std(post.d_mpc))
@@ -249,7 +249,7 @@ def distance_prior(kn: KNCandidate, informed: bool = True,
             f"name='luminosity_distance')", None, d_max)
 
 
-def build_prior(kn: KNCandidate, model: str, timeshift_bounds: tuple[float, float],
+def build_prior(kn: OpticalTransient, model: str, timeshift_bounds: tuple[float, float],
                 informed: bool = True, model_prior: Optional[str | Path] = None,
                 d_max: float = 1500.0) -> tuple[list[str], list[str]]:
     """Prior file lines and notes."""
@@ -271,7 +271,7 @@ def build_prior(kn: KNCandidate, model: str, timeshift_bounds: tuple[float, floa
     return lines, notes
 
 
-def write_lightcurve(kn: KNCandidate, path: str | Path, t_start_mjd: float,
+def write_lightcurve(kn: OpticalTransient, path: str | Path, t_start_mjd: float,
                      t_end_mjd: float = np.inf,
                      drop_limit_only_filters: bool = False) -> tuple[int, int, list[str]]:
     """NMMA observations file; returns (n_detections, n_limits, dropped filters).
@@ -301,7 +301,7 @@ def write_lightcurve(kn: KNCandidate, path: str | Path, t_start_mjd: float,
     return nd, nl, dropped
 
 
-def setup(kn: KNCandidate, workdir: str | Path, model: str = "Bu2019lm",
+def setup(kn: OpticalTransient, workdir: str | Path, model: str = "Bu2019lm",
           informed: bool = True, model_prior: Optional[str | Path] = None,
           max_age_d: float = 7.0, lookback_d: float = 3.0,
           em_tmin: float = 0.1, em_tmax: float = 14.0, d_max: float = 1500.0,
@@ -390,7 +390,7 @@ def setup(kn: KNCandidate, workdir: str | Path, model: str = "Bu2019lm",
         cmd += ["--svd-path", str(svd_path)]
     cmd += list(extra_args or [])
     s = NMMASetup(str(wd), label, model, trigger, (ts_lo, ts_hi), informed and bool(
-        constraints_from_candidate(kn)), str(data_file), str(prior_file), cmd, nd, nl, notes)
+        constraints_from_optical(kn)), str(data_file), str(prior_file), cmd, nd, nl, notes)
     s.save()
     return s
 
@@ -421,8 +421,8 @@ def read_posterior(outdir: str | Path, label: str) -> dict[str, np.ndarray]:
     raise FileNotFoundError(f"no NMMA posterior for {label} in {outdir}")
 
 
-def apply_posterior(kn: KNCandidate, s: NMMASetup, post: dict[str, np.ndarray]) -> KNCandidate:
-    """Put the NMMA posterior into the candidate (t0 in GPS, distance, inclination)."""
+def apply_posterior(kn: OpticalTransient, s: NMMASetup, post: dict[str, np.ndarray]) -> OpticalTransient:
+    """Put the NMMA posterior into the optical transient (t0 in GPS, distance, inclination)."""
     if "timeshift" not in post:
         raise KeyError("posterior has no 'timeshift'")
     t0_mjd = s.trigger_mjd + post["timeshift"]
@@ -438,7 +438,7 @@ def apply_posterior(kn: KNCandidate, s: NMMASetup, post: dict[str, np.ndarray]) 
     return kn
 
 
-def fit(kn: KNCandidate, workdir: str | Path, dry_run: bool = False, **kw) -> tuple[KNCandidate, NMMASetup]:
+def fit(kn: OpticalTransient, workdir: str | Path, dry_run: bool = False, **kw) -> tuple[OpticalTransient, NMMASetup]:
     """Setup, run NMMA, read back. With ``dry_run`` only the files and the
     command are produced (run it elsewhere, then :func:`import_result`)."""
     s = setup(kn, workdir, **kw)
@@ -448,7 +448,7 @@ def fit(kn: KNCandidate, workdir: str | Path, dry_run: bool = False, **kw) -> tu
     return kn, s
 
 
-def import_result(kn: KNCandidate, workdir: str | Path) -> KNCandidate:
+def import_result(kn: OpticalTransient, workdir: str | Path) -> OpticalTransient:
     s = NMMASetup.load(workdir)
     # read from the given directory (the run may have been moved since setup)
     return apply_posterior(kn, s, read_posterior(Path(workdir) / "nmma_out", s.label))

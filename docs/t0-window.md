@@ -6,10 +6,10 @@ FAR. `raven_kn.treatment.t0` builds it from the best information available, in t
 
 ## 1. Prompt GRB (seconds) or neutrino (±500 s)
 
-If a GRB is associated with the candidate, the window is RAVEN's [−5, +1] s around the GRB trigger.
+If a GRB is associated with the optical transient, the window is RAVEN's [−5, +1] s around the GRB trigger.
 Nothing else comes close.
 
-A neutrino alert (IceCube gold / bronze track) attached to the candidate gives ±500 s around the neutrino,
+A neutrino alert (IceCube gold / bronze track) attached to the optical transient gives ±500 s around the neutrino,
 the standard GW–neutrino coincidence window, when no GRB is known.
 
 ## 2. Photometric bracket
@@ -27,7 +27,7 @@ detection**:
 
 A kilonova light-curve fit with [NMMA](https://github.com/nuclear-multimessenger-astronomy/nmma)
 (`raven-kn nmma`) gives a posterior on the merger time. RAVEN-KN writes NMMA's data and prior files from the
-candidate (non-detections included; distance and inclination priors from the EM measurements, clipped to
+optical transient (non-detections included; distance and inclination priors from the EM measurements, clipped to
 the model's training range) and reads the posterior back.
 
 Fits on real kilonovae showed the statistical 90 % interval **misses the merger by about a day** when no

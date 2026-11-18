@@ -1,24 +1,24 @@
 # Real-time listener
 
 `raven-kn listen` subscribes to GCN Kafka and matches every incoming alert against a store of kilonova
-candidates, in both time orders: an alert after a candidate, or a candidate after an alert.
+optical transients, in both time orders: an alert after an optical transient, or an optical transient after an alert.
 
 ```bash
 export GCN_CLIENT_ID=... GCN_CLIENT_SECRET=...   # from gcn.nasa.gov; pip install gcn-kafka
 raven-kn listen --store kn_store/                 # GW alerts, GRB notices, neutrino alerts
-raven-kn add candidate.json --store kn_store/     # add or update a kilonova candidate
+raven-kn add optical.json --store kn_store/     # add or update an optical transient
 ```
 
 ## What it does with each message
 
 | Message | Topic | Action |
 |---|---|---|
-| GW alert | `igwn.gwalert` | Decodes the multi-order sky map in the alert. For every stored candidate whose window contains the merger time, computes the joint FAR and writes `kn_store/coinc/<superevent>__<candidate>.json`. Updates replace the stored alert; retractions delete it. |
-| GRB notice, unified JSON | Swift-BAT GUANO, Einstein Probe WXT, SVOM-ECLAIRs | Stored, and attached to candidates within 2× the error radius whose first detection follows within 3 days; their window becomes [−5, +1] s around the GRB. |
+| GW alert | `igwn.gwalert` | Decodes the multi-order sky map in the alert. For every stored optical transient whose window contains the merger time, computes the joint FAR and writes `kn_store/coinc/<superevent>__<optical>.json`. Updates replace the stored alert; retractions delete it. |
+| GRB notice, unified JSON | Swift-BAT GUANO, Einstein Probe WXT, SVOM-ECLAIRs | Stored, and attached to optical transients within 2× the error radius whose first detection follows within 3 days; their window becomes [−5, +1] s around the GRB. |
 | GRB notice, VOEvent | Fermi-GBM flight / ground / final positions, Swift-BAT positions | Same, with the 3.7° GBM systematic error added. |
-| X-ray afterglow position, VOEvent | Swift-XRT (`gcn.classic.voevent.SWIFT_XRT_POSITION`), SVOM-MXT (`gcn.notices.svom.voevent.mxt`) | Replaces the position of the stored Swift-BAT or SVOM-ECLAIRs burst with the same trigger number; the burst time is kept. Candidates are matched again within 2× the X-ray radius; one that the listener had attached to this burst and that lies outside is detached. |
-| New candidate | `raven-kn add` | Matched against stored GRB notices and neutrino alerts (the latest one up to 3 days before its first detection) and against GW alerts of the last 14 days. |
-| Neutrino alert | `gcn.notices.icecube.gold_bronze_track_alerts` | Stored, and attached to candidates within 1.4× its 90 % error radius whose first detection follows within 3 days; their window becomes ±500 s around the neutrino, unless a GRB gives a tighter one. Updates refine the time and position; retractions remove the alert and detach it. |
+| X-ray afterglow position, VOEvent | Swift-XRT (`gcn.classic.voevent.SWIFT_XRT_POSITION`), SVOM-MXT (`gcn.notices.svom.voevent.mxt`) | Replaces the position of the stored Swift-BAT or SVOM-ECLAIRs burst with the same trigger number; the burst time is kept. Optical transients are matched again within 2× the X-ray radius; one that the listener had attached to this burst and that lies outside is detached. |
+| New optical transient | `raven-kn add` | Matched against stored GRB notices and neutrino alerts (the latest one up to 3 days before its first detection) and against GW alerts of the last 14 days. |
+| Neutrino alert | `gcn.notices.icecube.gold_bronze_track_alerts` | Stored, and attached to optical transients within 1.4× its 90 % error radius whose first detection follows within 3 days; their window becomes ±500 s around the neutrino, unless a GRB gives a tighter one. Updates refine the time and position; retractions remove the alert and detach it. |
 
 ## The store
 
@@ -27,14 +27,14 @@ hand. `raven-kn listen`, `raven-kn add` and `raven-kn fink-listen` share it.
 
 | Subdirectory | Contents | Written when |
 |---|---|---|
-| `candidates/` | one file per kilonova candidate: position, photometry, host, attached GRB and neutrino, notes | `raven-kn add`, `raven-kn fink-listen`; updated when a notice is attached or detached |
+| `optical/` | one file per optical transient: position, photometry, host, attached GRB and neutrino, notes | `raven-kn add`, `raven-kn fink-listen`; updated when a notice is attached or detached |
 | `gw/` | latest alert per superevent, with its multi-order sky map (and RAVEN's combined map if any) | each GW alert; deleted on retraction; used for 14 days |
 | `grb/` | latest notice per trigger: time, position, radius, and the X-ray position when there is one | each GRB or X-ray notice |
 | `nu/` | latest alert per IceCube event | each neutrino alert; deleted on retraction |
-| `coinc/` | `<superevent>__<candidate>.json`: window, joint FAR and its factors | each GW alert or new candidate whose window contains the merger time |
+| `coinc/` | `<superevent>__<optical>.json`: window, joint FAR and its factors | each GW alert or new optical transient whose window contains the merger time |
 
 Each coincidence result is also printed on standard output as one JSON line. The log (standard error)
-records the topics subscribed to, the candidates updated by each notice, Kafka errors, and the traceback
+records the topics subscribed to, the optical transients updated by each notice, Kafka errors, and the traceback
 of any message that could not be handled; such a message is skipped and the listener goes on.
 
 ## Running it permanently
@@ -61,7 +61,7 @@ are processed as long as the broker still retains them.
 To update the code (installed with `pip install -e`): `git pull` in the clone, then
 `pkill -f "raven-kn listen"`; the loop starts the new version 60 s later (tested).
 
-## Kilonova candidates from Fink
+## Optical transients from Fink
 
 `raven-kn fink-listen` fills the same store from the Fink broker's Kafka livestream (ZTF or Rubin):
 
@@ -71,9 +71,9 @@ finkctl auth register -survey ztf -username ... -groupid ... -servers ...   # va
 raven-kn fink-listen --survey ztf --store kn_store/ --find-host --assess
 ```
 
-Each alert becomes or updates a candidate and goes through the same matching as `raven-kn add`
+Each alert becomes or updates an optical transient and goes through the same matching as `raven-kn add`
 (stored GRB notices, neutrino alerts, GW alerts). `--find-host` looks the host galaxy up once per
-candidate, which the light-curve kilonova test needs; `--assess` re-runs the search decision on every
+optical transient, which the light-curve kilonova test needs; `--assess` re-runs the search decision on every
 update and logs when a search becomes worth it. For ZTF the default topics are Fink's three kilonova
 streams; Fink has no Rubin kilonova stream yet, so Rubin topics are chosen with `--topics`
 (`finkctl topic list -survey lsst`). The closest Rubin topics are
@@ -82,7 +82,7 @@ streams; Fink has no Rubin kilonova stream yet, so Rubin topics are chosen with 
 checked on live alerts in November 2026.
 
 If an LVK alert carries its own GW + GRB coincidence (`external_coinc`), it is kept and copied into every
-RAVEN-KN result, with the combined sky map at the candidate.
+RAVEN-KN result, with the combined sky map at the optical transient.
 
 Mock superevents (`MS…`, sent hourly outside observing runs) and test notices are skipped unless
 `--include-mock` is given. A fixed Kafka consumer group (`--group-id`, default `raven-kn`) lets a

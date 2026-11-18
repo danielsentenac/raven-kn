@@ -37,8 +37,8 @@ from pathlib import Path
 
 import numpy as np
 
-from raven_kn.connection import (KNCandidate, PhotometryPoint, Redshift, gps_to_mjd,
-                                 load_candidate, save_candidate)
+from raven_kn.connection import (OpticalTransient, PhotometryPoint, Redshift, gps_to_mjd,
+                                 load_optical, save_optical)
 from raven_kn.treatment import lightcurve_fit as lcf
 from raven_kn.treatment.t0 import estimate_window, window_from_bracket
 
@@ -149,8 +149,8 @@ def make(out: Path, n: int, seed: int):
         import astropy.units as u
         z = float(z_at_value(Planck18.luminosity_distance, m["params"]["luminosity_distance"] * u.Mpc))
         name = f"inj{i:03d}_{m['truth_model']}"
-        kn = KNCandidate(name, 150.0, 10.0, photometry=phot, redshift=Redshift(z, 1e-4, source="host"))
-        save_candidate(kn, out / f"{name}.json")
+        kn = OpticalTransient(name, 150.0, 10.0, photometry=phot, redshift=Redshift(z, 1e-4, source="host"))
+        save_optical(kn, out / f"{name}.json")
         kept.append({"name": name, "t0_gps": t0_gps, **{k: m[k] for k in
                      ("truth_model", "params", "pre_merger_coverage")}})
     (out / "injections.json").write_text(json.dumps(kept, indent=1))
@@ -160,7 +160,7 @@ def make(out: Path, n: int, seed: int):
 
 def _fit(args):
     out, name, model, fit_days = args
-    kn = load_candidate(out / f"{name}.json")
+    kn = load_optical(out / f"{name}.json")
     wd = out / "fits" / f"{name}__{model}"
     if (wd / "nmma_out").exists() and any((wd / "nmma_out").glob("*posterior*")):
         return name, model, "exists"
@@ -190,7 +190,7 @@ def report(out: Path):
     rows = []
     for i in inj:
         for model in ("Bu2019lm", "Ka2017", "LANLTP2"):      # those fitted (others skipped)
-            kn = load_candidate(out / f"{i['name']}.json")
+            kn = load_optical(out / f"{i['name']}.json")
             try:
                 lcf.import_result(kn, out / "fits" / f"{i['name']}__{model}")
             except Exception:

@@ -5,9 +5,9 @@ import pytest
 from astropy.time import Time
 
 from raven_kn.connection import Redshift
-from raven_kn.fink_stream import (alert_to_candidate, handle_alert, lsst_alert_to_candidate,
-                                  stream, ztf_alert_to_candidate)
-from raven_kn.listener import CandidateStore, handle_grb_notice
+from raven_kn.fink_stream import (alert_to_optical, handle_alert, lsst_alert_to_optical,
+                                  stream, ztf_alert_to_optical)
+from raven_kn.listener import AlertStore, handle_grb_notice
 
 RA, DEC = 197.450374, -23.381495
 T0_JD = Time("2017-08-17T12:41:04.4", scale="utc").jd       # GW170817
@@ -27,7 +27,7 @@ def ztf_alert(days, mags, fids, limit_days=(), score=0.9):
 
 
 def test_ztf_alert_conversion():
-    kn = ztf_alert_to_candidate(ztf_alert([0.5, 1.5], [17.3, 18.0], [1, 2], limit_days=[-1.0]))
+    kn = ztf_alert_to_optical(ztf_alert([0.5, 1.5], [17.3, 18.0], [1, 2], limit_days=[-1.0]))
     assert kn.name == "ZTF17aaaaaaa" and kn.kn_score == pytest.approx(0.9)
     assert len(kn.detections) == 2 and len(kn.upper_limits) == 1
     assert {p.band for p in kn.detections} == {"g", "r"}
@@ -43,7 +43,7 @@ def test_lsst_alert_conversion_dedups_forced():
                      "psfFluxErr": 100.0, "visit": 6}             # S/N 0.5: a limit
     alert = {"diaObject": {"diaObjectId": 42, "ra": RA, "dec": DEC}, "diaSource": src,
              "prvDiaSources": [], "prvDiaForcedSources": [forced_same, forced_before]}
-    kn = lsst_alert_to_candidate(alert)
+    kn = lsst_alert_to_optical(alert)
     assert kn.name == "LSST42" and len(kn.photometry) == 2
     det = kn.detections[0]
     assert det.mag == pytest.approx(17.1, abs=1e-6) and det.band == "i"
@@ -53,7 +53,7 @@ def test_lsst_alert_conversion_dedups_forced():
 
 
 def test_stream_alerts_merge_attach_grb_and_trigger(tmp_path):
-    store = CandidateStore(tmp_path)
+    store = AlertStore(tmp_path)
     grb = {"trigger_time": Time(T0_JD + 1.74 / 86400, format="jd").isot + "Z",
            "instrument": "BAT", "id": ["x"], "ra": RA + 1, "dec": DEC, "ra_dec_error": 3.0}
     handle_grb_notice(grb, store)
@@ -61,7 +61,7 @@ def test_stream_alerts_merge_attach_grb_and_trigger(tmp_path):
     a1 = ztf_alert([0.45, 0.47], [17.3, 17.2], [1, 2], score=None)
     r1 = handle_alert(a1, "ztf", store, assess_kw={})
     assert r1["new"] and not r1["trigger"]
-    kn = store.candidates()[0]
+    kn = store.transients()[0]
     assert kn.grb is not None                                     # stored GRB attached
     kn.redshift = Redshift(0.009783, 1e-5, "spectroscopic", "NGC 4993")
     store.save(kn)
@@ -71,7 +71,7 @@ def test_stream_alerts_merge_attach_grb_and_trigger(tmp_path):
     assert not r2["new"] and r2["n_photometry"] == 4
     assert r2["trigger"] and r2["trigger_changed"] and "light curve" in r2["kilonova_evidence"]
     assert (tmp_path / "assess" / "ZTF17aaaaaaa_targeted_search_request.json").exists()
-    assert store.candidates()[0].redshift is not None             # stored host info kept
+    assert store.transients()[0].redshift is not None             # stored host info kept
 
 
 def test_stream_loop_with_fake_consumer(tmp_path, monkeypatch):
@@ -93,7 +93,7 @@ def test_stream_loop_with_fake_consumer(tmp_path, monkeypatch):
             return self.q.pop(0) if self.q else (None, None, None)
     monkeypatch.setattr(fc, "AlertConsumer", Fake)
     out = []
-    n = stream(CandidateStore(tmp_path), "ztf", ["fink_kn_candidates_ztf"],
+    n = stream(AlertStore(tmp_path), "ztf", ["fink_kn_candidates_ztf"],
                credentials={"username": "u", "servers": "h:1", "group_id": "g"},
                on_result=out.append, max_alerts=1)
-    assert n == 1 and out[0]["candidate"] == "ZTF17aaaaaaa" and out[0]["topic"] == "fink_kn_candidates_ztf"
+    assert n == 1 and out[0]["optical"] == "ZTF17aaaaaaa" and out[0]["topic"] == "fink_kn_candidates_ztf"

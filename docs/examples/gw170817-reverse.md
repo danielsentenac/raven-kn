@@ -12,8 +12,8 @@ HTCondor jobs on CIT).
 
 | Time after the GRB | What arrives | What RAVEN-KN does | Search? |
 |---|---|---|---|
-| 0 h (12:41 UTC) | Fermi-GBM notice 524666471: RA 176.8, Dec −39.8, 11.6° (GCN 21506, 21520) | stores the notice; no candidate yet | — |
-| +10.9 h | Swope discovers SSS17a, i = 16.0 (GCN 21529), 24° from the GBM position | creates the candidate, attaches the stored GRB (within 2× its radius): window [−5, +1] s around the GRB; host NGC 4993 from NED, 40.7 Mpc (SBF, NED-D) | **held**: one epoch, no evidence yet that it is a kilonova |
+| 0 h (12:41 UTC) | Fermi-GBM notice 524666471: RA 176.8, Dec −39.8, 11.6° (GCN 21506, 21520) | stores the notice; no optical transient yet | — |
+| +10.9 h | Swope discovers SSS17a, i = 16.0 (GCN 21529), 24° from the GBM position | creates the optical transient, attaches the stored GRB (within 2× its radius): window [−5, +1] s around the GRB; host NGC 4993 from NED, 40.7 Mpc (SBF, NED-D) | **held**: one epoch, no evidence yet that it is a kilonova |
 | +16.9 h | first PS1 epoch (i, z, y) | re-assesses | **held**: 6.0 h after discovery, just under the 6 h needed for a second epoch |
 | +21.4 h | PS1 g, r, i | re-assesses | **held**: no significant fading or reddening yet |
 | +29.5 h | PS1 g, r and 2MASS J, H, Ks | g fades 1.75 ± 0.43 mag/day (4σ), r about as fast; peak M = −17.1 at NGC 4993 | **triggered** |

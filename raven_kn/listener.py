@@ -2,9 +2,9 @@
 
 RAVEN listens to GraceDB/GCN and, for each new GW or external event, looks
 for a counterpart in a fixed window. RAVEN-KN does the same with kilonova
-candidates, whose merger-time windows are hours to days long:
+optical transients, whose merger-time windows are hours to days long:
 
-* ``igwn.gwalert`` (LVK JSON alerts): for each kilonova candidate in the
+* ``igwn.gwalert`` (LVK JSON alerts): for each optical transient in the
   store whose t0 window contains the GW merger time, compute the joint FAR
   (temporal x sky x distance, :func:`raven_kn.search.coinc_far`) from the
   multi-order sky map carried in the alert. When LVK's own RAVEN found a
@@ -13,14 +13,14 @@ candidates, whose merger-time windows are hours to days long:
   is kept with the superevent and copied into every RAVEN-KN result; the
   combined map is used for the sky factor only on request (``use_combined``);
 * GRB notices in GCN's unified JSON schema (``trigger_time``, ``ra``,
-  ``dec``, ``ra_dec_error``): attach the GRB to candidates at a compatible
+  ``dec``, ``ra_dec_error``): attach the GRB to optical transients at a compatible
   position whose first detection follows it, which narrows their window to
   RAVEN's [-5, +1] s;
 * X-ray afterglow positions of a burst already known (Swift-XRT, SVOM-MXT):
   they replace the position of the stored GRB notice with the same trigger
   number, and keep its time (the X-ray time is that of the image, minutes
   after the burst);
-* a kilonova candidate added later (from a broker, a circular, by hand) is
+* an optical transient added later (from a broker, a circular, by hand) is
   matched against the GW alerts already received.
 
 Handlers work on decoded JSON, so they can be tested without Kafka;
@@ -47,8 +47,9 @@ from astropy.table import Table
 from astropy.time import Time
 import astropy.units as u
 
-from .connection import (GRBAssociation, KNCandidate, NeutrinoAssociation, load_candidate,
-                         save_candidate)
+from .journal import Heartbeat, Journal, journal_of, save_sky_version
+from .connection import (GRBAssociation, OpticalTransient, NeutrinoAssociation, load_optical,
+                         save_optical)
 from .search import coinc_far
 from .treatment.distance_inclination import posterior_for
 from .treatment.t0 import estimate_window
@@ -318,22 +319,39 @@ def parse_neutrino_notice(msg: dict | bytes | str) -> dict[str, Any]:
 # Store and handlers
 # --------------------------------------------------------------------------
 
-class CandidateStore:
-    """Kilonova candidates, received GW alerts and coincidence results,
+def optical_files(root: str | Path) -> list[Path]:
+    """Optical-transient files of a store, by name: ``optical/*.json``, plus
+    the files of ``candidates/`` (the folder name before the rename) whose
+    transient has no file in ``optical/``. New files go to ``optical/``."""
+    root = Path(root)
+    new = {p.stem: p for p in (root / "optical").glob("*.json")}
+    old = {p.stem: p for p in (root / "candidates").glob("*.json") if p.stem not in new}
+    return [p for _, p in sorted({**old, **new}.items())]
+
+
+class AlertStore:
+    """Optical transients, received GW alerts and coincidence results,
     kept as JSON (and FITS sky maps) under one directory."""
 
-    def __init__(self, root: str | Path, gw_memory_days: float = 14.0):
+    def __init__(self, root: str | Path, gw_memory_days: float = 14.0, source: str = "store"):
         self.root = Path(root)
-        for d in ("candidates", "gw", "grb", "nu", "coinc"):
+        self.journal = Journal.for_store(self.root, source)   # the logbook (raven_kn.journal)
+        for d in ("optical", "gw", "grb", "nu", "coinc"):
             (self.root / d).mkdir(parents=True, exist_ok=True)
         self.gw_memory_s = gw_memory_days * 86400
 
-    # kilonova candidates
-    def candidates(self) -> list[KNCandidate]:
-        return [load_candidate(p) for p in sorted((self.root / "candidates").glob("*.json"))]
+    # optical transients
+    def optical_files(self) -> list[Path]:
+        """Files of the optical transients: ``optical/``, and those of a
+        store written before the rename (``candidates/``) that have no newer
+        copy."""
+        return optical_files(self.root)
 
-    def save(self, kn: KNCandidate) -> None:
-        save_candidate(kn, self.root / "candidates" / f"{kn.name}.json")
+    def transients(self) -> list[OpticalTransient]:
+        return [load_optical(p) for p in self.optical_files()]
+
+    def save(self, kn: OpticalTransient) -> None:
+        save_optical(kn, self.root / "optical" / f"{kn.name}.json")
 
     # GW alerts (latest per superevent)
     def gw_alerts(self) -> list[dict]:
@@ -388,7 +406,7 @@ class CandidateStore:
 
     def save_grb(self, notice: dict) -> Optional[dict]:
         """Store a burst notice, or the X-ray position of a burst
-        (``notice["xray"]``). Returns the notice to match candidates against,
+        (``notice["xray"]``). Returns the notice to match optical transients against,
         None if the burst itself has not been received yet."""
         g = notice["grb"]
         p = self._grb_path(g)
@@ -440,7 +458,7 @@ class CandidateStore:
         return p
 
 
-def _evaluate(kn: KNCandidate, gw: dict, moc: Optional[Table], combined: Optional[Table] = None,
+def _evaluate(kn: OpticalTransient, gw: dict, moc: Optional[Table], combined: Optional[Table] = None,
               use_combined: bool = False, **coinc_kw) -> Optional[dict]:
     """Joint FAR if the GW time is inside the kilonova window, else None.
 
@@ -476,25 +494,55 @@ def _evaluate(kn: KNCandidate, gw: dict, moc: Optional[Table], combined: Optiona
     return res
 
 
+def _best_far(res: dict) -> Optional[float]:
+    return (res.get("spatiotemporal_distance_coinc_far") or res.get("spatiotemporal_coinc_far")
+            or res.get("temporal_coinc_far"))
+
+
+def _log_coinc(jr, res: dict, version: Optional[dict] = None) -> None:
+    far = _best_far(res)
+    jr.log("coincidence", f"{res['superevent_id']} in the window of {res['external_event']}"
+           + (f": joint FAR {far:.3g} Hz" if far is not None else ""),
+           optical=res["external_event"], superevent=res["superevent_id"], joint_far=far,
+           sky_version=(version or {}).get("version"), result=res)
+
+
 def is_mock(superevent_id: str) -> bool:
     """LVK mock superevents (``MS...``, sent hourly on igwn.gwalert outside
     observing runs) and their test/playground variants (``TS``, ``GS``)."""
     return superevent_id[:2] in ("MS", "TS", "GS")
 
 
-def handle_gw_alert(msg: dict | bytes | str, store: CandidateStore, use_combined: bool = False,
+def handle_gw_alert(msg: dict | bytes | str, store: AlertStore, use_combined: bool = False,
                     include_mock: bool = False, **coinc_kw) -> list[dict]:
     alert = parse_gw_alert(msg)
     sid = alert["superevent_id"]
     if is_mock(sid) and not include_mock:
         log.debug("%s: mock/test superevent ignored", sid)
         return []
+    jr = journal_of(store)
     if alert["alert_type"] == "RETRACTION":
         store.forget_gw(sid)
         log.info("%s retracted", sid)
+        vdir = store.root / "gw_versions" / sid               # kept for the logbook, marked
+        if vdir.is_dir():
+            (vdir / "retracted").write_text(str(alert.get("time_created") or ""))
+        jr.log("gw_retraction", f"{sid} retracted", superevent=sid, level="warning",
+               time_created=alert.get("time_created"))
         return []
     moc = alert["skymap"] if alert["skymap"] is not None else store.gw_skymap(sid)
+    version = None
+    try:                                         # reduced map kept for the logbook
+        version = save_sky_version(store.root, alert, alert["skymap"], alert.get("combined_skymap"))
+    except Exception:
+        log.exception("%s: sky-map version not saved", sid)
     store.save_gw(alert)
+    jr.log("gw_alert", f"{sid} {alert['alert_type']}: FAR {alert['far']:.3g} Hz"
+           if alert.get("far") is not None else f"{sid} {alert['alert_type']}",
+           superevent=sid, sky_version=version,
+           **{k: alert.get(k) for k in ("alert_type", "time_created", "gpstime", "far", "significant",
+                                        "group", "pipeline", "search", "instruments",
+                                        "classification", "properties", "external_coinc")})
     ec = alert["external_coinc"]
     if ec:
         log.info("%s: RAVEN coincidence with %s %s, dt %s s, joint FAR %s Hz", sid,
@@ -503,21 +551,22 @@ def handle_gw_alert(msg: dict | bytes | str, store: CandidateStore, use_combined
     gw = json.loads((store.root / "gw" / f"{sid}.json").read_text())   # with carried-over coinc
     combined = store.gw_skymap(sid, combined=True)
     out = []
-    for kn in store.candidates():
+    for kn in store.transients():
         res = _evaluate(kn, gw, moc, combined, use_combined, **coinc_kw)
         if res is not None:
             store.save_coinc(res)
             log.info("RAVEN-KN: %s in the window of %s, FAR %.3g Hz", sid, kn.name,
                      res.get("spatiotemporal_distance_coinc_far") or res.get("spatiotemporal_coinc_far") or res["temporal_coinc_far"])
+            _log_coinc(jr, res, version)
             out.append(res)
     return out
 
 
-def _grb_match(kn: KNCandidate, n: dict, max_lead_days: float, min_err_deg: float,
+def _grb_match(kn: OpticalTransient, n: dict, max_lead_days: float, min_err_deg: float,
                err_scale: float, key: str = "grb") -> Optional[float]:
     """Separation (deg) if the GRB (``key="grb"``) or neutrino (``"nu"``)
     notice ``n`` can belong to ``kn``: the first detection follows it by less
-    than ``max_lead_days`` and the candidate lies within ``err_scale`` x the
+    than ``max_lead_days`` and the optical transient lies within ``err_scale`` x the
     notice radius; else None."""
     fd = kn.first_detection
     if fd is None or n.get("ra") is None or n.get("dec") is None:
@@ -531,11 +580,23 @@ def _grb_match(kn: KNCandidate, n: dict, max_lead_days: float, min_err_deg: floa
     return None
 
 
-def _attach_grb(kn: KNCandidate, n: dict, sep: float, how: str) -> None:
+def _attach_grb(kn: OpticalTransient, n: dict, sep: float, how: str) -> None:
     kn.grb = n["grb"]
     where = f", {n['position_from']} position" if n.get("position_from") else ""
     kn.notes = (kn.notes + f" GRB {n['grb'].graceid or ''} ({n['grb'].instrument}{where}) "
                 f"attached by listener ({how}), sep {sep:.4g} deg.").strip()
+
+
+def _log_attach(jr, what: str, kn: OpticalTransient, n: dict, sep: float, how: str) -> None:
+    """Journal entry of a GRB (``what="grb"``) or neutrino (``"nu"``) attached to an optical transient."""
+    a = n[what]
+    ident = (a.graceid if what == "grb" else a.event_name) or ""
+    w = estimate_window(kn)
+    jr.log(f"{what}_attached", f"{kn.name}: {a.instrument} {ident} attached ({how}), "
+           f"separation {sep:.3g} deg; window now {w.gps_end - w.gps_start:.0f} s ({w.method})",
+           optical=kn.name, instrument=a.instrument, trigger=ident, gps=a.gps, separation_deg=sep,
+           how=how, ra=n.get("ra"), dec=n.get("dec"), err_deg=n.get("err_deg"),
+           position_from=n.get("position_from"), window=asdict(w))
 
 
 def _same_grb(a: Optional[GRBAssociation], b: GRBAssociation) -> bool:
@@ -543,24 +604,24 @@ def _same_grb(a: Optional[GRBAssociation], b: GRBAssociation) -> bool:
             and a.instrument == b.instrument)
 
 
-def handle_grb_notice(msg: dict | bytes | str, store: CandidateStore,
+def handle_grb_notice(msg: dict | bytes | str, store: AlertStore,
                       max_lead_days: float = 3.0, min_err_deg: float = 0.0,
                       err_scale: float = 2.0) -> list[str]:
-    """Attach a GRB to candidates within ``err_scale`` x its error radius
+    """Attach a GRB to optical transients within ``err_scale`` x its error radius
     (or ``min_err_deg``) whose first detection follows it by
     < ``max_lead_days``. Notice radii are ~68 % (1-sigma-like) circles;
     x2 is ~99 % for a 2D Gaussian (GW170817: NGC 4993 lies 24 deg from the
-    GBM ground position, radius 11.6 deg stat. + 3.7 deg sys.). Candidates
+    GBM ground position, radius 11.6 deg stat. + 3.7 deg sys.). Optical transients
     that already have a GRB are left alone; test notices are ignored. The
-    notice is stored, so that a candidate added later (the usual order: the
+    notice is stored, so that an optical transient added later (the usual order: the
     GRB comes first, the optical counterpart hours later) is matched to it
-    by :func:`add_candidate`. Returns the names of the candidates updated.
+    by :func:`add_optical`. Returns the names of the optical transients updated.
 
     A Swift-XRT or SVOM-MXT notice gives the afterglow position of a burst
     already received from Swift-BAT or SVOM-ECLAIRs (same trigger number).
     It replaces the position of the stored burst and keeps its time.
-    Candidates are matched again with the X-ray radius: those inside are
-    attached, and a candidate the listener had attached to this burst and
+    Optical transients are matched again with the X-ray radius: those inside are
+    attached, and an optical transient the listener had attached to this burst and
     that lies outside is detached. Without the burst notice the X-ray
     position is only stored, since it gives no burst time."""
     n = parse_grb_notice(msg)
@@ -568,12 +629,23 @@ def handle_grb_notice(msg: dict | bytes | str, store: CandidateStore,
         return []
     if n.get("slew"):
         return []
+    jr = journal_of(store)
+    raw = n
     n = store.save_grb(n)
+    g = raw["grb"]
+    jr.log("xray_position" if raw.get("xray") else "grb_notice",
+           f"{g.instrument} {g.graceid or ''}: "
+           + ("X-ray position" if raw.get("xray") else "burst notice")
+           + f" at RA {raw['ra']:.3f}, Dec {raw['dec']:.3f}"
+           + (f", radius {raw['err_deg']:.3g} deg" if raw.get("err_deg") is not None else "")
+           + ("; burst notice not received yet" if n is None else ""),
+           instrument=g.instrument, trigger=g.graceid, gps=g.gps, ra=raw["ra"], dec=raw["dec"],
+           err_deg=raw.get("err_deg"), xray=bool(raw.get("xray")), burst_known=n is not None)
     if n is None:
         log.info("X-ray position stored; its burst notice has not been received")
         return []
     hits = []
-    for kn in store.candidates():
+    for kn in store.transients():
         mine = _same_grb(kn.grb, n["grb"])
         if kn.grb is not None and not (mine and n.get("position_from")):
             continue
@@ -585,14 +657,18 @@ def handle_grb_notice(msg: dict | bytes | str, store: CandidateStore,
                             f"{n['position_from']} position.").strip()
                 store.save(kn)
                 hits.append(kn.name)
+                jr.log("grb_detached", f"{kn.name}: GRB {n['grb'].graceid} detached, outside its "
+                       f"{n['position_from']} position", optical=kn.name, level="warning",
+                       trigger=n["grb"].graceid, instrument=n["grb"].instrument)
         elif sep is not None:
-            _attach_grb(kn, n, sep, "GRB after candidate")
+            _attach_grb(kn, n, sep, "GRB after optical transient")
             store.save(kn)
             hits.append(kn.name)
+            _log_attach(jr, "grb", kn, n, sep, "GRB after optical transient")
     return hits
 
 
-def _attach_nu(kn: KNCandidate, n: dict, sep: float, how: str) -> None:
+def _attach_nu(kn: OpticalTransient, n: dict, sep: float, how: str) -> None:
     nu = n["nu"]
     new = kn.neutrino is None or kn.neutrino.event_name != nu.event_name
     kn.neutrino = nu
@@ -601,55 +677,97 @@ def _attach_nu(kn: KNCandidate, n: dict, sep: float, how: str) -> None:
                     f"{nu.p_astro}) attached by listener ({how}), sep {sep:.2f} deg.").strip()
 
 
-def handle_neutrino_notice(msg: dict | bytes | str, store: CandidateStore,
+def handle_neutrino_notice(msg: dict | bytes | str, store: AlertStore,
                            max_lead_days: float = 3.0, min_err_deg: float = 0.0,
                            err_scale: float = 1.4) -> list[str]:
-    """Attach an IceCube track alert to candidates within ``err_scale`` x its
+    """Attach an IceCube track alert to optical transients within ``err_scale`` x its
     90 % radius (x1.4: about 99 % for a 2D Gaussian, as the GRB rule) whose
     first detection follows it by < ``max_lead_days``; their window becomes
     +-500 s around the neutrino (unless a GRB gives a tighter one). The
-    notice is stored for candidates found later (:func:`add_candidate`).
+    notice is stored for optical transients found later (:func:`add_optical`).
     An update of the same event refines the time and position of attached
-    candidates; a retraction removes the notice and detaches it. Test
-    notices are ignored. Returns the names of the candidates updated."""
+    optical transients; a retraction removes the notice and detaches it. Test
+    notices are ignored. Returns the names of the optical transients updated."""
     n = parse_neutrino_notice(msg)
     nu = n["nu"]
     if n.get("role") == "test":
         return []
     hits = []
+    jr = journal_of(store)
     if "retract" in str(n.get("alert_type", "")).lower():
         store.forget_nu(nu)
-        for kn in store.candidates():
+        jr.log("nu_retraction", f"{nu.instrument} {nu.event_name or ''} retracted", level="warning",
+               event=nu.event_name, instrument=nu.instrument)
+        for kn in store.transients():
             if kn.neutrino is not None and kn.neutrino.event_name == nu.event_name:
                 kn.neutrino = None
                 kn.notes = (kn.notes + f" Neutrino {nu.event_name} retracted.").strip()
                 store.save(kn)
                 hits.append(kn.name)
+                jr.log("nu_detached", f"{kn.name}: neutrino {nu.event_name} detached (retracted)",
+                       optical=kn.name, level="warning", event=nu.event_name)
         return hits
     if nu.ra is None or nu.dec is None:
         return []
     n = {**n, "ra": nu.ra, "dec": nu.dec, "err_deg": nu.err_deg}
     store.save_nu(n)
-    for kn in store.candidates():
+    jr.log("nu_notice", f"{nu.instrument} {nu.event_name or ''}: RA {nu.ra:.3f}, Dec {nu.dec:.3f}"
+           + (f", 90 % radius {nu.err_deg:.3g} deg" if nu.err_deg is not None else ""),
+           instrument=nu.instrument, event=nu.event_name, gps=nu.gps, ra=nu.ra, dec=nu.dec,
+           err_deg=nu.err_deg, p_astro=nu.p_astro, far_hz=nu.far_hz)
+    for kn in store.transients():
         if kn.neutrino is not None and kn.neutrino.event_name != nu.event_name:
             continue
         sep = _grb_match(kn, n, max_lead_days, min_err_deg, err_scale, key="nu")
         if sep is not None:
-            _attach_nu(kn, n, sep, "neutrino after candidate")
+            was = kn.neutrino is not None
+            _attach_nu(kn, n, sep, "neutrino after optical transient")
             store.save(kn)
             hits.append(kn.name)
+            _log_attach(jr, "nu", kn, n, sep, "position updated" if was else "neutrino after optical transient")
     return hits
 
 
-def add_candidate(kn: KNCandidate, store: CandidateStore, now_gps: Optional[float] = None,
+def _log_optical(jr, kn: OpticalTransient, old: Optional[dict]) -> None:
+    """``optical_new``, or ``optical_update`` when the stored optical transient
+    changed (photometry, redshift, classification, score)."""
+    pts = sorted(kn.photometry, key=lambda p: p.mjd)
+    fd = kn.first_detection
+    last = asdict(pts[-1]) if pts else None
+    common = dict(optical=kn.name, ra=kn.ra, dec=kn.dec, origin=kn.source, n_photometry=len(pts),
+                  first_detection=asdict(fd) if fd else None, latest=last, kn_score=kn.kn_score,
+                  redshift=asdict(kn.redshift) if kn.redshift else None,
+                  classification=kn.classification)
+    if old is None:
+        jr.log("optical_new", f"{kn.name}: new optical transient at RA {kn.ra:.4f}, Dec {kn.dec:.4f}"
+               + (f", {fd.band} = {fd.mag:.2f}" if fd else "") + (f" ({kn.source})" if kn.source else ""),
+               **common)
+        return
+    n_old = len(old.get("photometry") or [])
+    changes = []
+    if len(pts) != n_old:
+        changes.append(f"{len(pts) - n_old:+d} photometry points ({len(pts)})")
+    for key, new in (("redshift", common["redshift"]), ("classification", kn.classification),
+                     ("kn_score", kn.kn_score)):
+        if old.get(key) != new and new is not None:
+            changes.append(f"{key} {new['z'] if key == 'redshift' else new}")
+    if changes:
+        jr.log("optical_update", f"{kn.name}: " + ", ".join(changes), changes=changes, **common)
+
+
+def add_optical(kn: OpticalTransient, store: AlertStore, now_gps: Optional[float] = None,
                   use_combined: bool = False, grb_max_lead_days: float = 3.0,
                   grb_min_err_deg: float = 0.0, grb_err_scale: float = 2.0,
                   nu_err_scale: float = 1.4, **coinc_kw) -> list[dict]:
-    """Store a new or updated candidate, attach a stored GRB notice and a
+    """Store a new or updated optical transient, attach a stored GRB notice and a
     stored neutrino alert that preceded it (same rules as
     :func:`handle_grb_notice` and :func:`handle_neutrino_notice`; the closest
     in time if several), and match it against GW alerts received in the last
     ``gw_memory_days``."""
+    jr = journal_of(store)
+    cpath = next((p for p in optical_files(store.root) if p.stem == kn.name), None)
+    old = json.loads(cpath.read_text()) if cpath is not None else None
+    attached = []
     if kn.grb is None:
         best = None
         for n in store.grb_notices():
@@ -657,7 +775,8 @@ def add_candidate(kn: KNCandidate, store: CandidateStore, now_gps: Optional[floa
             if sep is not None and (best is None or n["grb"].gps > best[0]["grb"].gps):
                 best = (n, sep)
         if best is not None:
-            _attach_grb(kn, best[0], best[1], "GRB before candidate")
+            _attach_grb(kn, best[0], best[1], "GRB before optical transient")
+            attached.append(("grb", best[0], best[1], "GRB before optical transient"))
     if kn.neutrino is None:
         best = None
         for n in store.nu_notices():
@@ -665,8 +784,12 @@ def add_candidate(kn: KNCandidate, store: CandidateStore, now_gps: Optional[floa
             if sep is not None and (best is None or n["nu"].gps > best[0]["nu"].gps):
                 best = (n, sep)
         if best is not None:
-            _attach_nu(kn, best[0], best[1], "neutrino before candidate")
+            _attach_nu(kn, best[0], best[1], "neutrino before optical transient")
+            attached.append(("nu", best[0], best[1], "neutrino before optical transient"))
     store.save(kn)
+    _log_optical(jr, kn, old)
+    for what, n, sep, how in attached:
+        _log_attach(jr, what, kn, n, sep, how)
     now = now_gps if now_gps is not None else float(Time.now().gps)
     out = []
     for gw in store.gw_alerts():
@@ -676,7 +799,11 @@ def add_candidate(kn: KNCandidate, store: CandidateStore, now_gps: Optional[floa
         res = _evaluate(kn, gw, store.gw_skymap(sid), store.gw_skymap(sid, combined=True),
                         use_combined, **coinc_kw)
         if res is not None:
+            cp = store.root / "coinc" / f"{res['superevent_id']}__{res['external_event']}.json"
+            prev = json.loads(cp.read_text()) if cp.exists() else None
             store.save_coinc(res)
+            if prev is None or _best_far(prev) != _best_far(res):    # only a new or changed result
+                _log_coinc(jr, res)
             out.append(res)
     return out
 
@@ -685,7 +812,7 @@ def add_candidate(kn: KNCandidate, store: CandidateStore, now_gps: Optional[floa
 # Kafka loop
 # --------------------------------------------------------------------------
 
-def listen(store: CandidateStore, client_id: str, client_secret: str,
+def listen(store: AlertStore, client_id: str, client_secret: str,
            grb_topics: Iterable[str] = GRB_TOPICS, nu_topics: Iterable[str] = NU_TOPICS,
            domain: Optional[str] = None,
            on_result: Optional[Callable[[dict], None]] = None, group_id: Optional[str] = "raven-kn",
@@ -704,11 +831,15 @@ def listen(store: CandidateStore, client_id: str, client_secret: str,
     topics = [GW_TOPIC, *grb_topics, *nu_topics]
     consumer.subscribe(topics)
     log.info("listening to %s", ", ".join(topics))
+    hb = Heartbeat(store.root, store.journal.source, store.journal, topics)
     while True:
+        hb.tick()
         for message in consumer.consume(timeout=1):
             if message.error():
                 log.warning("kafka: %s", message.error())
+                hb.kafka_error(str(message.error()))
                 continue
+            hb.message(message.topic())
             try:
                 if message.topic() == GW_TOPIC:
                     for res in handle_gw_alert(message.value(), store, include_mock=include_mock,
@@ -721,5 +852,11 @@ def listen(store: CandidateStore, client_id: str, client_secret: str,
                 else:
                     for name in handle_grb_notice(message.value(), store):
                         log.info("GRB attached to %s", name)
-            except Exception:       # one bad message must not stop the listener
+            except Exception as e:  # one bad message must not stop the listener
                 log.exception("failed on a %s message", message.topic())
+                hb.failure(message.topic(), e)
+
+
+# names before the rename of the optical transient (2026-11): kept for scripts written with them
+CandidateStore = AlertStore
+add_candidate = add_optical

@@ -24,7 +24,7 @@ import numpy as np
 from astropy import units as u
 from astropy.cosmology import Planck18, z_at_value
 
-from ..connection import KNCandidate
+from ..connection import OpticalTransient
 
 C_KMS = 299792.458
 LogLike = Callable[[np.ndarray, np.ndarray], np.ndarray]   # (d_mpc, cos_iota) -> log L
@@ -112,7 +112,7 @@ def samples_constraint(d_samples: np.ndarray, cos_iota_samples: Optional[np.ndar
     return Constraint(name, ll)
 
 
-def constraints_from_candidate(kn: KNCandidate) -> list[Constraint]:
+def constraints_from_optical(kn: OpticalTransient) -> list[Constraint]:
     cons = []
     if kn.redshift is not None:
         cons.append(redshift_constraint(kn.redshift.z, kn.redshift.z_err,
@@ -227,5 +227,8 @@ def combine(constraints: list[Constraint], d_max: float = 1500.0, n_out: int = 2
     return DistanceInclinationPosterior(ds, cs, names, n_eff, d_max)
 
 
-def posterior_for(kn: KNCandidate, **kw) -> DistanceInclinationPosterior:
-    return combine(constraints_from_candidate(kn), **kw)
+def posterior_for(kn: OpticalTransient, **kw) -> DistanceInclinationPosterior:
+    return combine(constraints_from_optical(kn), **kw)
+
+
+constraints_from_candidate = constraints_from_optical      # name before the rename of the optical transient

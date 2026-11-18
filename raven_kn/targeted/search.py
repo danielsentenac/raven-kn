@@ -142,7 +142,9 @@ class TargetedSearchConfig:
         """From ``<name>_targeted_search_request.json`` written by ``raven_kn.search.assess``."""
         r = json.loads(Path(path).read_text())
         kw = dict(ra_deg=r["ra_deg"], dec_deg=r["dec_deg"], gps_start=r["gps_start"],
-                  gps_end=r["gps_end"], label=r.get("candidate", "targeted"))
+                  gps_end=r["gps_end"],
+                  # "candidate": the key of requests written before the rename of the optical transient
+                  label=r.get("optical") or r.get("candidate", "targeted"))
         if "mchirp_range" in r:
             kw["mchirp_min"], kw["mchirp_max"] = r["mchirp_range"]
         pr = r.get("priors") or {}
@@ -1080,13 +1082,15 @@ def subsegment_pvalue(r: "SubsegmentResult", min_slides: int = 20) -> float:
 
 
 def run(cfg: TargetedSearchConfig, fetch: StrainFetcher, out_dir: Optional[str | Path] = None,
-        bank: Optional[Sequence[float]] = None, progress: bool = True) -> TargetedSearchResult:
+        bank: Optional[Sequence[float]] = None, progress: bool = True,
+        on_progress=None) -> TargetedSearchResult:
     bank = list(bank) if bank is not None else build_bank(
         cfg.mchirp_min, cfg.mchirp_max, cfg.f_low, cfg.min_match, cfg.sample_rate, cfg.max_templates,
         mass_ratio=cfg.mass_ratio)
     edges = np.arange(cfg.gps_start, cfg.gps_end, cfg.subsegment_s).tolist() + [cfg.gps_end]
     subs = []
     short = cfg.gps_end - cfg.gps_start < 16       # e.g. a GRB window [-5, +1] s: search it whole
+    n_sub = sum(1 for a, b in zip(edges[:-1], edges[1:]) if b - a >= 16 or short)
     for a, b in zip(edges[:-1], edges[1:]):
         if b - a < 16 and not short:               # leftover piece of a long window
             continue
@@ -1097,6 +1101,8 @@ def run(cfg: TargetedSearchConfig, fetch: StrainFetcher, out_dir: Optional[str |
                 r.p_value_offsource = targeted_pvalue(r.loudest_rho_net, r.offsource)
                 r.notes += f"; {len(r.offsource)} off-source trials"
         subs.append(r)
+        if on_progress is not None:                # logbook (raven_kn.journal.RunLog)
+            on_progress(len(subs), n_sub, r)
         if progress:
             print(f"[{a:.0f}, {b:.0f}] rho_net={r.loudest_rho_net:.2f} at {r.loudest_gps:.2f} "
                   f"Mc={r.loudest_mchirp:.4f} p={r.p_value:.4f}"

@@ -1,9 +1,9 @@
 # RAVEN-KN
 
-RAVEN-KN turns a **kilonova candidate** into what a gravitational-wave (GW) search needs: a sky position,
+RAVEN-KN turns a **optical transient** into what a gravitational-wave (GW) search needs: a sky position,
 a merger-time window, a distance and an inclination. With these it either
 
-- checks the candidate against **existing GW alerts** and computes a joint false-alarm rate (FAR), or
+- checks the optical transient against **existing GW alerts** and computes a joint false-alarm rate (FAR), or
 - decides whether a **targeted search of archived strain data** is worth running, and prepares or runs it.
 
 It follows the layout of LVK's RAVEN (`ligo.raven` 3.3), which does the same for gamma-ray bursts, so that it
@@ -15,7 +15,7 @@ can later be merged into it or called from gwcelery.
 
 <div class="grid cards" markdown>
 
-- **[Workflow](workflow.md)**: how a candidate goes from survey alerts to a coincidence or a search, step
+- **[Workflow](workflow.md)**: how an optical transient goes from survey alerts to a coincidence or a search, step
   by step.
 - **[Examples](examples/index.md)**: results on real events (AT2017gfo, GRB 211211A, GW170817,
   S250818k) and on synthetic kilonovae.
@@ -50,7 +50,7 @@ Optional pieces:
 .venv/bin/raven-kn assess examples/gw170817_like.json --out examples/out --ranges H1=150,L1=160,V1=55
 ```
 
-`assess` writes the decision (search or not), a 3D sky map of the candidate, distance and inclination
+`assess` writes the decision (search or not), a 3D sky map of the optical transient, distance and inclination
 samples and, if a search is worth it, a targeted-search request.
 
 ## Licence and credits

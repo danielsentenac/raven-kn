@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from raven_kn.connection import (DESY6Connector, GladePlusConnector, KNCandidate, NEDConnector,
+from raven_kn.connection import (DESY6Connector, GladePlusConnector, OpticalTransient, NEDConnector,
                                  TNSConnector, find_host, helio_to_cmb, p_chance)
 from raven_kn.treatment.distance_inclination import posterior_for
 
@@ -59,7 +59,7 @@ def test_ned_host_and_nedd_distance():
 
 
 def test_find_host_ngc4993_gives_distance_and_posterior():
-    kn = KNCandidate("AT2017gfo", 197.450374, -23.381495)
+    kn = OpticalTransient("AT2017gfo", 197.450374, -23.381495)
     log = find_host(kn, ned=NEDConnector(session=ned_session()))
     assert kn.redshift.kind == "spectroscopic" and "NGC 4993" in kn.redshift.source
     assert kn.distance.mean_mpc == 40.7
@@ -74,7 +74,7 @@ def test_glade_fallback_photometric_host():
                                                              "zflag,n_dist,sep\n")}))
     glade = GladePlusConnector(session=FakeSession(
         {"asu-tsv": Resp((DATA / "gladep_at2025ulz.tsv").read_text())}))
-    kn = KNCandidate("AT2025ulz", 237.9757129, 30.9023146)
+    kn = OpticalTransient("AT2025ulz", 237.9757129, 30.9023146)
     find_host(kn, ned=ned, glade=glade)
     assert kn.redshift.kind == "photometric" and kn.redshift.z == pytest.approx(0.102, abs=1e-3)
     assert kn.redshift.z_err > 0.02 and kn.distance is None
@@ -122,15 +122,15 @@ def test_find_host_falls_back_to_des():
     """No NED or GLADE+ host: DES Y6 photo-z; outside the footprint: nothing."""
     ned = NEDConnector(session=FakeSession({"tap/sync": Resp(EMPTY_NED)}))
     glade = GladePlusConnector(session=FakeSession({"asu-tsv": Resp("#\n")}))
-    kn = KNCandidate("x", *ESO243)
+    kn = OpticalTransient("x", *ESO243)
     log = find_host(kn, ned=ned, glade=glade, des=DESY6Connector(session=des_session()))
     assert kn.redshift.kind == "photometric" and "DES Y6" in kn.redshift.source
     assert any(s.startswith("DES Y6:") for s in log["steps"])
-    kn2 = KNCandidate("y", 237.9757, 30.9023)
+    kn2 = OpticalTransient("y", 237.9757, 30.9023)
     log2 = find_host(kn2, ned=ned, glade=glade,
                      des=DESY6Connector(session=FakeSession({"datalab": Resp("ra\n")})))
     assert kn2.redshift is None and "outside the footprint" in " ".join(log2["steps"])
-    kn3 = KNCandidate("z", *ESO243)
+    kn3 = OpticalTransient("z", *ESO243)
     find_host(kn3, ned=ned, glade=glade, use_des=False)
     assert kn3.redshift is None
 
@@ -142,7 +142,7 @@ def test_p_chance_half_light_radius():
 
 
 def test_spectroscopic_redshift_kept():
-    kn = KNCandidate("x", 237.9757129, 30.9023146)
+    kn = OpticalTransient("x", 237.9757129, 30.9023146)
     from raven_kn.connection import Redshift
     kn.redshift = Redshift(0.0848, 1e-4, source="Keck spectrum")
     ned = NEDConnector(session=FakeSession({"tap/sync": Resp("prefname,prefphytype,ra,dec,z,zunc,"
@@ -165,7 +165,7 @@ TNS_REPLY = {"id_code": 200, "data": {"reply": {
 def test_tns_classification_and_host_redshift():
     sess = FakeSession({"api/get/object": Resp(js=TNS_REPLY)})
     tns = TNSConnector(123, "raven_kn_bot", "KEY", session=sess)
-    kn = KNCandidate("AT2025ulz", 237.9757129, 30.9023146)
+    kn = OpticalTransient("AT2025ulz", 237.9757129, 30.9023146)
     info = tns.add_to(kn, "AT2025ulz")
     assert kn.classification == "Kilonova" and info["spectra"][0]["instrument"] == "Keck1 - LRIS"
     assert kn.redshift.kind == "spectroscopic"

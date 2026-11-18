@@ -5,7 +5,7 @@ from pathlib import Path
 import numpy as np
 from astropy.time import Time
 
-from raven_kn.connection import GRBAssociation, KNCandidate, PhotometryPoint, Redshift
+from raven_kn.connection import GRBAssociation, OpticalTransient, PhotometryPoint, Redshift
 from raven_kn.search import assess
 from raven_kn.treatment.kilonova_evidence import band_wavelength, kilonova_evidence
 
@@ -27,7 +27,7 @@ def gfo_points(max_days):
 
 
 def kn_with(points, **kw):
-    return KNCandidate("SSS17a", RA, DEC, photometry=points,
+    return OpticalTransient("SSS17a", RA, DEC, photometry=points,
                        redshift=Redshift(0.009783, 1e-5, "spectroscopic", "NGC 4993"), **kw)
 
 

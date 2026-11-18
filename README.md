@@ -6,37 +6,37 @@ into it or called from gwcelery.
 
 Documentation: **https://danielsentenac.github.io/raven-kn/** (workflow and example results).
 
-Direction: **kilonova candidate → is a GW search worth it? → merger-time window,
+Direction: **optical transient → is a GW search worth it? → merger-time window,
 sky position, distance and inclination priors → coincidence with existing GW
-candidates (joint FAR) and/or a targeted search of archived strain.**
+optical transients (joint FAR) and/or a targeted search of archived strain.**
 
 ## Workflow
 
-![RAVEN-KN workflow: optical, spectroscopic, GRB and neutrino inputs build a kilonova candidate; treatment derives the merger-time window, distance and kilonova rate; with a GW alert these give a coincidence and a joint FAR; without one, a targeted PyCBC or PyGRB search runs once the transient is confirmed as a kilonova and is detectable, with the electromagnetic distance and inclination as priors for the search and the parameter estimation](docs/raven-kn-workflow.svg)
+![RAVEN-KN workflow: optical, spectroscopic, GRB and neutrino inputs build an optical transient; treatment derives the merger-time window, distance and kilonova rate; with a GW alert these give a coincidence and a joint FAR; without one, a targeted PyCBC or PyGRB search runs once the transient is confirmed as a kilonova and is detectable, with the electromagnetic distance and inclination as priors for the search and the parameter estimation](docs/raven-kn-workflow.svg)
 
 Everything downstream depends on the merger-time window (highlighted). With a GW alert it sets the
 coincidence; without one it sets the stretch of strain data to search. A targeted search is triggered only
 when the transient is **confirmed as a kilonova** (light curve, spectrum or classifier score) and a signal
 would be detectable: a GRB alone does not trigger one. GRB notices, which usually come hours before the
-optical counterpart, are stored and attached to a candidate found up to 3 days later; IceCube neutrino
+optical counterpart, are stored and attached to an optical transient found up to 3 days later; IceCube neutrino
 alerts are handled the same way and give a ±500 s window. The listener
-(`raven-kn listen`) runs the top-right branch automatically for every alert and every stored candidate.
+(`raven-kn listen`) runs the top-right branch automatically for every alert and every stored optical transient.
 
 ## Modules
 
 | RAVEN-KN | Role | RAVEN analogue |
 |---|---|---|
-| `raven_kn.connection` | `KNCandidate` (photometry incl. non-detections, redshift, distance, viewing angle, GRB, light-curve-fit samples, spectroscopic class); connectors: Fink, ALeRCE, ANTARES, ATLAS, ZTF forced photometry, GraceDB, GCN JSON, NED/NED-D, GLADE+, DES Y6, TNS, local JSON | `gracedb_events.ExtTrig` / `SE` |
+| `raven_kn.connection` | `OpticalTransient` (photometry incl. non-detections, redshift, distance, viewing angle, GRB, light-curve-fit samples, spectroscopic class); connectors: Fink, ALeRCE, ANTARES, ATLAS, ZTF forced photometry, GraceDB, GCN JSON, NED/NED-D, GLADE+, DES Y6, TNS, local JSON | `gracedb_events.ExtTrig` / `SE` |
 | `raven_kn.treatment.t0` | merger-time window [tl, th]: GRB (seconds) > light-curve-fit t0 posterior ∩ photometric bracket (last *constraining* non-detection → first detection) | fixed `tl, th` |
-| `raven_kn.treatment.lightcurve_fit` | NMMA wrapper: candidate → NMMA data/prior files and `lightcurve-analysis` command → posterior read back as `t0_samples_gps` (+ D_L, ι) | — (new) |
+| `raven_kn.treatment.lightcurve_fit` | NMMA wrapper: optical transient → NMMA data/prior files and `lightcurve-analysis` command → posterior read back as `t0_samples_gps` (+ D_L, ι) | — (new) |
 | `raven_kn.treatment.distance_inclination` | joint (D_L, cos ι) posterior from spectroscopic redshift, host distance, VLBI/afterglow viewing angle, prompt GRB, light-curve-fit samples; search priors | — (new) |
-| `raven_kn.treatment.detectability` | expected network SNR over the window (LAL antenna patterns at the candidate position, Earth rotation, duty cycle/segments); decision: trigger or not | — (new) |
+| `raven_kn.treatment.detectability` | expected network SNR over the window (LAL antenna patterns at the optical transient position, Earth rotation, duty cycle/segments); decision: trigger or not | — (new) |
 | `raven_kn.treatment.far` | joint FARs: `(th−tl) R_KN FAR_GW` / sky overlap / **distance overlap**; targeted-search p-value, sub-segment trials, RAVEN "SubGRBTargeted" product formula | `search.coinc_far` |
 | `raven_kn.skymap` | kilonova 2D/3D HEALPix map (PROB, DISTMU, DISTSIGMA, DISTNORM), GW map reader, sky overlap (RAVEN's own function if installed), distance overlap | `search.skymap_overlap_integral` |
-| `raven_kn.listener` | GCN Kafka listener: `igwn.gwalert` (multi-order sky map decoded in the alert), GRB notices and IceCube neutrino alerts matched against a store of kilonova candidates, both ways in time; `raven_kn.fink_stream` feeds the store from Fink's ZTF / Rubin livestream | `listen` / `handle_*` |
+| `raven_kn.listener` | GCN Kafka listener: `igwn.gwalert` (multi-order sky map decoded in the alert), GRB notices and IceCube neutrino alerts matched against a store of optical transients, both ways in time; `raven_kn.fink_stream` feeds the store from Fink's ZTF / Rubin livestream | `listen` / `handle_*` |
 | `raven_kn.search` | `query`, `search`, `coinc_far`, `calc_signif_gracedb` (GraceDB logs `RAVEN-KN:`, tag `ext_coinc`, file `coincidence_far_kn.json`), `assess` | `search.*` |
 
-`KNCandidate.to_raven_event_dict()` gives a GraceDB-External-event-shaped dict
+`OpticalTransient.to_raven_event_dict()` gives a GraceDB-External-event-shaped dict
 accepted by `ligo.raven.gracedb_events.ExtTrig(..., event_dict=..., use_radec=True)`.
 
 ## Use
@@ -56,7 +56,7 @@ inclination priors).
 
 Example results (examples/, photometry synthetic, O4-like ranges):
 
-| candidate | window | D_L (90 %) | θ_obs | network SNR | trigger |
+| optical transient | window | D_L (90 %) | θ_obs | network SNR | trigger |
 |---|---|---|---|---|---|
 | AT2017gfo-like, UL 3 h before merger | 19.4 h (bracket) | 44.6 [37, 52] Mpc | 21° [13, 29] | ~51 | yes |
 | same + GRB | 6 s | same | same | ~68 | yes |
@@ -273,13 +273,13 @@ host galaxy's spectrum. The connection module now fetches it:
 
 | source | gives | access |
 |---|---|---|
-| **NED** (TAP `NEDTAP.objdir`) | galaxies with redshift around the candidate: SDSS, DESI, 6dF, literature; spectroscopic/photometric flag | public |
+| **NED** (TAP `NEDTAP.objdir`) | galaxies with redshift around the optical transient: SDSS, DESI, 6dF, literature; spectroscopic/photometric flag | public |
 | **NED-D** | redshift-independent distances of the host (SBF, TRGB, Cepheids, SNe Ia, FP, Tully-Fisher); GW-based entries are dropped | public |
 | **GLADE+** (VizieR VII/291, mirrors with fallback) | LVK's galaxy catalogue: CMB-frame z (spec. or photometric), B/K magnitudes, chance-coincidence probability | public |
 | **DES Y6 Gold** (NOIRLab Data Lab TAP `des_dr2.y6_gold`) | southern 5,000 deg², ~450 M galaxies (20× GLADE+ there, complete well beyond 150 Mpc): DNF photo-z, r magnitude, half-light radius | public |
 | **TNS** | spectroscopic classification (e.g. "Kilonova"), transient/host redshift, list of spectra (ASCII/FITS) | bot ID + API key (`$TNS_BOT_ID`, `$TNS_BOT_NAME`, `$TNS_API_KEY`); tested live 2026-11-10: AT2017gfo "Kilonova", host NGC 4993; SN 2025ulz "SN II", z 0.0848 |
 
-`find_host` keeps a spectroscopic redshift already in the candidate (from TNS, a GCN circular or a spectrum);
+`find_host` keeps a spectroscopic redshift already in the optical transient (from TNS, a GCN circular or a spectrum);
 otherwise takes NED's nearest galaxy with a spectroscopic redshift within 50 kpc projected, else GLADE+ (lowest
 chance-coincidence probability, may be photometric), else DES Y6 Gold in its footprint (photometric); for a
 host at z < 0.03 it adds the best NED-D distance.
@@ -309,7 +309,7 @@ extracted automatically from spectra.
 ## Last non-detection from survey archives
 
 The t0 window depends most on the latest deep image of the position before the first detection.
-`connection.py` merges photometry from several sources into one candidate:
+`connection.py` merges photometry from several sources into one optical transient:
 - `ALeRCEConnector` — ZTF detections and non-detections (`diffmaglim`) from the public ALeRCE API
   (tested live: ZTF21abdpqpq, last non-detection r > 20.5 1.98 d before the first detection);
 - `ANTARESConnector` — the NOIRLab ANTARES broker (public, no token), found by cone search: the same ZTF
@@ -318,7 +318,7 @@ The t0 window depends most on the latest deep image of the position before the f
 - `ZTFForcedPhotometryConnector` (`raven-kn ztffp submit|fetch`) — IPAC's ZTF Forced Photometry Service
   (Masci et al. 2023): PSF-fit flux at the position on every ZTF difference image, so it gives the
   non-detections before discovery that alert streams lack. Needs an IPAC account (`$ZTF_FPS_EMAIL`,
-  `$ZTF_FPS_USERPASS`); requests are queued (minutes to days), results matched to candidates by the
+  `$ZTF_FPS_USERPASS`); requests are queued (minutes to days), results matched to optical transients by the
   position in the file header. IPAC's quality cuts (procstatus, infobitssci, scisigpix, seeing, and
   `diffimgstatus` in v6 files), S/N > 3 detections, else 5σ limits; no baseline correction. A position is
   not resubmitted within 90 days (IPAC's rule; local log). Tested live 2026-11-10 on AT2025ulz (public
@@ -415,48 +415,48 @@ outside the on-source window. The `--output` directory must exist before generat
 ```
 export GCN_CLIENT_ID=... GCN_CLIENT_SECRET=...          # from gcn.nasa.gov; pip install gcn-kafka
 raven-kn listen --store kn_store/                        # igwn.gwalert + GRB topics
-raven-kn add candidate.json --store kn_store/            # a new or updated kilonova candidate
+raven-kn add optical.json --store kn_store/            # a new or updated optical transient
 ```
 
 - **GW alert** (`igwn.gwalert`): the base64 multi-order FITS map is decoded (UNIQ → order, pixel;
-  flattened to NESTED nside 512 for the overlaps, exact row looked up at the candidate). Every stored
-  candidate whose t0 window contains the merger time gets the joint FAR (temporal / sky / distance), written
-  to `kn_store/coinc/<superevent>__<candidate>.json` with the GW conditional-distance parameters at the
-  candidate. Updates replace the stored alert (an alert without a map keeps the previous map); retractions
+  flattened to NESTED nside 512 for the overlaps, exact row looked up at the optical transient). Every stored
+  optical transient whose t0 window contains the merger time gets the joint FAR (temporal / sky / distance), written
+  to `kn_store/coinc/<superevent>__<optical>.json` with the GW conditional-distance parameters at the
+  optical transient. Updates replace the stored alert (an alert without a map keeps the previous map); retractions
   delete it.
 - **GRB notice**, GCN unified JSON (`trigger_time`, `ra`, `dec`, `ra_dec_error`: Swift-BAT GUANO,
   Einstein Probe WXT, SVOM ECLAIRs) or classic VOEvent XML (Fermi-GBM flight/ground/final positions, with
-  the 3.7° GBM systematic added in quadrature): attached to candidates within 2× the error radius whose
+  the 3.7° GBM systematic added in quadrature): attached to optical transients within 2× the error radius whose
   first detection follows within 3 days; their window becomes RAVEN's [−5, +1] s. With 1× the radius the
   GW170817 GBM ground position (24° from NGC 4993) would be missed. Test notices are ignored.
 - **X-ray afterglow position** (Swift-XRT `gcn.classic.voevent.SWIFT_XRT_POSITION`, SVOM-MXT
   `gcn.notices.svom.voevent.mxt`): replaces the position of the stored Swift-BAT or SVOM-ECLAIRs burst
   with the same trigger number (a few arcsec for XRT, under 5′ for MXT) and keeps the burst time, since
-  the X-ray time is that of the image, minutes later. Candidates are matched again; one that the listener
+  the X-ray time is that of the image, minutes later. Optical transients are matched again; one that the listener
   had attached to this burst and that lies outside 2× the X-ray radius is detached.
 - **Neutrino alert** (`gcn.notices.icecube.gold_bronze_track_alerts`, IceCube gold / bronze tracks; classic
-  VOEvents parse too): stored, and attached to candidates within 1.4× the 90 % error radius (≈ 99 %) whose
+  VOEvents parse too): stored, and attached to optical transients within 1.4× the 90 % error radius (≈ 99 %) whose
   first detection follows within 3 days; their window becomes ±500 s around the neutrino (Baret et al.
   2011), unless a GRB gives a tighter one. Updates refine time and position; retractions detach it. Live
   notices of IceCube-261020A (JSON and VOEvent, initial and update) parse identically
   (`tests/data/gcn_live/`).
 - **Fink livestream** (`raven-kn fink-listen --survey ztf|lsst --store kn_store/`, `raven_kn.fink_stream`;
   `pip install .[fink]`, credentials from Fink via its registration form, then `finkctl auth register`):
-  each alert of the subscribed topics becomes or updates a candidate in the same store and goes through
-  `add_candidate` (stored GRB / neutrino / GW matching). `--find-host` looks the host up once per
-  candidate (the light-curve kilonova test needs a distance), `--assess` re-runs the decision on every
+  each alert of the subscribed topics becomes or updates an optical transient in the same store and goes through
+  `add_optical` (stored GRB / neutrino / GW matching). `--find-host` looks the host up once per
+  optical transient (the light-curve kilonova test needs a distance), `--assess` re-runs the decision on every
   update and logs when a search becomes worth it. ZTF default topics: Fink's three kilonova topics
   (`fink_kn_candidates_ztf`, `fink_early_kn_candidates_ztf`, `fink_rate_based_kn_candidates_ztf`); Fink
   has no Rubin kilonova topic yet, so Rubin topics must be chosen (`finkctl topic list -survey lsst`).
   Tested with synthetic alerts only; the Rubin field names follow the alert schema as served by Fink's
   REST API and are to be checked on a first real alert.
-- **Late candidate**: `raven-kn add` matches it against stored GRB notices (the latest one up to 3 days
+- **Late optical transient**: `raven-kn add` matches it against stored GRB notices (the latest one up to 3 days
   before its first detection, same radius rule), stored neutrino alerts, and GW alerts of the last 14 days. GRB notices are
   stored for this: the GRB usually comes first (GW170817: 11 h before AT2017gfo).
 - **LVK RAVEN coincidence**: when an alert carries `external_coinc` (LVK's own GW + GRB coincidence:
   observatory, time difference, temporal and sky-position joint FARs, combined GW × GRB map), it is kept
   with the superevent, also across later updates that omit it, and copied into every RAVEN-KN result as
-  `raven_external_coinc`, with the combined map at the candidate (`combined_map_at_kn`). The sky factor
+  `raven_external_coinc`, with the combined map at the optical transient (`combined_map_at_kn`). The sky factor
   uses the GW-only map unless `--use-combined-skymap` is given.
 
 - **Mock superevents** (`MS…`, sent hourly by LVK outside observing runs) are skipped unless

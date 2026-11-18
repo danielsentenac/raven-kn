@@ -1,4 +1,4 @@
-"""Is the candidate a kilonova? Evidence required before a GW search is triggered.
+"""Is the optical transient a kilonova? Evidence required before a GW search is triggered.
 
 A GRB or a single optical detection is not enough to spend a targeted GW
 search: most optical transients in a GRB error box are unrelated supernovae
@@ -7,7 +7,7 @@ or AGN flares. The search is triggered only once at least one of these holds:
 * **spectrum**: a spectroscopic classification containing "kilonova"
   (TNS, GCN circular);
 * **light curve**, from >= 2 detection epochs at least ``min_epoch_sep_d``
-  apart, with a distance for the candidate:
+  apart, with a distance for the optical transient:
 
   - peak absolute magnitude inside ``abs_mag_range`` (kilonovae: about
     -17 to -13, widened by 0.5 mag each side for distance and real-time
