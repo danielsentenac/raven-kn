@@ -173,6 +173,33 @@ prior distance. The face-on distance estimate of the candidate is 54 Mpc, at the
 GW170817 passes because inclined orientations at 40 Mpc fit, but a wrong or too narrow electromagnetic
 distance would remove a real signal, which is why the option is not selected automatically.
 
+### Parameter estimation with and without the EM priors
+
+Bilby on the candidate of the unrestricted search (`--pe em|gw`,
+[Targeted GW search](../targeted-search.md)), sky position fixed at AT2017gfo, L1 frame with the glitch
+subtracted, 30–896 Hz, 64 s. The two runs differ only by the distance and orientation priors: `em` takes
+the request's intervals (30–54 Mpc, viewing angle below 58°), `gw` a distance uniform in volume from 1 to
+272 Mpc and an isotropic orientation. Medians and 90 % intervals (`examples/em_priors_gw170817/`,
+HTCondor jobs at CIT, 3.6 h and 4.7 h on 8 cores):
+
+| | With EM priors (`em`) | Without (`gw`) |
+|---|---|---|
+| Luminosity distance (Mpc) | 40.6 (32.1–46.9) | 39.6 (26.7–46.6) |
+| Viewing angle (°) | 30 (8–49) | 33 (9–59) |
+| Chirp mass, detector frame (M☉) | 1.19740 (1.19726–1.19755) | 1.19740 (1.19726–1.19754) |
+| Mass ratio | 0.79 (0.67–0.97) | 0.80 (0.67–0.96) |
+| Log Bayes factor, signal against noise | 537.7 ± 0.3 | 532.5 ± 0.3 |
+
+The run without EM priors gives 39.6 +7.0/−13.0 Mpc, against 40 +8/−14 Mpc in the LVK discovery paper.
+The maximum-likelihood SNR is 33.5 and both log Bayes factors stay below its bound, SNR²/2 = 562.6.
+
+On this event the EM priors remove the inclined, nearby end of the distance–inclination degeneracy: the
+lower distance bound rises from 26.7 to 32.1 Mpc and the upper viewing angle falls from 59° to 49°. The
+medians and the masses do not move. The evidence is higher by 5.2 ± 0.4 in the logarithm with the EM
+priors, mostly because they concentrate the prior where the data are. The gain is modest because the
+request carries wide intervals and no joint distance–inclination samples; the samples path
+(`prior_samples`) is not tested on real data.
+
 ## Data-quality vetoes
 
 DQSegDB queried live from CIT (O2 CBC veto definer, ±600 s around the merger): H1, L1 and V1 in science

@@ -11,3 +11,7 @@ HTCondor jobs (CIT) on public data, from the request of the reverse replay
   distance and inclination priors (`em`) or without (`gw`).
 - `jobs.sub`: the three searches; `pe.sub`: the two parameter estimations (8 cores each), to submit
   once the `free` search result is back.
+
+Results: `search_<free|circular|distance>_targeted_result.json` and
+`SSS17a_pe_<em|gw>_pe_summary.json` (medians and 90 % intervals; the full Bilby results stay at CIT).
+Discussion in `docs/examples/gw170817-search.md`.
