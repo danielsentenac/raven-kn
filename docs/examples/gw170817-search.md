@@ -153,6 +153,26 @@ between the two handednesses is modest because H1 and L1 are nearly aligned and 
 loudest off-source trial is lower and fewer trials give a candidate; with 100 trials and a small bank
 the size of that gain is indicative only. The p-value stays at its floor, 1/101, in every mode.
 
+### Distance prior
+
+The request also carries the distance of the host (30–54 Mpc with its padding). With `--distance-prior`
+the candidates are ranked by the likelihood of a source at that distance and inclination
+([Targeted GW search](../targeted-search.md)). Same window, bank and 100 off-source trials
+(`examples/em_priors_gw170817/`, HTCondor jobs at CIT):
+
+| Search | GW170817 statistic | Null SNR | Loudest off-source trial | Trials with a candidate |
+|---|---|---|---|---|
+| free (two polarisations) | 30.07 | 1.30 | 6.44 | 36 |
+| circular | 30.02 | 2.19 | 5.94 | 26 |
+| circular + distance prior | 29.79 | 2.19 | none | 0 |
+
+The signal keeps 99 % of its statistic and no off-source trial leaves a candidate: noise at SNR 6 would
+need a source several times farther than 54 Mpc. The p-value stays at its floor, 1/101; with an empty
+background these runs do not measure the sensitivity gain, which needs injections of weak signals at the
+prior distance. The face-on distance estimate of the candidate is 54 Mpc, at the upper edge of the prior:
+GW170817 passes because inclined orientations at 40 Mpc fit, but a wrong or too narrow electromagnetic
+distance would remove a real signal, which is why the option is not selected automatically.
+
 ## Data-quality vetoes
 
 DQSegDB queried live from CIT (O2 CBC veto definer, ±600 s around the merger): H1, L1 and V1 in science
