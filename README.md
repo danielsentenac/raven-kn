@@ -252,7 +252,11 @@ On GW170817 the reduced network chi-square is 1.06 and the reweighted coherent S
 (6 s GRB-window search, 2148 templates, same frames). An H1-only sine-Gaussian on synthetic data falls from
 15.5 to 6.1.
 
-## GW170817 replayed from the GRB and the kilonova (`examples/gw170817_reverse.py`)
+## Strategy test: GW170817 replayed from the GRB and the kilonova (`examples/gw170817_reverse.py`)
+
+A simulation kept apart from the live stream (its own store, the GW alert withheld), used to test
+strategies on a known event: `--no-kn-evidence`, `--min-epoch-sep`, `--min-decline`, `--min-sigma` change
+the trigger rule, `--skip-search` gives the decisions alone in seconds (docs: Strategy tests).
 
 GW170817 without the GW alert, with only what the EM side knew on 17–18 August 2017, in order: the
 Fermi-GBM notice (stored, 12:41 UTC), the Swope discovery of SSS17a 10.9 h later (GRB attached, 24° from

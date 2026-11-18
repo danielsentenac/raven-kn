@@ -19,7 +19,8 @@ can later be merged into it or called from gwcelery.
   by step.
 - **[Examples](examples/index.md)**: results on real events (AT2017gfo, GRB 211211A, GW170817,
   S250818k) and on synthetic kilonovae.
-- **[GW170817 without the GW alert](examples/gw170817-reverse.md)**: the whole loop in reverse. From the
+- **[Strategy tests](tests/index.md)**: known events replayed apart from the live stream, to see what
+  a strategy would have done. First test, [GW170817 without the GW alert](tests/gw170817-reverse.md): from the
   Fermi-GBM notice and the AT2017gfo light curve alone, the search is triggered on the second night and
   finds GW170817 at coherent SNR 30.3, 2 ms from the merger time (p < 0.01 from 100 off-source trials).
 

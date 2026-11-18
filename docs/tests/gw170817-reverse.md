@@ -1,12 +1,17 @@
 # GW170817 replayed from the GRB and the kilonova
 
-The usual GW170817 story starts with the LIGO/Virgo alert. This example replays it **without** the GW alert:
+The usual GW170817 story starts with the LIGO/Virgo alert. This test replays it **without** the GW alert:
 RAVEN-KN receives only what the electromagnetic side knew on 17–18 August 2017, in the order it arrived, and
 has to decide by itself when a GW search is worth running, then find the signal in the strain data.
 
+It is a simulation of the reverse case, not part of the live stream: the notices and the photometry are
+the real ones, fed by a script into a store of its own, and the GW alert is withheld. It is the reference
+case of the [strategy tests](index.md): the same replay run with another rule shows what that rule would
+have done on GW170817.
+
 Script: `examples/gw170817_reverse.py` (decisions and on-source search),
 `examples/gw170817_reverse_offsource.py` with `examples/gw170817_reverse_cit/` (off-source background as
-HTCondor jobs on CIT).
+HTCondor jobs on CIT). Commands: [Reproduce it](#reproduce-it).
 
 ## Timeline
 
@@ -29,6 +34,8 @@ network SNR of **34** at NGC 4993. The published GW170817 network SNR is 32.4.
 
 The search request covers the 6 s GRB window [1187008879.47, 1187008885.47] at the position of SSS17a,
 with the BNS chirp-mass range 1.0–1.5 M☉ (2148 templates), because the EM data do not give the chirp mass.
+(The request now gives this range in the detector frame, 1.007–1.518 M☉ at the redshift of NGC 4993; the
+results below are those of the 1.0–1.5 M☉ bank.)
 Coherent statistic; GWOSC GWTC-1 strain, in which the L1 glitch 1.1 s before the merger is gated.
 
 | | Result |
@@ -55,10 +62,70 @@ The 6 s window is too short for time slides, so the background comes from off-so
 search in 6 s windows around the on-source window, at least 64 s away from it, as PyGRB does.
 
 The reweighted coherent SNR is within 2 % of PyGRB's 29.8 on the same data (see
-[the GW170817 targeted search](gw170817-search.md#comparison-with-pygrb)). On-source and off-source use
+[the GW170817 targeted search](../examples/gw170817-search.md#comparison-with-pygrb)). On-source and off-source use
 the gate-aware network chi-square. With the earlier per-detector chi-square, which was not gate-aware, the
 on-source value was 22.8 (L1 cut from 24 to 13 by the gated glitch) and the off-source maximum 7.5: the new
 chi-square restores the signal and leaves the noise background where it was.
+
+## Strategies tested on this replay
+
+**When to search.** The decisions alone take a few seconds (`--skip-search`), so a trigger rule can be
+tried at once. Hours are counted from the GRB; the kilonova is discovered at +10.9 h:
+
+| Rule | Option | Search triggered | By |
+|---|---|---|---|
+| pipeline default: kilonova evidence required, two epochs 0.25 d apart, rate ≥ 0.3 mag/day at 3σ | none | **+29.5 h** | g fading 1.75 ± 0.43 mag/day |
+| no kilonova evidence required | `--no-kn-evidence` | +10.9 h | detectability alone (expected SNR 34) |
+| second epoch accepted after 0.2 d | `--min-epoch-sep 0.2` | +29.5 h | same: the epochs at +16.9 and +21.4 h show no significant rate |
+| rates accepted at 2σ | `--min-sigma 2` | +29.5 h | same |
+| fading of at least 1 mag/day | `--min-decline 1.0` | +29.5 h | same |
+| fading of at least 2 mag/day | `--min-decline 2.0` | +34.6 h | reddening 1.69 ± 0.21 mag/day |
+
+On this event the light-curve test is not sensitive to its thresholds: the first significant rate comes
+with the PS1 and 2MASS epoch of the second night, whatever the epoch separation or the significance asked.
+Only dropping the requirement brings the search forward, by 18.6 h, at the price of searching on every
+detectable optical transient, kilonova or not. The window and the search request are the same in every row, so
+the search result below does not depend on the rule.
+
+**How to search.** On the same request, with the chirp mass restricted to 1.19–1.205 M☉
+([GW170817 targeted search](../examples/gw170817-search.md#inclination-prior-circular-polarisation)):
+
+| Search or follow-up | GW170817 | Background, 100 off-source trials |
+|---|---|---|
+| coherent, two polarisations | 30.07 | loudest 6.44, 36 trials with a candidate |
+| circular polarisation, from the EM inclination | 30.02 | loudest 5.94, 26 trials |
+| circular + EM distance prior (intervals or joint samples) | 29.79, 29.76 | no candidate |
+| parameter estimation without EM priors | 39.6 Mpc (26.7–46.6), viewing angle 33° (9–59) | — |
+| parameter estimation with the EM samples | 42.0 Mpc (39.7–44.2), viewing angle 25° (15–33) | — |
+
+## Reproduce it
+
+Decisions only, a few seconds, needs NED for the host (NGC 4993 is set by hand if it cannot be reached):
+
+```bash
+python examples/gw170817_reverse.py --workdir /tmp/gw170817_reverse --skip-search
+python examples/gw170817_reverse.py --workdir /tmp/gw170817_nokn --skip-search --no-kn-evidence
+```
+
+Each run writes `report.json` (the strategy, the timeline with the reason of every decision, the window)
+and, in `assess/`, the decision, the search request, the 3D sky map and the joint distance–inclination
+samples. The store of the replay is in `store/`, separate from the listener's.
+
+With the on-source search and a few off-source trials on GWOSC strain (about 50 min on one core for
+4 trials with the full bank):
+
+```bash
+python examples/gw170817_reverse.py --workdir /tmp/gw170817_reverse --n-offsource 4 \
+    --ca-bundle /etc/pki/tls/certs/ca-bundle.crt
+```
+
+The 100 off-source trials as HTCondor jobs on CIT: `examples/gw170817_reverse_cit/` (`offsource.sub`,
+20 jobs of 5 trials), merged with `examples/gw170817_reverse_offsource.py`. The searches and parameter
+estimations with the EM priors: `examples/em_priors_gw170817/`. The figures:
+`examples/gw170817_reverse_snr.py` and `python docs/scripts/make_figures.py`.
+
+The replay can also be read in the [logbook](../logbook.md#test-store): `make_fixture.py` builds a test
+store that holds it.
 
 ## What this shows
 

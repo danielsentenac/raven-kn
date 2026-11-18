@@ -86,7 +86,7 @@ reach the threshold (default 6, probability ≥ 0.1), and the optical transient 
 at z = 0.15 (737 Mpc) is rejected; an AT2017gfo-like one at 45 Mpc gives an expected SNR of about 50.
 
 Until both hold, the optical transient is **held** and re-assessed when new photometry or a classification arrives.
-In the [GW170817 replay](examples/gw170817-reverse.md), the GRB alone and the first two nights of
+In the [GW170817 replay](tests/gw170817-reverse.md), the GRB alone and the first two nights of
 photometry do not trigger; the fading on the second night does, 29.5 h after the GRB.
 `--no-kn-evidence` turns the first condition off.
 

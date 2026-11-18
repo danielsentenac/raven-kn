@@ -24,6 +24,9 @@ LIGO/Virgo alert:
 
   python examples/gw170817_reverse.py --workdir examples/gw170817_reverse \\
       --n-offsource 100 --ca-bundle /etc/pki/tls/certs/ca-bundle.crt
+
+The strategy options change when the search is triggered (docs: Strategy tests);
+with --skip-search the decisions alone take a few seconds.
 """
 
 from __future__ import annotations
@@ -91,11 +94,23 @@ def main():
                     help="chirp-mass range (default: the search request's, 1.0-1.5)")
     ap.add_argument("--ca-bundle", default=None)
     ap.add_argument("--skip-search", action="store_true")
+    g = ap.add_argument_group("strategy (defaults: the pipeline's)")
+    g.add_argument("--no-kn-evidence", action="store_true",
+                   help="trigger as soon as the source is detectable, without waiting for kilonova evidence")
+    g.add_argument("--min-epoch-sep", type=float, default=None, metavar="DAYS",
+                   help="minimum separation of two epochs of the light-curve test (default 0.25)")
+    g.add_argument("--min-decline", type=float, default=None, metavar="MAG_PER_DAY",
+                   help="minimum fading rate of the light-curve test (default 0.3)")
+    g.add_argument("--min-sigma", type=float, default=None,
+                   help="minimum significance of the fading or reddening rate (default 3)")
     args = ap.parse_args()
     work = Path(args.workdir)
     work.mkdir(parents=True, exist_ok=True)
     t_grb = Time(GRB_ISO, scale="utc")
-    report = {"timeline": []}
+    ev_kw = {k: v for k, v in (("min_epoch_sep_d", args.min_epoch_sep), ("min_decline", args.min_decline),
+                               ("min_sigma", args.min_sigma)) if v is not None}
+    strategy = dict(require_kn_evidence=not args.no_kn_evidence, kn_evidence_kw=ev_kw or None)
+    report = {"strategy": strategy, "timeline": []}
 
     def log(t_mjd, what, **kw):
         h = (t_mjd - t_grb.mjd) * 24
@@ -130,7 +145,7 @@ def main():
     decision, t_trigger = None, None
     for te in epochs:
         kn.photometry = [discovery_point()] + [p for p in pending if p.mjd <= te]
-        decision = assess(kn, ranges_mpc=O2_RANGES)
+        decision = assess(kn, ranges_mpc=O2_RANGES, **strategy)
         ev = decision["kilonova_evidence"]
         det = decision["detectability"]
         log(te, f"assess with {len(kn.photometry)} points: trigger {decision['trigger_targeted_search']}"
@@ -144,7 +159,7 @@ def main():
         print("never confirmed: no search")
         (work / "report.json").write_text(json.dumps(report, indent=1, default=str))
         return
-    decision = assess(kn, out_dir=work / "assess", ranges_mpc=O2_RANGES)
+    decision = assess(kn, out_dir=work / "assess", ranges_mpc=O2_RANGES, **strategy)
     req = work / "assess" / f"{kn.name}_targeted_search_request.json"
     r = json.loads(req.read_text())
     inside = r["gps_start"] <= GW170817_GPS <= r["gps_end"]

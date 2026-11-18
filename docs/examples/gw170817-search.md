@@ -44,7 +44,7 @@ instant.
 - The chi-square now gates the template like the data and, for the coherent statistic, reweights the
   coherent SNR with one chi-square summed over the detectors, as PyGRB: reduced chi-square 1.06, reweighted
   coherent SNR 29.8, PyGRB's value. (Last row: the 6 s GRB-window search of the
-  [reverse replay](gw170817-reverse.md), 2148 templates, same frames; the slide background above was
+  [reverse replay](../tests/gw170817-reverse.md), 2148 templates, same frames; the slide background above was
   computed with the earlier chi-square.)
 
 ## PyGRB on LVK frames
@@ -73,7 +73,7 @@ The two data sets agree to 1 %; the LVK frames give slightly more in H1 (their h
 ### Light search on LVK frames
 
 The light search on the same LVK frames, as one HTCondor job on CIT (`examples/light_gw170817_lvk/`): the
-6 s GRB window of the [reverse replay](gw170817-reverse.md), coherent statistic, 2148 templates. Segments
+6 s GRB window of the [reverse replay](../tests/gw170817-reverse.md), coherent statistic, 2148 templates. Segments
 and frame files are resolved on the login node (`--write-manifest`); the job reads the four frame files
 shipped to it (`--manifest`).
 
