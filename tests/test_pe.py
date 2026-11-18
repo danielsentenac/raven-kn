@@ -73,3 +73,30 @@ def test_summarise():
     assert s["viewing_angle_deg"]["median"] == pytest.approx(np.degrees(np.pi - 2.6))
     assert s["chirp_mass_source"]["median"] == pytest.approx(1.2 / (1 + 40 * 2.3e-4), rel=1e-3)
     assert s["chi_eff"]["median"] == 0.0
+
+
+def test_maximise_recovers_the_injection():
+    """Started 0.03 % off in chirp mass and 4 ms off in time, the exact
+    maximisation recovers the injection (120 Mpc, face-on) and gives the
+    relative-binning likelihood a reference point with the same value."""
+    from raven_kn.targeted.pe import maximise
+    cfg = _cfg()
+    ifos = _interferometers(cfg, synthetic_fetcher(inject=True), ("H1", "L1"), T_INJ, 32.0, 800.0, 256.0)
+    ml = maximise(cfg, ifos, 1.2 * 1.0003, T_INJ + 0.004, 32.0, maxiter=150)
+    p = ml["parameters"]
+    assert ml["snr"] > 10 and ml["log_likelihood_ratio_at_phase"] == pytest.approx(ml["log_likelihood_ratio"], abs=1.0)
+    assert p["chirp_mass"] == pytest.approx(1.2, rel=5e-4) and abs(p["geocent_time"] - T_INJ) < 2e-3
+    assert 60 < p["luminosity_distance"] < 200
+    wg = bilby.gw.WaveformGenerator(
+        duration=32.0, sampling_frequency=2048,
+        frequency_domain_source_model=bilby.gw.source.lal_binary_black_hole_relative_binning,
+        parameter_conversion=bilby.gw.conversion.convert_to_lal_binary_black_hole_parameters,
+        waveform_arguments=dict(waveform_approximant="IMRPhenomD", reference_frequency=40.0,
+                                minimum_frequency=40.0))
+    like = bilby.gw.likelihood.RelativeBinningGravitationalWaveTransient(
+        interferometers=ifos, waveform_generator=wg, fiducial_parameters=dict(p),
+        update_fiducial_parameters=False)
+    like.parameters.update(p)
+    assert like.log_likelihood_ratio() == pytest.approx(ml["log_likelihood_ratio_at_phase"], abs=0.5)
+    like.parameters.update({**p, "luminosity_distance": p["luminosity_distance"] / 3})
+    assert like.log_likelihood_ratio() < ml["log_likelihood_ratio_at_phase"]

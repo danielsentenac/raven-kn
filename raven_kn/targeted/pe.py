@@ -29,7 +29,7 @@ from typing import Optional, Sequence
 
 import numpy as np
 
-from .search import StrainFetcher, TargetedSearchConfig, _masses
+from .search import StrainFetcher, TargetedSearchConfig
 
 
 def _interped(x: np.ndarray, lo: float, hi: float, name: str, label: str, bins: int = 80, weight=None):
@@ -139,6 +139,86 @@ def _z_of_distance(d_mpc: np.ndarray) -> np.ndarray:
     return np.interp(d_mpc, grid, zg)
 
 
+def _plain_generator(cfg, duration: float, approximant: str):
+    import bilby
+    return bilby.gw.WaveformGenerator(
+        duration=duration, sampling_frequency=cfg.sample_rate,
+        frequency_domain_source_model=bilby.gw.source.lal_binary_black_hole,
+        parameter_conversion=bilby.gw.conversion.convert_to_lal_binary_black_hole_parameters,
+        waveform_arguments=dict(waveform_approximant=approximant, reference_frequency=cfg.f_low,
+                                minimum_frequency=cfg.f_low))
+
+
+def maximise(cfg: TargetedSearchConfig, ifo_list, mchirp: float, gps: float, duration: float,
+             approximant: str = "IMRPhenomD", q_min: float = 0.125, chi_max: float = 0.05, dt: float = 0.1,
+             mchirp_frac: float = 0.02, d_ref: float = 100.0, pad: int = 4, maxiter: int = 400) -> dict:
+    """Maximum-likelihood parameters near a search candidate, with the exact
+    likelihood: the reference point of the relative-binning likelihood.
+
+    For each (chirp mass, mass ratio, spins, theta_jn, psi) the likelihood is
+    maximised analytically over the distance and the phase and by FFT over the
+    time within ``dt``: ln L = |z|^2 / (2 <h|h>), z = sum over detectors of
+    <d|h>. A scan in chirp mass, then Nelder-Mead. Bilby's own optimiser, which
+    maximises the relative-binning approximation over the whole prior, diverges
+    when it starts a few ms from the signal."""
+    from scipy.optimize import minimize
+    wg = _plain_generator(cfg, duration, approximant)
+    ra, dec = math.radians(cfg.ra_deg), math.radians(cfg.dec_deg)
+    n_t = pad * int(round(duration * cfg.sample_rate))
+    k_max = int(dt * n_t / duration)
+    lo = np.array([mchirp * (1 - mchirp_frac), q_min, -chi_max, -chi_max, 0.0, 0.0])
+    hi = np.array([mchirp * (1 + mchirp_frac), 1.0, chi_max, chi_max, math.pi, math.pi])
+
+    def evaluate(x):
+        par = dict(chirp_mass=x[0], mass_ratio=x[1], chi_1=x[2], chi_2=x[3], theta_jn=x[4], psi=x[5],
+                   phase=0.0, luminosity_distance=d_ref, geocent_time=gps, ra=ra, dec=dec)
+        pol = wg.frequency_domain_strain(par)
+        hh, X = 0.0, None
+        for ifo in ifo_list:
+            h = ifo.get_detector_response(pol, par)
+            m = ifo.frequency_mask
+            w = np.zeros(len(h), dtype=complex)
+            w[m] = ifo.frequency_domain_strain[m] * np.conj(h[m]) / ifo.power_spectral_density_array[m]
+            hh += 4.0 / duration * float(np.sum(np.abs(h[m]) ** 2 / ifo.power_spectral_density_array[m]))
+            X = w if X is None else X + w
+        z = 4.0 / duration * np.fft.ifft(X, n=n_t) * n_t          # z at time offsets k * duration / n_t
+        a = np.abs(np.concatenate([z[-k_max:], z[:k_max + 1]]))
+        k = int(np.argmax(a))
+        return a[k] ** 2 / (2 * hh), (k - k_max) * duration / n_t, a[k] / hh
+
+    def cost(x):
+        return -evaluate(np.clip(x, lo, hi))[0]
+
+    x0 = np.array([mchirp, 0.9, 0.0, 0.0, 0.5 if not cfg.inclination_ranges_rad else
+                   float(np.mean(cfg.inclination_ranges_rad[0])), 1.0])
+    scan = mchirp * (1 + np.linspace(-1e-3, 1e-3, 41))
+    x0[0] = scan[int(np.argmin([cost(np.r_[m, x0[1:]]) for m in scan]))]
+    best = None
+    for theta in (x0[4], math.pi - x0[4]):                        # both orientations
+        start = np.r_[x0[:4], theta, x0[5]]
+        steps = np.array([5e-5 * mchirp, -0.1, 0.01, 0.01, 0.2 if theta < 1.5 else -0.2, 0.4])
+        simplex = np.vstack([start] + [start + np.eye(6)[i] * steps[i] for i in range(6)])
+        r = minimize(cost, start, method="Nelder-Mead",
+                     options=dict(initial_simplex=simplex, maxiter=maxiter, xatol=1e-6, fatol=1e-3))
+        if best is None or r.fun < best.fun:
+            best = r
+    x = np.clip(best.x, lo, hi)
+    lnl, t_off, amp = evaluate(x)
+    out = dict(chirp_mass=float(x[0]), mass_ratio=float(x[1]), chi_1=float(x[2]), chi_2=float(x[3]),
+               theta_jn=float(x[4]), psi=float(x[5]), ra=ra, dec=dec, geocent_time=float(gps + t_off),
+               luminosity_distance=float(d_ref / amp), phase=0.0)
+    # phase: its sign convention is left to Bilby, the best of a grid with the exact likelihood
+    import bilby
+    like = bilby.gw.likelihood.GravitationalWaveTransient(ifo_list, wg)
+    val = []
+    for ph in np.linspace(0, math.pi, 32, endpoint=False):
+        like.parameters.update({**out, "phase": float(ph)})
+        val.append(like.log_likelihood_ratio())
+    out["phase"] = float(np.linspace(0, math.pi, 32, endpoint=False)[int(np.argmax(val))])
+    return {"parameters": out, "log_likelihood_ratio": float(lnl), "snr": float(math.sqrt(max(2 * lnl, 0.0))),
+            "log_likelihood_ratio_at_phase": float(max(val))}
+
+
 def run_pe(cfg: TargetedSearchConfig, fetch: StrainFetcher, mchirp: float, gps: float,
            out_dir: str | Path, em: bool = True, ifos: Optional[Sequence[str]] = None,
            duration: float = 64.0, psd_duration: float = 1024.0, approximant: str = "IMRPhenomD",
@@ -150,14 +230,13 @@ def run_pe(cfg: TargetedSearchConfig, fetch: StrainFetcher, mchirp: float, gps: 
     import bilby
     ifos = list(ifos or cfg.ifos)
     label = label or f"{cfg.label}_pe_{'em' if em else 'gw'}"
-    priors = em_priors(cfg, mchirp, gps, em=em, **prior_kw)
     f_max = 0.875 * cfg.sample_rate / 2
     ifo_list = _interferometers(cfg, fetch, ifos, gps, duration, f_max, psd_duration)
-    m1, m2 = _masses(mchirp, 1.0)
-    d0 = (float(np.sqrt(np.prod(cfg.distance_range_mpc))) if cfg.distance_range_mpc else 100.0)
-    fiducial = dict(chirp_mass=mchirp, mass_ratio=0.9, chi_1=0.0, chi_2=0.0,
-                    ra=math.radians(cfg.ra_deg), dec=math.radians(cfg.dec_deg), psi=1.0, phase=1.0,
-                    geocent_time=gps, luminosity_distance=d0, theta_jn=0.5)
+    prior_kw_max = {k: prior_kw[k] for k in ("q_min", "chi_max", "dt", "mchirp_frac") if k in prior_kw}
+    ml = maximise(cfg, ifo_list, mchirp, gps, duration, approximant, **prior_kw_max)
+    fiducial = dict(ml["parameters"])
+    priors = em_priors(cfg, fiducial["chirp_mass"], fiducial["geocent_time"], em=em, **prior_kw)
+    # the reference waveform keeps the maximum-likelihood shape; its amplitude is irrelevant
     wg = bilby.gw.WaveformGenerator(
         duration=duration, sampling_frequency=cfg.sample_rate,
         frequency_domain_source_model=bilby.gw.source.lal_binary_black_hole_relative_binning,
@@ -166,13 +245,18 @@ def run_pe(cfg: TargetedSearchConfig, fetch: StrainFetcher, mchirp: float, gps: 
                                 minimum_frequency=cfg.f_low))
     like = bilby.gw.likelihood.RelativeBinningGravitationalWaveTransient(
         interferometers=ifo_list, waveform_generator=wg, priors=priors, fiducial_parameters=fiducial,
-        update_fiducial_parameters=True)
+        update_fiducial_parameters=False)
     res = bilby.run_sampler(like, priors, sampler="dynesty", nlive=nlive, npool=npool, outdir=str(out_dir),
                             label=label, check_point_delta_t=1800, **(sampler_kw or {}))
     summary = {"label": label, "em_priors": em, "ifos": ifos, "candidate": {"mchirp": mchirp, "gps": gps},
-               "approximant": approximant, "duration_s": duration, "f_low": cfg.f_low, "f_max": f_max,
+               "maximum_likelihood": ml, "approximant": approximant, "duration_s": duration, "f_low": cfg.f_low, "f_max": f_max,
                "log_evidence": float(res.log_evidence), "log_bayes_factor": float(res.log_bayes_factor),
                "n_samples": int(len(res.posterior)),
                "posterior": summarise(res.posterior, _z_of_distance)}
+    d = np.asarray(res.posterior["luminosity_distance"])
+    d_lo, d_hi = priors["luminosity_distance"].minimum, priors["luminosity_distance"].maximum
+    edge = 0.02 * (d_hi - d_lo)
+    summary["distance_at_prior_edge"] = ("lower" if np.median(d) < d_lo + edge else
+                                         "upper" if np.median(d) > d_hi - edge else None)
     Path(out_dir, f"{label}_pe_summary.json").write_text(json.dumps(summary, indent=2))
     return summary
