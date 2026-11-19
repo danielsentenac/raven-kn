@@ -21,7 +21,11 @@ optical transients, whose merger-time windows are hours to days long:
   number, and keep its time (the X-ray time is that of the image, minutes
   after the burst);
 * an optical transient added later (from a broker, a circular, by hand) is
-  matched against the GW alerts already received.
+  matched against the GW alerts already received;
+* GCN Circulars (``gcn.circulars``): each one is linked to the alerts of the
+  store it is about and labelled (optical detection or upper limits, X-ray,
+  radio...), which tells whether an alert was followed up
+  (:mod:`raven_kn.circulars`).
 
 Handlers work on decoded JSON, so they can be tested without Kafka;
 :func:`listen` wires them to ``gcn_kafka.Consumer`` (``pip install
@@ -336,7 +340,7 @@ class AlertStore:
     def __init__(self, root: str | Path, gw_memory_days: float = 14.0, source: str = "store"):
         self.root = Path(root)
         self.journal = Journal.for_store(self.root, source)   # the logbook (raven_kn.journal)
-        for d in ("optical", "gw", "grb", "nu", "coinc"):
+        for d in ("optical", "gw", "grb", "nu", "coinc", "circulars"):
             (self.root / d).mkdir(parents=True, exist_ok=True)
         self.gw_memory_s = gw_memory_days * 86400
 
@@ -816,19 +820,21 @@ def listen(store: AlertStore, client_id: str, client_secret: str,
            grb_topics: Iterable[str] = GRB_TOPICS, nu_topics: Iterable[str] = NU_TOPICS,
            domain: Optional[str] = None,
            on_result: Optional[Callable[[dict], None]] = None, group_id: Optional[str] = "raven-kn",
-           include_mock: bool = False, **coinc_kw) -> None:
+           include_mock: bool = False, circulars: bool = True, **coinc_kw) -> None:
     """Consume GCN Kafka forever (``gcn_kafka.Consumer``). With a fixed
     ``group_id`` a restarted listener resumes from its last committed offset
     (messages that arrived while it was down are processed); ``None`` gives a
     new group each time (latest messages only). Mock superevents are skipped
-    unless ``include_mock``."""
+    unless ``include_mock``. GCN Circulars are read unless ``circulars`` is
+    false."""
     from gcn_kafka import Consumer
+    from .circulars import CIRCULARS_TOPIC, handle_circular
     kw = {"domain": domain} if domain else {}
     if group_id:
         kw["config"] = {"group.id": group_id}
     consumer = Consumer(client_id=client_id, client_secret=client_secret, **kw)
     nu_topics = tuple(nu_topics)
-    topics = [GW_TOPIC, *grb_topics, *nu_topics]
+    topics = [GW_TOPIC, *grb_topics, *nu_topics, *([CIRCULARS_TOPIC] if circulars else [])]
     consumer.subscribe(topics)
     log.info("listening to %s", ", ".join(topics))
     hb = Heartbeat(store.root, store.journal.source, store.journal, topics)
@@ -846,6 +852,8 @@ def listen(store: AlertStore, client_id: str, client_secret: str,
                                                **coinc_kw):
                         if on_result:
                             on_result(res)
+                elif message.topic() == CIRCULARS_TOPIC:
+                    handle_circular(message.value(), store)
                 elif message.topic() in nu_topics:
                     for name in handle_neutrino_notice(message.value(), store):
                         log.info("neutrino attached to %s", name)

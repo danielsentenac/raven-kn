@@ -17,6 +17,8 @@ shows the runs and journal entries marked ``visibility: lvk``.
                                       by its detection type; which groups are candidates and why
 ``GET /api/sky``                      positions and error radii for the sky view, and which
                                       alerts each optical transient is attached to
+``GET /api/circulars``                GCN Circulars linked to the alerts of the store
+``GET /api/circulars/<number>``       one of them, with its text
 ====================================  =========================================
 
 Step status: ``pending``, ``running``, ``done``, ``held``, ``warning``,
@@ -35,6 +37,7 @@ from pathlib import Path
 from typing import Any, Optional
 from urllib.parse import parse_qs, unquote, urlparse
 
+from .circulars import summary as circular_summary
 from .journal import _safe, iso, parse_iso, read_events, sky_versions, utcnow
 from .listener import optical_files
 
@@ -361,6 +364,28 @@ class Store:
                 "window": ({"start": _gps_iso(win["gps_start"]), "end": _gps_iso(win["gps_end"]),
                             "method": win.get("method")} if win else None)}
 
+    # ---- circulars ------------------------------------------------------
+    def circulars(self, body: bool = False) -> list[dict]:
+        """GCN Circulars linked to alerts of the store, oldest first."""
+        out = []
+        for p in (self.root / "circulars").glob("*.json"):
+            c = _load(p)
+            if c:
+                out.append(c if body else {k: v for k, v in c.items() if k != "body"})
+        return sorted(out, key=lambda c: c.get("id") or 0)
+
+    def circular(self, number: str) -> Optional[dict]:
+        return _load(self.root / "circulars" / f"{int(number)}.json") if number.isdigit() else None
+
+    def circular_digests(self) -> dict[str, dict]:
+        """``<type>:<id>`` of an alert -> digest of its circulars
+        (:func:`raven_kn.circulars.summary`)."""
+        by: dict[str, list] = {}
+        for c in self.circulars():
+            for ln in c.get("links") or []:
+                by.setdefault(f"{ln['type']}:{ln['id']}", []).append(c)
+        return {k: circular_summary(v) for k, v in by.items()}
+
     # ---- sky ------------------------------------------------------------
     def superevents(self) -> list[dict]:
         ids = {p.name for p in (self.root / "gw_versions").glob("*") if p.is_dir()}
@@ -424,7 +449,14 @@ class Store:
                 nu.append({"id": p.stem, "event": v.get("event_name"), "instrument": v.get("instrument"),
                            "time": _gps_iso(v.get("gps")), "ra": v["ra"], "dec": v["dec"],
                            "err_deg": v.get("err_deg"), "p_astro": v.get("p_astro")})
-        return {"optical": cands, "grb": grb, "nu": nu, "gw": self.superevents()}
+        gw = self.superevents()
+        # what the GCN Circulars say about each alert (None: no circular linked to it)
+        dig = self.circular_digests()
+        for kind, items, key in (("optical", cands, "name"), ("grb", grb, "id"), ("nu", nu, "id"),
+                                 ("gw", gw, "superevent_id")):
+            for it in items:
+                it["circulars"] = dig.get(f"{kind}:{it[key]}")
+        return {"optical": cands, "grb": grb, "nu": nu, "gw": gw}
 
     # ---- follow-ups -----------------------------------------------------
     def followups(self, allow_lvk: bool) -> list[dict]:
@@ -453,6 +485,7 @@ class Store:
                 links.setdefault(b, set()).add(a)
                 reasons.setdefault(frozenset((a, b)), why)
         reasons: dict[frozenset, str] = {}
+        circ = self.circular_digests()
         for g in sky["grb"]:
             nodes[f"grb:{g['id']}"] = {"type": "grb", "id": g["id"], "time": g.get("time"),
                                        "instrument": g.get("instrument"),
@@ -497,7 +530,7 @@ class Store:
                 comp.add(x)
                 todo.extend(links.get(x, ()))
             seen |= comp
-            members = sorted(({"key": k, **nodes[k]} for k in comp),
+            members = sorted(({"key": k, **nodes[k], "circulars": circ.get(k)} for k in comp),
                              key=lambda m: (m["time"] is None, m["time"] or "", rank[m["type"]]))
             why = sorted({r for pair, r in reasons.items() if pair <= comp})
             optical = next((m["id"] for m in members if m["type"] == "optical"), None)
@@ -547,7 +580,7 @@ class Store:
                 "listeners": listeners,
                 "runs_sync": {"time": sync, "age_s": _age(sync)} if sync else None,
                 "store": {"optical": len(optical_files(self.root)), "gw": count("gw"), "grb": count("grb"),
-                          "nu": count("nu"), "coinc": count("coinc"),
+                          "nu": count("nu"), "coinc": count("coinc"), "circulars": count("circulars"),
                           "runs": len(self.run_files())}}
 
 
@@ -685,6 +718,11 @@ def make_handler(store: Store, token: Optional[str], lvk_token: Optional[str]):
                 return self._json(store.sky())
             if p == ["followups"]:
                 return self._json({"followups": store.followups(lvk)})
+            if p == ["circulars"]:
+                return self._json({"circulars": store.circulars()})
+            if len(p) == 2 and p[0] == "circulars":
+                d = store.circular(p[1])
+                return self._json(d) if d else self._json({"service": "raven-kn", "error": "not found"}, 404)
             return self._json({"service": "raven-kn", "error": "not found"}, 404)
 
     return Handler

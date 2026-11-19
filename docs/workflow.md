@@ -12,7 +12,7 @@ optical transient → is a GW search worth it? → merger-time window, sky posit
 
 ## 1. Inputs
 
-Four kinds of alerts arrive as live streams; the rest is looked up when an optical transient exists.
+Four kinds of alerts and the GCN Circulars arrive as live streams; the rest is looked up when an optical transient exists.
 
 | Alert stream | Gives | Source and topics | Command |
 |---|---|---|---|
@@ -21,6 +21,7 @@ Four kinds of alerts arrive as live streams; the rest is looked up when an optic
 | GRB and X-ray notices | prompt-emission time and position | GCN Kafka: Fermi-GBM (flight, ground, final positions), Swift-BAT (GUANO, on-board positions), SVOM-ECLAIRs, Einstein Probe WXT; Swift-XRT and SVOM-MXT afterglow positions, which replace the position of their burst | `raven-kn listen` |
 | Neutrino alerts | arrival time and position | GCN Kafka: IceCube gold / bronze track alerts | `raven-kn listen` |
 | GW alerts | merger time, sky map, distance, FAR | GCN Kafka: LVK `igwn.gwalert` (preliminary, initial, update, retraction) | `raven-kn listen` |
+| GCN Circulars | for each stored alert, the follow-up reported by observers: bands, optical detection or upper limits, redshift | GCN Kafka: `gcn.circulars` | `raven-kn listen` |
 
 All streams fill the same store, and every new message is matched against what is already there,
 whichever arrives first. Both Fink streams and the GCN topics were checked on live alerts in November 2026.

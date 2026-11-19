@@ -444,6 +444,11 @@ raven-kn add optical.json --store kn_store/            # a new or updated optica
   2011), unless a GRB gives a tighter one. Updates refine time and position; retractions detach it. Live
   notices of IceCube-261020A (JSON and VOEvent, initial and update) parse identically
   (`tests/data/gcn_live/`).
+- **GCN Circular** (`gcn.circulars`, `raven_kn.circulars`): linked to the alerts of the store it is about
+  (superevent, neutrino or optical-transient name; trigger number or trigger time of a GRB notice; then the
+  event name such as `GRB 261113A`), and labelled from keywords: bands, optical detection or upper limits,
+  redshift. This tells whether an alert was followed up in the optical. `raven-kn circular NUMBER...`
+  reads circulars from the archive. Details and a check on 441 real circulars in `docs/listener.md`.
 - **Fink livestream** (`raven-kn fink-listen --survey ztf|lsst --store kn_store/`, `raven_kn.fink_stream`;
   `pip install .[fink]`, credentials from Fink via its registration form, then `finkctl auth register`):
   each alert of the subscribed topics becomes or updates an optical transient in the same store and goes through

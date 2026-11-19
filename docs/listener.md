@@ -5,7 +5,7 @@ optical transients, in both time orders: an alert after an optical transient, or
 
 ```bash
 export GCN_CLIENT_ID=... GCN_CLIENT_SECRET=...   # from gcn.nasa.gov; pip install gcn-kafka
-raven-kn listen --store kn_store/                 # GW alerts, GRB notices, neutrino alerts
+raven-kn listen --store kn_store/                 # GW alerts, GRB notices, neutrino alerts, circulars
 raven-kn add optical.json --store kn_store/     # add or update an optical transient
 ```
 
@@ -19,6 +19,7 @@ raven-kn add optical.json --store kn_store/     # add or update an optical trans
 | X-ray afterglow position, VOEvent | Swift-XRT (`gcn.classic.voevent.SWIFT_XRT_POSITION`), SVOM-MXT (`gcn.notices.svom.voevent.mxt`) | Replaces the position of the stored Swift-BAT or SVOM-ECLAIRs burst with the same trigger number; the burst time is kept. Optical transients are matched again within 2× the X-ray radius; one that the listener had attached to this burst and that lies outside is detached. |
 | New optical transient | `raven-kn add` | Matched against stored GRB notices and neutrino alerts (the latest one up to 3 days before its first detection) and against GW alerts of the last 14 days. |
 | Neutrino alert | `gcn.notices.icecube.gold_bronze_track_alerts` | Stored, and attached to optical transients within 1.4× its 90 % error radius whose first detection follows within 3 days; their window becomes ±500 s around the neutrino, unless a GRB gives a tighter one. Updates refine the time and position; retractions remove the alert and detach it. |
+| GCN Circular | `gcn.circulars` | Linked to the alerts of the store it is about, labelled (bands, optical detection or upper limits, redshift) and stored: see [GCN Circulars](#gcn-circulars). `--no-circulars` leaves them out. |
 
 ## The store
 
@@ -32,6 +33,7 @@ hand. `raven-kn listen`, `raven-kn add` and `raven-kn fink-listen` share it.
 | `grb/` | latest notice per trigger: time, position, radius, and the X-ray position when there is one | each GRB or X-ray notice |
 | `nu/` | latest alert per IceCube event | each neutrino alert; deleted on retraction |
 | `coinc/` | `<superevent>__<optical>.json`: window, joint FAR and its factors | each GW alert or new optical transient whose window contains the merger time |
+| `circulars/` | one file per GCN Circular linked to an alert: subject, text, labels, links; `unlinked/` holds for 30 days those that name an event not linked yet | each circular |
 
 Each coincidence result is also printed on standard output as one JSON line. The log (standard error)
 records the topics subscribed to, the optical transients updated by each notice, Kafka errors, and the traceback
@@ -60,6 +62,63 @@ are processed as long as the broker still retains them.
 
 To update the code (installed with `pip install -e`): `git pull` in the clone, then
 `pkill -f "raven-kn listen"`; the loop starts the new version 60 s later (tested).
+
+## GCN Circulars
+
+A notice gives the time and position of an alert. Whether anybody searched for its optical counterpart,
+and what was found, is reported by the observers in GCN Circulars, which are free text. The listener
+reads them (`raven_kn.circulars`) and does three things with each one.
+
+**Links** to the alerts of the store, in this order:
+
+| Alert | Linked when |
+|---|---|
+| GW | a superevent of the store is named in the subject |
+| Neutrino | a stored IceCube event is named in the subject |
+| Optical transient | its name is in the subject or the text |
+| GRB or X-ray notice | its trigger number is in the subject or the text (Swift `trigger=1263718`, Fermi `trigger 751960088.32731 / 241030242`, SVOM `sb26111302`) |
+| | else a time written in the text is within 1.5 s of its trigger time, on the date of the event name (`GRB 261113A`: 2026-11-13). Einstein Probe notices carry no trigger number |
+| | else the event name, once a circular linked by one of the two rules above has carried it: most follow-up reports only say `GRB 261113A` |
+
+A circular linked to nothing is kept 30 days in `circulars/unlinked/` when it names an event, and is
+linked when a later circular gives the trigger number of that event.
+
+**Labels**, from keywords of the subject: the bands (`optical`, `xray`, `radio`, `gamma`, `gw`, `nu`),
+and for an optical report its result: `detection`, `upper_limit`, or `observation` when neither the
+subject nor the text says which. A redshift announced in the subject or the text (`z = 3.580`) is
+recorded with the circular; it is not applied to an optical transient. These are keyword rules, not a
+reading of the text: the subject is kept beside the labels, and the list of optical facilities
+(`BANDS` in `raven_kn/circulars.py`) is the one met in the circulars of October and November 2026.
+
+**Journal and service**: a `circular` entry is written when a circular is linked, and
+[`/api/sky` and `/api/followups`](logbook.md) give for each alert the digest of its circulars: how
+many, in which bands, whether an optical search was reported and its best outcome, the time of the
+first optical report, the latest redshift.
+
+```bash
+raven-kn circular 46261 46270-46290 --store kn_store/    # from the archive, by number or range
+```
+
+reads circulars from the archive (`https://gcn.nasa.gov/circulars/<number>.json`): those sent before
+the listener subscribed, or all of them again after a change of the rules. A circular already stored is
+replaced, and written in the journal again only if its links changed.
+
+Checked on 2026-11-19 with the 441 circulars 45880–46320 (10 October to 18 November 2026) and the 17
+notices of the production store (10 to 18 November): 72 circulars were linked, to 11 of the 17 notices.
+
+| Notices | Circulars | Optical search reported |
+|---|---|---|
+| SVOM-ECLAIRs sb26111302 (GRB 261113A) | 34 | detection, 27 reports, z = 3.58 |
+| SVOM-ECLAIRs sb26111401 (GRB 261114A) | 10 | detection, 7 reports, z = 3.716 |
+| Einstein Probe WXT (EP261115a) | 6 | upper limits, 3 reports |
+| Einstein Probe WXT (EP261114a) | 3 | upper limits, 1 report |
+| Fermi-GBM 816291960 (GRB 261113B) | 6 | 1 report: an optical fading source that may be associated |
+| Fermi-GBM 816089232, 816473458, 816645341 | 4, 3, 1 | upper limits, 1 report each (MASTER) |
+| Fermi-GBM 816659441, 816700674 | 1 each | none (the Fermi GBM localisation only) |
+| Fermi-GBM, 6 other triggers | 0 | none |
+
+Of the 72 circulars, 22 were linked by a trigger number, 8 by a trigger time (among them the first
+circular of each of the two Einstein Probe transients) and 42 by the event name alone.
 
 ## Optical transients from Fink
 

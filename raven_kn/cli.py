@@ -189,10 +189,17 @@ def main(argv=None):
     li.add_argument("--grb-topics", nargs="*", default=None)
     li.add_argument("--nu-topics", nargs="*", default=None,
                     help="neutrino alert topics (default: IceCube gold/bronze tracks; none to disable)")
+    li.add_argument("--no-circulars", action="store_true",
+                    help="do not read the GCN Circulars (gcn.circulars)")
     li.add_argument("--domain", default=None, help="e.g. test.gcn.nasa.gov")
     li.add_argument("--use-combined-skymap", action="store_true",
                     help="when an alert carries a RAVEN coincidence (external_coinc), use its "
                          "combined GW x GRB map for the sky factor instead of the GW-only map")
+
+    ci = sub.add_parser("circular", help="read GCN Circulars from the archive into the store: link them "
+                                         "to its alerts and label them")
+    ci.add_argument("ids", nargs="+", help="circular numbers or ranges, e.g. 46261 46270-46290")
+    ci.add_argument("--store", required=True)
 
     ad = sub.add_parser("add", help="add an optical transient to the listener store and match it against "
                                     "GW alerts already received")
@@ -336,6 +343,21 @@ def main(argv=None):
             res["saved"] = args.save
         print(json.dumps(res, indent=2, default=float))
         return
+    if args.cmd == "circular":
+        from .circulars import expand_ids, fetch_circular, handle_circular
+        from .listener import AlertStore
+        store = AlertStore(args.store, source="cli")
+        out = []
+        for cid in expand_ids(args.ids):
+            try:
+                msg = fetch_circular(cid)
+            except Exception as e:                           # a number not published, a network error
+                out.append({"circular": cid, "error": f"{type(e).__name__}: {e}"})
+                continue
+            out.append({"circular": cid, "subject": msg.get("subject"),
+                        "links": handle_circular(msg, store)})
+        print(json.dumps(out, indent=2))
+        return
     if args.cmd in ("listen", "add"):
         import logging
         from .listener import GRB_TOPICS, NU_TOPICS, AlertStore, add_optical, listen
@@ -355,7 +377,8 @@ def main(argv=None):
                nu_topics=args.nu_topics if args.nu_topics is not None else NU_TOPICS,
                domain=args.domain, use_combined=args.use_combined_skymap,
                on_result=lambda r: print(json.dumps(r, default=float), flush=True),
-               group_id=args.group_id or None, include_mock=args.include_mock)
+               group_id=args.group_id or None, include_mock=args.include_mock,
+               circulars=not args.no_circulars)
         return
     if args.cmd == "pygrb":
         from .targeted.pygrb import write_pygrb_overrides

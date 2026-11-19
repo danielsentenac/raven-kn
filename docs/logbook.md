@@ -19,6 +19,7 @@ Journal entries (`kind`):
 |---|---|
 | Optical | `optical_new`, `optical_update`, `host_lookup`, `lookup_failed` |
 | Alerts | `gw_alert`, `gw_retraction`, `grb_notice`, `xray_position`, `nu_notice`, `nu_retraction` |
+| Reports | `circular`: a GCN Circular linked to an alert of the store, with its labels ([GCN Circulars](listener.md#gcn-circulars)) |
 | Associations | `grb_attached`, `grb_detached`, `nu_attached`, `nu_detached`, `coincidence` |
 | Decisions | `decision` (only when it changes), `search_request` |
 | Search and PE | `run_submitted`, `run_start`, `run_stage`, `run_progress`, `search_result`, `pe_result`, `run_end`, `run_failed` |
@@ -77,7 +78,9 @@ network or put a TLS proxy in front of it.
 | `GET /api/gw` | superevents and their sky-map versions |
 | `GET /api/gw/<id>/map/<n>/<gw\|combined>` | reduced map: gzip of one byte per pixel, nside 128 NESTED, byte = ceil(credible level × 250), 255 where empty |
 | `GET /api/followups` | alerts grouped by the links the pipeline made, each named by its detection type (optical, GW, GRB, neutrino); whether each group is a candidate, and why |
-| `GET /api/sky` | positions and error radii of optical transients, GRBs, X-ray positions, neutrinos; for each optical transient, the GRB, neutrino and superevents attached to it; for each superevent, the stored GRB of LVK's own GW × GRB coincidence, matched by notice number, else by mission and time |
+| `GET /api/sky` | positions and error radii of optical transients, GRBs, X-ray positions, neutrinos; for each optical transient, the GRB, neutrino and superevents attached to it; for each superevent, the stored GRB of LVK's own GW × GRB coincidence, matched by notice number, else by mission and time; for each alert, `circulars`: the digest of the GCN Circulars linked to it (number, bands, optical result, first optical report, redshift), or null |
+| `GET /api/circulars` | GCN Circulars linked to the alerts of the store, with their labels and links, without their text |
+| `GET /api/circulars/<number>` | one of them, with its text |
 
 The cursor is the number of lines already read in each journal file. It stays exact when an older entry
 arrives late, as with a run journal copied from a cluster hours after it was written.
