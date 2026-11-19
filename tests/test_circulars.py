@@ -218,10 +218,24 @@ def test_optical_transient_of_a_reported_counterpart(store):
     assert kn.redshift == Redshift(z=3.58, z_err=1e-3, kind="spectroscopic", source="GCN circular 46261")
     kinds = [e["kind"] for e in read_events(store.root)[0]]
     assert kinds.count("optical_new") == 1
+    # the optical reports about the burst are linked to its transient: the one that created it,
+    # those read before (1, 46261), not the gamma-ray one (46244) nor the report on a flare star... (2 is optical)
+    by = {c["id"]: [(ln["type"], ln["id"], ln["how"]) for ln in c["links"]] for c in stored_circulars(store.root)}
+    link = ("optical", "GRB261113A-OT", "optical report about its burst")
+    assert all(link in by[n] for n in (1, 2, 3, 4, 46261)) and link not in by[46244]
+    dig = Store(store.root).circular_digests()["optical:GRB261113A-OT"]
+    assert dig["n"] == 5 and dig["optical"] == "detection"
     # a second report does not create another one; the same redshift again changes nothing
     handle_circular({**base, "circularId": 5, "subject": sub, "body": "We detect it at RA, Dec = 10.2003, 20.1."}, store)
     handle_circular({**circ(46261), "circularId": 6}, store)
     assert len(store.transients()) == 1
+    assert link in [(ln["type"], ln["id"], ln["how"]) for c in stored_circulars(store.root) if c["id"] == 5
+                    for ln in c["links"]]
+    n_entries = len([e for e in read_events(store.root)[0] if e["kind"] == "circular"])
+    again = next(c for c in stored_circulars(store.root) if c["id"] == 4)
+    handle_circular({**base, "circularId": 4, "subject": sub, "body": again["body"]}, store)
+    # read again: the same links, nothing written
+    assert len([e for e in read_events(store.root)[0] if e["kind"] == "circular"]) == n_entries
     assert [e["kind"] for e in read_events(store.root)[0]].count("optical_update") == 0
     # too far and no GW alert: two detection types, not a candidate
     f = next(f for f in Store(store.root).followups(False) if f["optical"] == "GRB261113A-OT")

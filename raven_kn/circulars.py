@@ -30,7 +30,9 @@ Links, in this order:
    time of a stored notice, on the date of the event name (``GRB 261113A``:
    2026-11-13). Einstein Probe notices carry no trigger number;
 6. else the event name, when an earlier circular linked by 4 or 5 carried it:
-   most follow-up reports only say ``GRB 261113A``.
+   most follow-up reports only say ``GRB 261113A``;
+7. an optical report about a burst is also linked to the optical transient
+   attached to that burst: the afterglow it describes is that transient.
 
 Nothing is changed in the optical transients: a redshift announced in a
 circular is recorded with the circular, not applied.
@@ -533,6 +535,7 @@ def handle_circular(msg: dict | bytes | str, store: Any, _relink: bool = True) -
     circ["redshift_kind"] = (None if circ["redshift"] is None else
                              "spectroscopic" if _SPECTROSCOPIC.search(text) else "unknown")
     circ["galactic"] = bool(_GALACTIC.search(text))
+    _link_transient(circ, store)
     name = f"{circ['id']}.json"
     linked_p, wait_p = _dir(root) / name, _dir(root, False) / name
     previous = _read(linked_p)
@@ -625,6 +628,30 @@ def _spectroscopic_redshift(root: Path, grb_id: str) -> Optional[dict]:
     return z[-1] if z else None
 
 
+def _link_transient(circ: dict, store: Any, kn: Any = None) -> bool:
+    """Link an optical report about one burst to the optical transient
+    attached to that burst (``kn``, else looked up). True if a link was added."""
+    if "optical" not in (circ.get("bands") or []) or not hasattr(store, "transients"):
+        return False
+    got = _grb_record(Path(store.root), circ.get("links") or [])
+    if got is None:
+        return False
+    if kn is None:
+        kn = _attached_to(store, got[1]["grb"])
+    elif kn.grb is None or _attached_to_same(kn, got[1]["grb"]) is False:
+        return False
+    if kn is None or any(ln["type"] == "optical" and ln["id"] == kn.name for ln in circ["links"]):
+        return False
+    circ["links"].append({"type": "optical", "id": kn.name, "how": "optical report about its burst"})
+    return True
+
+
+def _attached_to_same(kn: Any, g: dict) -> bool:
+    a = kn.grb
+    return a.instrument == g.get("instrument") and (
+        (a.graceid is not None and a.graceid == g.get("graceid")) or abs(a.gps - g["gps"]) < 1.0)
+
+
 def _counterpart(circ: dict, store: Any) -> Optional[str]:
     """Create the optical transient of the burst from a reported counterpart
     with a position, and apply a spectroscopic redshift to the transient
@@ -680,6 +707,10 @@ def _counterpart(circ: dict, store: Any) -> Optional[str]:
             changed = True
     if changed:
         add_optical(kn, store)
+        # the optical reports about the burst, this one included, are about this transient
+        for c in [circ, *stored_circulars(root)]:
+            if _link_transient(c, store, kn):
+                _write_atomic(_dir(root) / f"{c['id']}.json", json.dumps(c, indent=1))
         log.info("circular %s: optical transient %s %s", circ["id"], kn.name,
                  "created" if kn.source == f"GCN circular {circ['id']}" else "updated")
         return kn.name

@@ -79,6 +79,7 @@ reads them (`raven_kn.circulars`) and does three things with each one.
 | GRB or X-ray notice | its trigger number is in the subject or the text (Swift `trigger=1263718`, Fermi `trigger 751960088.32731 / 241030242`, SVOM `sb26111302`) |
 | | else a time written in the text is within 1.5 s of its trigger time, on the date of the event name (`GRB 261113A`: 2026-11-13). Einstein Probe notices carry no trigger number |
 | | else the event name, once a circular linked by one of the two rules above has carried it: most follow-up reports only say `GRB 261113A` |
+| Optical transient of a burst | the circular is an optical report about that burst: the afterglow it describes is that transient (this includes the circular the transient was created from) |
 
 A circular linked to nothing is kept 30 days in `circulars/unlinked/` when it names an event, and is
 linked when a later circular gives the trigger number of that event.
