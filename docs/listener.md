@@ -106,6 +106,11 @@ is attached to it, so that its merger-time window is that of the GRB. The positi
 error radius of the burst (plus 1′); reports of stellar flares and other Galactic sources create nothing.
 A redshift that a circular gives as spectroscopic is applied to the transient attached to the burst
 (source `GCN circular <number>`), unless it already has a spectroscopic redshift from another source.
+Each time such a transient is created, gets another redshift, or gets accepted photometry, the search
+decision is run again (as `raven-kn fink-listen --assess` does for its transients) and written in the
+journal when it changes: a revised redshift that brings a burst within reach changes the decision by
+itself. The decision still needs the kilonova confirmation to trigger a search, and a search is still
+launched by a person.
 
 **Reported photometry**: magnitudes written as `r = 19.95 +/- 0.06` or `r > 21.56` are extracted with the
 time found near them (a delay after the trigger in the same sentence or the three before, else a date)

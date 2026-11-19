@@ -5,6 +5,11 @@ without it the answer is a JSON 401, so that a client can tell this service
 from a login page put in front of it. A second token (``lvk_token``) also
 shows the runs and journal entries marked ``visibility: lvk``.
 
+A third token, the *Virgo targeted-search token*, is not a reading token: it
+is sent beside the reading token in the header ``X-Raven-KN-Virgo-Search`` and
+will be required to start a targeted search on the Virgo site. ``/api/health``
+says whether the service has one and whether the request carried it.
+
 ====================================  =========================================
 ``GET /api/health``                   listeners, store counts, age of the run sync
 ``GET /api/events?cursor=&limit=``    journal entries after the cursor, oldest first
@@ -590,7 +595,7 @@ class Store:
         return out
 
     # ---- health ---------------------------------------------------------
-    def health(self, allow_lvk: bool) -> dict:
+    def health(self, allow_lvk: bool, virgo_search: Optional[dict] = None) -> dict:
         listeners = []
         for p in sorted((self.root / "status").glob("*.json")):
             s = _load(p)
@@ -602,6 +607,8 @@ class Store:
         sync = self.sync_time()
         count = lambda d, pat="*.json": sum(1 for _ in (self.root / d).glob(pat))   # noqa: E731
         return {"service": "raven-kn", "api": API_VERSION, "time": iso(utcnow()), "lvk": allow_lvk,
+                # who may start a targeted search: on the Virgo site with its own token
+                "targeted_search": {"virgo": virgo_search or {"configured": False, "granted": False}},
                 "listeners": listeners,
                 "runs_sync": {"time": sync, "age_s": _age(sync)} if sync else None,
                 "store": {"optical": len(optical_files(self.root)), "gw": count("gw"), "grb": count("grb"),
@@ -662,7 +669,8 @@ def _far(r: dict) -> Optional[float]:
 
 # --------------------------------------------------------------------------
 
-def make_handler(store: Store, token: Optional[str], lvk_token: Optional[str]):
+def make_handler(store: Store, token: Optional[str], lvk_token: Optional[str],
+                 virgo_search_token: Optional[str] = None):
     class Handler(BaseHTTPRequestHandler):
         server_version = "raven-kn"
         protocol_version = "HTTP/1.1"
@@ -694,6 +702,14 @@ def make_handler(store: Store, token: Optional[str], lvk_token: Optional[str]):
                 return False
             return None
 
+        def _virgo_search(self) -> dict:
+            """Whether the service has a Virgo targeted-search token, and
+            whether this request carries it."""
+            got = (self.headers.get("X-Raven-KN-Virgo-Search") or "").strip()
+            ok = bool(virgo_search_token and got
+                      and hmac.compare_digest(got.encode(), virgo_search_token.encode()))
+            return {"configured": bool(virgo_search_token), "granted": ok}
+
         def do_GET(self):                                    # noqa: N802
             try:
                 self._get()
@@ -717,7 +733,7 @@ def make_handler(store: Store, token: Optional[str], lvk_token: Optional[str]):
             if any(x in ("", ".", "..") or "/" in x or "\\" in x for x in p):
                 return self._json({"service": "raven-kn", "error": "not found"}, 404)
             if p == ["health"]:
-                return self._json(store.health(lvk))
+                return self._json(store.health(lvk, self._virgo_search()))
             if p == ["events"]:
                 limit = max(1, min(int(q.get("limit", 2000)), 5000))
                 ev, cur, more = read_events(store.root, q.get("cursor"), limit, allow_lvk=lvk)
@@ -754,20 +770,26 @@ def make_handler(store: Store, token: Optional[str], lvk_token: Optional[str]):
 
 
 def make_server(root: str | Path, host: str = "127.0.0.1", port: int = 8765,
-                token: Optional[str] = None, lvk_token: Optional[str] = None) -> ThreadingHTTPServer:
+                token: Optional[str] = None, lvk_token: Optional[str] = None,
+                virgo_search_token: Optional[str] = None) -> ThreadingHTTPServer:
     if not token and not lvk_token:
         raise ValueError("an access token is required")
-    srv = ThreadingHTTPServer((host, port), make_handler(Store(root), token, lvk_token))
+    if virgo_search_token and virgo_search_token in (token, lvk_token):
+        raise ValueError("the Virgo targeted-search token must differ from the reading tokens")
+    srv = ThreadingHTTPServer((host, port), make_handler(Store(root), token, lvk_token,
+                                                         virgo_search_token))
     srv.daemon_threads = True
     return srv
 
 
 def serve(root: str | Path, host: str = "127.0.0.1", port: int = 8765,
-          token: Optional[str] = None, lvk_token: Optional[str] = None) -> None:
+          token: Optional[str] = None, lvk_token: Optional[str] = None,
+          virgo_search_token: Optional[str] = None) -> None:
     logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
-    srv = make_server(root, host, port, token, lvk_token)
-    log.info("serving %s on http://%s:%d (LVK runs: %s)", root, host, port,
-             "with the LVK token" if lvk_token else "never shown")
+    srv = make_server(root, host, port, token, lvk_token, virgo_search_token)
+    log.info("serving %s on http://%s:%d (LVK runs: %s; Virgo targeted-search token: %s)", root, host,
+             port, "with the LVK token" if lvk_token else "never shown",
+             "set" if virgo_search_token else "not set")
     try:
         srv.serve_forever()
     except KeyboardInterrupt:

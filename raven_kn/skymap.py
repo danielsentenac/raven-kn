@@ -26,6 +26,8 @@ from scipy.stats import norm
 
 from .treatment.distance_inclination import DistanceInclinationPosterior
 
+_trapz = getattr(np, "trapezoid", None) or np.trapz      # numpy 2 name, else the numpy 1 one
+
 
 # --------------------------------------------------------------------------
 # Kilonova sky map
@@ -54,9 +56,9 @@ def ansatz_from_moments(mean: float, std: float) -> tuple[float, float, float]:
 
     def moments(mu, sig):
         p = r ** 2 * norm.pdf(r, mu, sig)
-        z = np.trapezoid(p, r)
-        m = np.trapezoid(r * p, r) / z
-        s = np.sqrt(np.trapezoid((r - m) ** 2 * p, r) / z)
+        z = _trapz(p, r)
+        m = _trapz(r * p, r) / z
+        s = np.sqrt(_trapz((r - m) ** 2 * p, r) / z)
         return m, s, z
 
     def resid(x):
@@ -158,10 +160,10 @@ def conditional_distance(gw: dict, ra: float, dec: float,
         return out
     r = np.linspace(1e-3, max(mu, 0) + 12 * sig, 20000)
     p = r ** 2 * norm.pdf(r, mu, sig)
-    p /= np.trapezoid(p, r)
+    p /= _trapz(p, r)
     cdf = np.concatenate([[0], np.cumsum(0.5 * (p[1:] + p[:-1]) * np.diff(r))])
-    mean = float(np.trapezoid(r * p, r))
-    out.update(mean_mpc=mean, sd_mpc=float(np.sqrt(np.trapezoid((r - mean) ** 2 * p, r))),
+    mean = float(_trapz(r * p, r))
+    out.update(mean_mpc=mean, sd_mpc=float(np.sqrt(_trapz((r - mean) ** 2 * p, r))),
                interval90_mpc=[float(x) for x in np.interp([0.05, 0.95], cdf, r)])
     if d_compare_mpc is not None:
         out["p_beyond"] = float(1 - np.interp(d_compare_mpc, r, cdf))

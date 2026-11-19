@@ -53,6 +53,9 @@ merger-time window is the one of the GRB. It has no photometry. A redshift
 that a circular gives as spectroscopic is applied to the transient attached to
 the burst, unless it already has a spectroscopic redshift from another source.
 Reports about stellar flares and other Galactic sources create nothing.
+Each time such a transient is created, gets another redshift or gets accepted
+photometry, the search decision is run again (:func:`assess_transient`), so
+that a revised redshift changes the decision without anybody asking.
 
 **Reported photometry.** The magnitudes written as ``r = 19.95 +/- 0.06`` or
 ``r > 21.56`` are extracted (:func:`photometry_in`) with the time found near
@@ -652,6 +655,31 @@ def _attached_to_same(kn: Any, g: dict) -> bool:
         (a.graceid is not None and a.graceid == g.get("graceid")) or abs(a.gps - g["gps"]) < 1.0)
 
 
+def assess_transient(kn: Any, store: Any, **assess_kw) -> Optional[dict]:
+    """Run the search decision of an optical transient
+    (:func:`raven_kn.search.assess`) into ``<store>/assess/`` and write it in
+    the journal when it differs from the previous one. The 3D sky map (100 MB)
+    is kept only when the search is triggered: the request refers to it. A
+    failure is written in the journal and returns None."""
+    from .journal import log_decision
+    adir = Path(store.root) / "assess"
+    stem = kn.name.replace(" ", "_")
+    previous = _read(adir / f"{stem}_decision.json")
+    try:
+        from .search import assess
+        d = assess(kn, out_dir=adir, **assess_kw)
+    except Exception as e:
+        log.exception("%s: search decision failed", kn.name)
+        journal_of(store).log("decision_failed", f"{kn.name}: search decision failed "
+                              f"({type(e).__name__}: {e})"[:300], level="error", optical=kn.name,
+                              error=repr(e)[:500])
+        return None
+    if not d["trigger_targeted_search"]:
+        (adir / f"{stem}_skymap.fits").unlink(missing_ok=True)
+    log_decision(journal_of(store), d, previous)
+    return d
+
+
 def _counterpart(circ: dict, store: Any) -> Optional[str]:
     """Create the optical transient of the burst from a reported counterpart
     with a position, and apply a spectroscopic redshift to the transient
@@ -711,6 +739,7 @@ def _counterpart(circ: dict, store: Any) -> Optional[str]:
         for c in [circ, *stored_circulars(root)]:
             if _link_transient(c, store, kn):
                 _write_atomic(_dir(root) / f"{c['id']}.json", json.dumps(c, indent=1))
+        assess_transient(kn, store)
         log.info("circular %s: optical transient %s %s", circ["id"], kn.name,
                  "created" if kn.source == f"GCN circular {circ['id']}" else "updated")
         return kn.name
@@ -763,6 +792,7 @@ def accept_photometry(store: Any, name: str, circulars: Optional[Iterable[int]] 
         added.append(pt)
     if added:
         add_optical(kn, store)
+        assess_transient(kn, store)
     return added
 
 

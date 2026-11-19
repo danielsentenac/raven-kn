@@ -21,7 +21,7 @@ Journal entries (`kind`):
 | Alerts | `gw_alert`, `gw_retraction`, `grb_notice`, `xray_position`, `nu_notice`, `nu_retraction` |
 | Reports | `circular`: a GCN Circular linked to an alert of the store, with its labels; `grb_distance`: the distance of a GRB from a redshift announced in a circular, and whether a GW search can reach it ([GCN Circulars](listener.md#gcn-circulars)) |
 | Associations | `grb_attached`, `grb_detached`, `nu_attached`, `nu_detached`, `coincidence` |
-| Decisions | `decision` (only when it changes), `search_request` |
+| Decisions | `decision` (only when it changes), `search_request`, `decision_failed` |
 | Search and PE | `run_submitted`, `run_start`, `run_stage`, `run_progress`, `search_result`, `pe_result`, `run_end`, `run_failed` |
 | Pipeline | `listener_start` (with the time without heartbeat before it), `kafka_error`, `message_failed` |
 
@@ -59,6 +59,7 @@ only; the service gives `<label>_snr_timeseries.json` when it is in the run dire
 ```bash
 export RAVEN_KN_TOKEN=...          # shows public runs
 export RAVEN_KN_LVK_TOKEN=...      # optional: also shows runs on LVK data
+export RAVEN_KN_VIRGO_SEARCH_TOKEN=...   # optional: the Virgo targeted-search token (below)
 raven-kn serve --store kn_store/ --host 0.0.0.0 --port 8765
 ```
 
@@ -70,7 +71,7 @@ network or put a TLS proxy in front of it.
 
 | Request | Gives |
 |---|---|
-| `GET /api/health` | listeners (alive if the heartbeat is younger than 3 min), store counts, age of the run copy |
+| `GET /api/health` | listeners (alive if the heartbeat is younger than 3 min), store counts, age of the run copy; `targeted_search.virgo`: whether the service has a Virgo targeted-search token and whether the request carried it |
 | `GET /api/events?cursor=&limit=` | journal entries after the cursor, oldest first; `more` when there are others |
 | `GET /api/optical` | optical transients with their steps |
 | `GET /api/optical/<name>` | optical transient, decision, coincidences, runs, steps; `reported_photometry`: the magnitudes reported in GCN Circulars about it or its burst, not verified |
@@ -81,6 +82,12 @@ network or put a TLS proxy in front of it.
 | `GET /api/sky` | positions and error radii of optical transients, GRBs, X-ray positions, neutrinos; for each optical transient, the GRB, neutrino and superevents attached to it; for each superevent, the stored GRB of LVK's own GW × GRB coincidence, matched by notice number, else by mission and time; for each alert, `circulars`: the digest of the GCN Circulars linked to it (number, bands, optical result, first optical report, redshift), or null |
 | `GET /api/circulars` | GCN Circulars linked to the alerts of the store, with their labels and links, without their text |
 | `GET /api/circulars/<number>` | one of them, with its text |
+
+Tokens: the two reading tokens go in `Authorization: Bearer`; the LVK one also shows the runs on LVK
+data. The **Virgo targeted-search token** is not a reading token: the application sends it beside the
+reading token, in the header `X-Raven-KN-Virgo-Search`, and it will be required to start a targeted
+search on the Virgo site, from the strain data available there. It must differ from the reading tokens.
+A search on LVK data elsewhere (CIT) is a later addition, for which the LVK token is kept.
 
 The cursor is the number of lines already read in each journal file. It stays exact when an older entry
 arrives late, as with a run journal copied from a cluster hours after it was written.

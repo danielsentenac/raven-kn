@@ -192,3 +192,29 @@ def test_followups_name_alerts_by_type_and_label_candidates(tmp_path):
     assert Store(tmp_path / "b").followups(True)[0]["candidate"]
     handle_gw_alert(gw_alert(alert_type="RETRACTION"), store2)
     assert not Store(tmp_path / "b").followups(True)[0]["candidate"]
+
+
+def test_virgo_targeted_search_token(tmp_path):
+    AlertStore(tmp_path, source="t")
+    with pytest.raises(ValueError):
+        make_server(tmp_path, "127.0.0.1", 0, token="a", lvk_token="b", virgo_search_token="b")
+    srv = make_server(tmp_path, "127.0.0.1", 0, token="a", lvk_token="b", virgo_search_token="vts")
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    try:
+        def health(extra):
+            req = urllib.request.Request(f"http://127.0.0.1:{srv.server_address[1]}/api/health",
+                                         headers={"Authorization": "Bearer a", **extra})
+            with urllib.request.urlopen(req) as r:
+                return json.loads(r.read())["targeted_search"]["virgo"]
+        assert health({}) == {"configured": True, "granted": False}
+        assert health({"X-Raven-KN-Virgo-Search": "wrong"}) == {"configured": True, "granted": False}
+        assert health({"X-Raven-KN-Virgo-Search": "vts"}) == {"configured": True, "granted": True}
+        # it is not a reading token
+        req = urllib.request.Request(f"http://127.0.0.1:{srv.server_address[1]}/api/health",
+                                     headers={"Authorization": "Bearer vts"})
+        with pytest.raises(urllib.error.HTTPError):
+            urllib.request.urlopen(req)
+    finally:
+        srv.shutdown()
+        srv.server_close()
+    assert Store(tmp_path).health(False)["targeted_search"]["virgo"] == {"configured": False, "granted": False}

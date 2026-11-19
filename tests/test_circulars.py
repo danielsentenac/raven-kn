@@ -218,6 +218,14 @@ def test_optical_transient_of_a_reported_counterpart(store):
     assert kn.redshift == Redshift(z=3.58, z_err=1e-3, kind="spectroscopic", source="GCN circular 46261")
     kinds = [e["kind"] for e in read_events(store.root)[0]]
     assert kinds.count("optical_new") == 1
+    # the search decision was run: held, too far; its sky map is not kept
+    dec = json.loads((store.root / "assess" / "GRB261113A-OT_decision.json").read_text())
+    assert not dec["trigger_targeted_search"] and not dec["detectability"]["worth_search"]
+    assert not (store.root / "assess" / "GRB261113A-OT_skymap.fits").exists()
+    held = [e for e in read_events(store.root)[0] if e["kind"] == "decision"]
+    assert len(held) == 1 and held[0]["summary"].startswith("GRB261113A-OT: held")
+    steps = {s["key"]: s for s in Store(store.root).steps("GRB261113A-OT", False)}
+    assert steps["decision"]["status"] == "held"
     # the optical reports about the burst are linked to its transient: the one that created it,
     # those read before (1, 46261), not the gamma-ray one (46244) nor the report on a flare star... (2 is optical)
     by = {c["id"]: [(ln["type"], ln["id"], ln["how"]) for ln in c["links"]] for c in stored_circulars(store.root)}
@@ -240,6 +248,15 @@ def test_optical_transient_of_a_reported_counterpart(store):
     # too far and no GW alert: two detection types, not a candidate
     f = next(f for f in Store(store.root).followups(False) if f["optical"] == "GRB261113A-OT")
     assert f["types"] == ["grb", "optical"] and f["too_far"] and not f["candidate"]
+    # a revised redshift, now nearby: the decision is run again and says it is detectable
+    handle_circular({**circ(46261), "circularId": 99998, "subject": "GRB 261113A: revised spectroscopic redshift z = 0.03",
+                     "body": "A new spectrum gives z = 0.03."}, store)
+    assert store.transients()[0].redshift.z == 0.03
+    dec = json.loads((store.root / "assess" / "GRB261113A-OT_decision.json").read_text())
+    assert dec["detectability"]["worth_search"] and not dec["trigger_targeted_search"]   # not confirmed as a kilonova
+    assert len([e for e in read_events(store.root)[0] if e["kind"] == "decision"]) == 2
+    f = next(f for f in Store(store.root).followups(False) if f["optical"] == "GRB261113A-OT")
+    assert f["candidate"] and not f["too_far"]
     # a redshift measured otherwise is not replaced
     kn.redshift = Redshift(z=0.01, kind="spectroscopic", source="host NGC 1")
     store.save(kn)

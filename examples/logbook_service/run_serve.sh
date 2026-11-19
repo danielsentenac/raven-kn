@@ -3,6 +3,8 @@
 # a screen session (ensure_serve.sh does it), beside the listener.
 #   ~/.config/raven_kn_serve.env : RAVEN_KN_TOKEN=...  (public runs only)
 #                                  RAVEN_KN_LVK_TOKEN=...  (also the runs on LVK data; optional)
+#                                  RAVEN_KN_VIRGO_SEARCH_TOKEN=...  (to start a targeted search on
+#                                                                    the Virgo site; optional)
 #                                  RAVEN_KN_HOST=0.0.0.0  RAVEN_KN_PORT=8765  (mode 600)
 set -a; . ~/.config/raven_kn_serve.env; set +a
 cd ~/raven-kn-run

@@ -264,6 +264,9 @@ def main(argv=None):
     sv.add_argument("--lvk-token-file", default=None,
                     help="file with the token that also shows runs on non-public data "
                          "(else RAVEN_KN_LVK_TOKEN)")
+    sv.add_argument("--virgo-search-token-file", default=None,
+                    help="file with the Virgo targeted-search token, required to start a targeted "
+                         "search on the Virgo site (else RAVEN_KN_VIRGO_SEARCH_TOKEN; optional)")
 
     fl = sub.add_parser("fink-listen", help="optical transients from a Fink Kafka livestream "
                                             "(credentials: finkctl auth register)")
@@ -289,7 +292,9 @@ def main(argv=None):
                else os.environ.get("RAVEN_KN_LVK_TOKEN", ""))
         if not tok and not lvk:
             p.error("an access token is required (--token-file or RAVEN_KN_TOKEN)")
-        serve(args.store, args.host, args.port, tok or None, lvk or None)
+        vts = (Path(args.virgo_search_token_file).read_text().strip() if args.virgo_search_token_file
+               else os.environ.get("RAVEN_KN_VIRGO_SEARCH_TOKEN", ""))
+        serve(args.store, args.host, args.port, tok or None, lvk or None, vts or None)
         return
     if args.cmd == "runlog":
         from .journal import RunLog
