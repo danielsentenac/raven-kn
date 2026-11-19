@@ -1,0 +1,13 @@
+{
+ "subject": "EP261114a: NOT Optical Upper Limits",
+ "createdOn": 1794744689384,
+ "submittedHow": "web",
+ "circularId": 46293,
+ "eventId": "EP261114a",
+ "format": "text/plain",
+ "body": "G. Corcoran (UCD), D. B. Malesani (DAWN/NBI and Radboud), R. A. J. Eyles-Ferris (Leicester), P. G. Jonker (Radboud), A. A. Chrimes (Radboud), A. Caballero Almagro (NOT), A. S. Mårtensson (NOT) report on behalf of a larger collaboration\n\nWe observed the field of the Einstein Probe fast X-ray transient candidate EP261114a (Kan et al., GCN 46284; Kan et al., GCN 46291) using the ALFOSC camera on the Nordic Optical Telescope (NOT). Observations consisted of 3 x 300s exposures in SDSS r-band and 5 x 200s exposures in SDSS z-band and started at 03:54:01 UT on 2026-11-15 (8.2 hours post trigger).\n\nWe performed image subtraction on our stacked images against Legacy Survey templates and also inspected the stacked images manually. We do not detect any new source within the EP/FXT uncertainty region (Kan et al., GCN 46291) down to 3-sigma upper limits of:\n\nr > 23.7 \nz > 22.9\n\nWe also do not detect any new sources in the original EP/FXT uncertainty region (Kan et al., GCN 46284). Our upper limits are in AB magnitudes, calibrated using nearby stars from the PanSTARRS catalogue, and are not corrected for Galactic extinction.\n\nOur non-detection of any new source is consistent with a stellar flare origin as suggested by Kan et al. (GCN 46291). In our images, however, UCAC4 433-006766 is saturated and we therefore cannot directly confirm any variability.\n",
+ "eventType": [
+  "X-ray Transient"
+ ],
+ "submitter": "Gregory Corcoran  at University College Dublin  <name@example.org>"
+}

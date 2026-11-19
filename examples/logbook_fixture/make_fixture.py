@@ -331,6 +331,48 @@ def synthetic(store: AlertStore, clock: Clock) -> None:
             rl.pe(which, "done", summary=summ, warnings=pe_warnings(summ, 8.6))
 
 
+def circulars(store: AlertStore, clock: Clock) -> None:
+    """Invented GCN Circulars about the alerts of :func:`synthetic`, in the
+    format of ``gcn.circulars``: a burst followed up in X-rays and in the
+    optical (upper limits, then a detection with a redshift), a neutrino
+    with one optical search, a superevent with a counterpart report."""
+    from raven_kn.circulars import handle_circular
+
+    def send(number, when, subject, event, body):
+        clock.set(when)
+        t = datetime.fromisoformat(when)
+        handle_circular({"circularId": number, "subject": subject, "eventId": event,
+                         "submitter": "A. Observer at Fixture Observatory <observer@example.org>",
+                         "createdOn": int(t.timestamp() * 1000), "submittedHow": "web",
+                         "body": body + "\n\n[Invented for the logbook fixture.]"}, store)
+
+    send(90001, "2026-10-17T16:21:00+00:00", "GRB 261017A: Swift detection of a burst", "GRB 261017A",
+         "At 16:05:05 UT, the Swift Burst Alert Telescope (BAT) triggered and located GRB 261017A "
+         "(trigger=1519536). Swift slewed immediately to the burst.")
+    send(90002, "2026-10-17T18:02:00+00:00", "GRB 261017A: Swift-XRT refined analysis", "GRB 261017A",
+         "We have analysed 4.2 ks of XRT data for GRB 261017A. The light curve can be modelled with a "
+         "power-law decay with an index of 1.1.")
+    send(90003, "2026-10-17T21:40:00+00:00", "GRB 261017A: NOT optical upper limits", "GRB 261017A",
+         "We observed the field of GRB 261017A with the Nordic Optical Telescope, starting 4.9 h after "
+         "the burst. No source is detected at the XRT position down to r > 23.1 (3 sigma).")
+    send(90004, "2026-10-18T03:15:00+00:00", "GRB 261017A: GTC optical afterglow detection", "GRB 261017A",
+         "We observed the field of GRB 261017A with the 10.4 m GTC, 11 h after the burst. We detect a "
+         "faint source at the XRT position, with r = 24.3 +/- 0.2.")
+    send(90005, "2026-10-18T22:30:00+00:00", "GRB 261017A: VLT/X-shooter spectroscopic redshift z = 0.42",
+         "GRB 261017A", "We obtained a spectrum of the afterglow of GRB 261017A with X-shooter. From "
+         "several emission lines of the host galaxy we derive a redshift z = 0.42.")
+    send(90006, "2026-10-20T03:10:00+00:00", "IceCube-261020A - IceCube observation of a high-energy "
+         "neutrino candidate track-like event", "IceCube-261020A",
+         "IceCube detected a track-like event with a moderate probability of being of astrophysical origin.")
+    send(90007, "2026-10-20T19:45:00+00:00", "IceCube-261020A: ZTF optical upper limits", "IceCube-261020A",
+         "We observed the localization region of IceCube-261020A with ZTF. No new transient is detected "
+         "down to r > 20.5 within the 90 % region.")
+    send(90008, "2026-10-21T10:05:00+00:00", "LIGO/Virgo/KAGRA S261020fx: optical counterpart candidate "
+         "FIX-KN-1", "S261020fx",
+         "We report the discovery of a fast-fading optical transient, FIX-KN-1, in the localisation of "
+         "S261020fx. We detect it at r = 20.6 and it fades by 0.9 mag in one day.")
+
+
 def listener_history(store: AlertStore) -> None:
     """Two starts of the GCN listener with 3 h without heartbeat between
     them, a Kafka error and a message that failed (synthetic)."""
@@ -362,6 +404,7 @@ def main() -> None:
     store.journal.clock = clock
     gw170817(store, clock)
     synthetic(store, clock)
+    circulars(store, clock)
     gw170817_reprocessing(store, clock)
     listener_history(store)
     for f in (out / "assess").glob("*_skymap.fits"):       # 95 MB each, not read by the service

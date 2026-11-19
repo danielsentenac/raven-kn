@@ -1,0 +1,15 @@
+{
+ "eventId": "GRB 261113A",
+ "submittedHow": "web",
+ "body": "\nL. Lei (HUST), X. Liu, D. Xu, J. An, L.B. He, S.Q. Jiang, Z.P. Zhu (NAOC), A.D. Zhu (HUST) report:\n\nWe observed the field of GRB 261113A detected by SVOM/ECLAIRs (GCN 46244) using the 100A and 100C telescopes of the JinShan project locate at Altay, Xinjiang, China. A series of Sloan r-band frames were obtained.\n\nAn uncatalogued and varying optical source is detected within the SVOM/ECLAIRs error circle at coordinates\n\nR.A. (J2000) = 23:05:16.96\nDec. (J2000) = +5:10:18.65\n\nwith an uncertainty of ~1 arcsec. The source has r = 19.14 +/- 0.05 mag at a median time of 0.5 hr post-trigger, calibrated with nearby PanSTARRS stars.\n\nWe thus think the source is the optical afterglow of GRB 261113A.",
+ "createdOn": 1794585458900,
+ "eventType": [
+  "GRB",
+  "Afterglow",
+  "Optical Transient"
+ ],
+ "format": "text/plain",
+ "subject": "GRB 261113A: JinShan optical afterglow detection",
+ "submitter": "liuxing@nao.cas.cn",
+ "circularId": 46248
+}

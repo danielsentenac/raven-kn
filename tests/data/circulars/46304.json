@@ -1,0 +1,15 @@
+{
+ "createdOn": 1794828452837,
+ "eventType": [
+  "GRB",
+  "Afterglow",
+  "Optical Transient"
+ ],
+ "eventId": "GRB 261113A",
+ "submitter": "kato.r.fb26@m.isct.ac.jp",
+ "subject": "GRB 261113A : MITSuME Akeno optical afterglow detection",
+ "submittedHow": "web",
+ "body": "R. Kato, I. Takahashi, M. Sasada, H. Hagio, Y. Kubo, A. Ochi, N. Hosoya, J. Yonamine, Y. Yatsu and N. Kawai (Science Tokyo) report on behalf of the MITSuME collaboration:\n\nWe observed the field of GRB 261113A detected by SVOM/ECLAIRs (Saccardi et al., GCN 46244) with the optical three-color (g', Rc, and Ic) CCD cameras attached to the MITSuME 50-cm telescope Akeno. \n\nThe observation started at 2026-11-13 14:32:37 UT (1.58 min after the trigger). We stacked the images taken under good conditions. We detected a point source in the Rc- and Ic-band images at a position of the reported candidate (Lin et al., GCN 46247; Lei et al., GCN 46248; Li et al., GCN 46249; Yin et al., GCN 46250; Chen et al., GCN 46251; Wu et al., GCN 46252; Zhao et al., GCN 46253; Li et al., GCN 46254; Saikia et al., GCN 46256; Adami et al., GCN 46257; Gress et al., GCN 46258; Izzo et al., GCN 46259; Brivio et al., GCN 46260; Maksut et al., GCN 46262; Moskvitin et al., GCN 46263; Perez-Garcia et al., GCN 46264; Dimple et al., GCN 46266; Jelinek et al., GCN 46271; Wei et al., GCN 46274). Here we report the preliminary magnitudes of the source and the 5-sigma upper limit as follows. \n\nT0+[sec] | MID-UT | T-EXP[sec] | magnitudes\n---------------------------------------------------------------------------------------------------------------\n400 | 2026-11-13 14:37:42 | 540 |  g'>17.6, Rc=17.2+/-0.2, Ic=16.9+/-0.2\n---------------------------------------------------------------------------------------------------------------\nT0+ : Elapsed time after the trigger\nT-EXP: Total exposure time\n\nWe used the PS1 catalog for flux calibration. The catalog magnitudes in PS1 g, r and i bands were converted to our g', Rc and Ic band magnitudes following Tonry et al. (2012), Table 6. The magnitudes are expressed in the AB system. The images were processed in real-time through the MITSuME GPU reduction pipeline (Niwano et al. 2021, PASJ; https://github.com/MNiwano/Eclaire).\n",
+ "circularId": 46304,
+ "format": "text/plain"
+}

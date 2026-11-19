@@ -1,0 +1,13 @@
+{
+ "circularId": 46261,
+ "eventId": "GRB 261113A",
+ "subject": "GRB 261113A: VLT/X-shooter spectroscopic redshift z = 3.580",
+ "format": "text/plain",
+ "submitter": "Andrea Saccardi at CEA/Irfu <name@example.org>",
+ "submittedHow": "web",
+ "eventType": [
+  "GRB"
+ ],
+ "createdOn": 1794627368780,
+ "body": "A. Saccardi (CEA/Irfu), N. Habeeb (U. Leicester), D. B. Malesani (DAWN/NBI and Radboud), E. Le Floc’h (CEA/Irfu), H. Fausey (Baylor), S. D. Vergani (Observatoire de Paris/LUX), report on behalf of the Stargate collaboration:\n\nWe observed the optical/NIR counterpart (Lin et al., GCN 46247; Lei et al., GCN 46248; Li et al., GCN 46249; Yin et al., GCN 46250; Chen et al., GCN 46251; Wu et al., GCN 46252; Zhao et al., GCN 46253; Li et al., GCN 46254; Saikia et al., GCN 46256; Adami et al., GCN 46257; Gress et al. GCN 46258; Izzo et al., GCN 46259; Brivio et al., GCN 46260) of the SVOM/ECLAIRs GRB 261113A (Saccardi et. al., GCN 46244) using the ESO VLT UT3 (Melipal) equipped with the X-shooter spectrograph.\n\nIn a 60 s r-band exposure taken with the acquisition camera (9.98 hr after the SVOM trigger), the counterpart is detected with a magnitude r = 22.00 +/- 0.06 (AB), calibrated against one nearby Pan-STARRS object, and not corrected for Galactic extinction.\n\nA spectrum covering the wavelength range 3000-21000 AA was secured, with a total exposure time of 4x1200 s in each of the UVB, VIS, and NIR arms. Our observations started at 00:42:17 UT on 2026 Nov 14 (10.18 hr after the SVOM trigger).\n\nIn a preliminary reduction of the spectra, we clearly detect a continuum in each arm, down to ~4200 AA. A trough is visible at around ~5567 AA (which unfortunately lies at the intersection between the UVB and VIS arms), which we interpret as due to Lyman alpha at z ~ 3.58. At a consistent redshift, we also see the onset of the Lyman forest, as well as absorption due to Ly beta and the Lyman limit. Furthermore we detect several narrow metal absorption lines consistent with C II, Si II, C IV, and Fe II, which allow us to accurately measure the redshift z = 3.580.\n\nWe acknowledge excellent support from the ESO staff in Paranal, in particular Célia Desgrange, Marcela Espinoza, Aaron Labdon, and Alonso Luna.\n"
+}

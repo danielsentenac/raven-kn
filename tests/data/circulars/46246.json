@@ -1,0 +1,14 @@
+{
+ "eventType": [],
+ "subject": "SVOM GRB261113.60: Global MASTER-Net observations report",
+ "editedOn": 1794634725450,
+ "version": 2,
+ "body": "O.Gress, N.Budnev(ISU)\n\nV.Lipunov, E.Gorbovskoy, A.Kuznetsov, K.Zhirkov, I.Panchenko, N.Tiurina, P.Balanutsa, V.Topolev, D.Vlasenko,  \nG.Antipov,  A.Sankovich,  Yu.Tselik, Ya..Kechin, V.Senik, A.Chasovnikov, K.Labsina (Lomonosov MSU)\n\nD.Buckley (SAAO),\n\nA. Gabovich, V.Yurkov (Blagoveschensk Educational StateUniversity)\nA.Sosnovskij (Lomonosov MSU)\n\nA. Tlatov, D. Dormidontov (Kislovodsk Solar Station of the Pulkovo Observatory)\n\nL.Carrasco, J.R.Valdes, V.Chavushyan, V.M.Patino Alvarez, J.Martinez,\nA.R.Corella, L.H.Rodriguez (INAOE, Guillermo Haro Astrophysics Observatory)\n\nR.Rebolo (The Instituto de Astrofisica de Canarias)\n\nM. Segura,  F. Podesta, R.Podesta, E. Gonzalez (Observatorio Astronomico Felix Aguilar (OAFA)\n\n\nMASTER-Tunka robotic telescope  [1]  located in Russia (Applied Physics Institute, Irkutsk State University) was pointed to the SVOM GRB261113.60 (trigger No 1794580260,23h 05m 17.23s , +05d 08m 36.2s, R=0.0403) errorbox  13 sec after notice time and 74 sec after trigger time at 2026-11-13 14:32:14 UT, with upper limit up to  18.3 mag. The observations began at zenith distance = 52 deg. The sun  altitude  is -46.6 deg. \n\nThe galactic latitude b = -49 deg., longitude l = 81 deg.\n\n\nReal time updated cover map and OT discovered available here: \nhttps://master.sai.msu.ru/site/master2/observ.php?id=3532578\n\nWe obtain a following upper limits.  \n\nTmid-T0  |      Date Time      |          Site       |             Coord (J2000)          |Filt.| Expt. | Limit| Comment\n_________|_____________________|_____________________|____________________________________|_____|_______|_______|________\n\n      79 | 2026-11-13 14:32:14 |        MASTER-Tunka | (23h 03m 12.73s , +04d 46m 34.0s) |   C |    10 | 18.3 |        \nFilter C is a clear (unfiltred) band. \n\n\nThe observation and reduction will continue. \nThe message may be cited.\n\n[1] - V.M. Lipunov, V.G. Kornilov, E.S. Gorbovskoy, N.A. Tiurina & A.S.Kuznetsov, 2023,  Astronomical Robotic Networks and Operative Multichanel Astrophysics, Lomonosov MSU PRESS, 591pp.\nhttp : // www.pereplet.ru/lipunov/625.html\n",
+ "editedBy": "K.L. Page at U Leicester <klp5@leicester.ac.uk> on behalf of Vladimir Lipunov at Lomonosov Moscow State University, MASTER Global Robotic NET PI <lipunov2007@gmail.com>",
+ "eventId": "GRB 261113A",
+ "format": "text/plain",
+ "submitter": "Vladimir Lipunov at Moscow State U/Krylov Obs <name@example.org>",
+ "createdOn": 1794583707748,
+ "circularId": 46246,
+ "submittedHow": "email"
+}

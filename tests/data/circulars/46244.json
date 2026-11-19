@@ -1,0 +1,17 @@
+{
+ "version": 2,
+ "submittedHow": "web",
+ "eventType": [
+  "GRB",
+  "X-ray Transient"
+ ],
+ "createdOn": 1794581538391,
+ "body": "A. Saccardi (CEA/Irfu), E. Arrigoni (INAF/IASF-Milano), S. Bisero, N. Dagoneau, D. Gotz, S. Schanne, B. Cordier (CEA/Irfu), report on behalf of the SVOM mission team:\n\nAt 2026-11-13T14:31:02 UTC (T0), SVOM/ECLAIRs triggered and located the gamma-ray burst GRB 261113A (SVOM burst-id sb26111302).\n\nThe following trigger information was received on the ground with low latency by the SVOM VHF Alert Network.\n\nThe burst was detected both by the Count-Rate Trigger (CRT) and the Image Trigger (IMT), which produced a sequence of 19 alerts. CRT provided the alert with the best signal-to-noise-ratio in the image (SNR) of 56.88 in the [8-120] keV energy band over a time window of 10.20 seconds starting at 2026-11-13T14:30:59.\n\nThe localization of the best alert is R.A., Dec. 346.3218, 5.1434 degrees (J2000) with a 90% confidence level (C.L.) radius of 2.42 arcmin (including systematic error of 2 arcmin added in quadrature).\n\nThe SVOM/ECLAIRs light curve showed a multiple narrow peak structure with a T90 duration of about 7.447 (-0.084 +0.121) s.\n\nThis burst also triggered SVOM/GRM at 2026-11-13T14:31:01 on a timescale of 0.10 seconds with an SNR of 6.90. The SVOM/GRM light curve showed a multiple narrow peak structure with a T90 duration of about 10 s.\n\nSVOM slewed to the burst.\n\nSVOM/MXT began observing the field at 2026-11-13T14:33:13 UTC, 131 seconds after T0. Using onboard processed data we found an uncatalogued X-ray source located at R.A., Dec. 346.3133, 5.1560 degrees:\nR.A. (J2000) = 23h05m15s\nDec. (J2000) = 5d09m21s\nwith a 90% C.L. radius of 47 arcseconds.\n\nThis location is 0.91 arcminutes from the ECLAIRs onboard position. This position may be improved as more data is received.\n\nVT began observing the field after the slew. The analysis of the data will be published in a future circular.\n\nThe Space-based multi-band astronomical Variable Objects Monitor (SVOM) is a China-France joint mission led by the Chinese National Space Administration (CNSA), French Space Agency (CNES), and the Chinese Academy of Sciences (CAS), which is dedicated to observing gamma-ray bursts and other transient phenomena in the energetic universe. SVOM/ECLAIRs was developed jointly by CNES, CEA-IRFU, CNRS-IRAP, CNRS-APC. SVOM/GRM was developed by the Institute of High Energy Physics (IHEP) of CAS. SVOM/MXT was developed jointly by CNES, CEA-IRFU, CNRS-IJCLab, University of Leicester, MPE.\n\nThe Burst Advocate (BA) on shift for this alert is Sofia Bisero: name@example.org.\nPlease contact the BA by email if you require additional information.\n",
+ "subject": "GRB 261113A: SVOM detection of a bright burst",
+ "eventId": "GRB 261113A",
+ "circularId": 46244,
+ "submitter": "SVOM_group <name@example.org>",
+ "format": "text/plain",
+ "editedOn": 1794583739118,
+ "editedBy": "K.L. Page at U Leicester <klp5@leicester.ac.uk> on behalf of SVOM_group <svomgroup@bao.ac.cn>"
+}

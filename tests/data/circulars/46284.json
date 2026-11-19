@@ -1,0 +1,13 @@
+{
+ "circularId": 46284,
+ "format": "text/plain",
+ "body": "C. K. Kan (HKU), Y. Wang (PMO; UCB), Y. J. Yi (BNU), H. Sun (NAO, CAS) on behalf of the Einstein Probe (EP) team:\n\nWe report on the detection of an X-ray transient by the Wide-field X-ray Telescope (WXT) on board the Einstein Probe (EP) mission, designated EP261114a. The transient triggered EP-WXT (ID: 01709322536) at 2026-11-14T19:40:35.649 (UTC). The WXT position of the source is R.A. = 68.336 deg, DEC = -3.541 deg (J2000) with an uncertainty of 3 arcmin in radius (90% C.L. statistical and systematic).\n\nA follow-up observation with the Follow-up X-ray Telescope (FXT) was performed automatically. Within the WXT error circle, an uncatalogued X-ray source was detected at R.A. = 68.3384 deg, DEC = -3.5109 deg (J2000) with an uncertainty of 20 arcsec in radius (90% C.L. statistical and systematic).\n\nFurther information will be updated when the telemetry data is received.\n\nLaunched on January 9, 2024, EP is a space X-ray observatory to monitor the soft X-ray sky with X-ray follow-up capability (Yuan et al. 2022, Handbook of X-ray and Gamma-ray Astrophysics).",
+ "createdOn": 1794712134134,
+ "subject": "EP261114a: Einstein Probe detection of an X-ray transient",
+ "eventId": "EP261114a",
+ "submittedHow": "web",
+ "eventType": [
+  "X-ray Transient"
+ ],
+ "submitter": "EP Team at NAOC/CAS <name@example.org>"
+}
