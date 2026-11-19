@@ -358,7 +358,16 @@ class Store:
             if r.get("gw_gpstime"):
                 marks.append({"kind": "gw", "label": r["superevent_id"], "time": _gps_iso(r["gw_gpstime"])})
         win = (d or {}).get("t0_window")
+        from .circulars import reported_photometry
+        from .connection import load_optical
+        try:                                    # magnitudes reported in GCN Circulars, not verified
+            path = next(p for p in optical_files(self.root) if p.stem == name)
+            reported = reported_photometry(self.root, load_optical(path))
+        except Exception:
+            log.exception("%s: reported photometry not read", name)
+            reported = []
         return {"optical": c, "decision": d, "request": self.request(name), "coincidences": co,
+                "reported_photometry": reported,
                 "runs": runs, "hidden_runs": hidden, "steps": self.steps(name, allow_lvk, c),
                 "marks": marks,
                 "window": ({"start": _gps_iso(win["gps_start"]), "end": _gps_iso(win["gps_end"]),
@@ -473,7 +482,14 @@ class Store:
         * two detection types are linked;
         * its optical transient is confirmed as a kilonova by the decision;
         * its GW alert, not retracted, is likely to involve a neutron star:
-          P(BNS) + P(NSBH) >= 0.5, or HasRemnant >= 0.5.
+          P(BNS) + P(NSBH) >= 0.5, or HasRemnant >= 0.5;
+        * a GCN Circular gives its GRB a redshift within the range of a GW
+          search (:func:`raven_kn.circulars.distance_gate`).
+
+        A GRB whose redshift puts it beyond that range is written in
+        ``notes`` and sets ``too_far``. Such a follow-up is not a candidate
+        unless it holds a GW alert: a burst at z = 3.7 linked to its own
+        optical afterglow is two detection types, and no GW source.
         """
         sky = self.sky()
         nodes: dict[str, dict] = {}
@@ -550,6 +566,13 @@ class Store:
                 if p_ns >= 0.5 or float(pr.get("HasRemnant") or 0) >= 0.5:
                     why.append(f"GW alert likely to involve a neutron star (BNS {float(cl.get('BNS') or 0):.2g}, "
                                f"NSBH {float(cl.get('NSBH') or 0):.2g}, HasRemnant {float(pr.get('HasRemnant') or 0):.2g})")
+            notes = []
+            for m in members:
+                gate = (m.get("circulars") or {}).get("distance")
+                if m["type"] != "grb" or not gate:
+                    continue
+                text = f"{m['circulars'].get('name') or 'GRB ' + m['name']}: {gate['text']}"
+                (why if gate["within_reach"] else notes).append(text)
             anchor = min(members, key=lambda m: rank[m["type"]])
             # title: the GW name when the follow-up has a live superevent, else its optical, GRB or neutrino name
             lead = next((m for t in ("gw", "optical", "grb", "nu") for m in members
@@ -559,7 +582,9 @@ class Store:
             out.append({"id": anchor["key"], "name": anchor["name"],
                         "title": f"{label[lead['type']]} {lead['name']}", "origin": members[0]["type"],
                         "origin_name": members[0]["name"], "time": members[0]["time"], "types": types,
-                        "members": members, "optical": optical, "candidate": bool(why), "reasons": why,
+                        "members": members, "optical": optical, "reasons": why,
+                        "candidate": bool(why) and not (notes and "gw" not in types),
+                        "notes": notes, "too_far": bool(notes),
                         "steps": steps, "attention": attention})
         out.sort(key=lambda f: f["time"] or "", reverse=True)
         return out

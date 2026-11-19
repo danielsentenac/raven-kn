@@ -370,7 +370,8 @@ def circulars(store: AlertStore, clock: Clock) -> None:
     send(90008, "2026-10-21T10:05:00+00:00", "LIGO/Virgo/KAGRA S261020fx: optical counterpart candidate "
          "FIX-KN-1", "S261020fx",
          "We report the discovery of a fast-fading optical transient, FIX-KN-1, in the localisation of "
-         "S261020fx. We detect it at r = 20.6 and it fades by 0.9 mag in one day.")
+         "S261020fx. On 2026-10-21T08:10:00 UT we measure r = 20.6 +/- 0.1 (AB). In a second image, "
+         "taken on 2026-10-22T08:20:00 UT, the source has faded to r = 21.5 +/- 0.2, and i > 22.1.")
 
 
 def listener_history(store: AlertStore) -> None:

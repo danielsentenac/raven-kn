@@ -9,8 +9,9 @@ from pathlib import Path
 
 import pytest
 
-from raven_kn.circulars import (classify, event_date, expand_ids, handle_circular, parse_circular,
-                                stored_circulars, summary, times_in)
+from raven_kn.circulars import (accept_photometry, classify, distance_gate, event_date, expand_ids,
+                                handle_circular, parse_circular, photometry_in, position_in,
+                                reported_photometry, stored_circulars, summary, times_in)
 from raven_kn.connection import GRBAssociation, NeutrinoAssociation
 from raven_kn.journal import read_events
 from raven_kn.listener import AlertStore
@@ -133,6 +134,122 @@ def test_short_identifiers_and_longer_numbers_are_not_links(store):
     msg = {"circularId": 5, "subject": "note", "createdOn": 0, "submitter": "a",
            "body": "trigger 12345 and trigger 8160892321 and 1816089232"}
     assert handle_circular(msg, store) == []
+
+
+def test_distance_gate(store):
+    far = distance_gate(3.716, 46290)
+    assert not far["within_reach"] and 33000 < far["d_mpc"] < 34500
+    assert far["text"] == ("redshift 3.716 (GCN 46290), luminosity distance 33.6 Gpc: "
+                           "too far for a GW search (limit 500 Mpc)")
+    near = distance_gate(0.0098)                                  # NGC 4993
+    assert near["within_reach"] and 40 < near["d_mpc"] < 45
+    assert near["text"].endswith("within the range of a GW search (500 Mpc)")
+    # the redshift of GRB 261113A is written in the journal, and its follow-up is marked
+    for n in (46244, 46261):
+        handle_circular(circ(n), store)
+    e = [e for e in read_events(store.root)[0] if e["kind"] == "grb_distance"]
+    assert len(e) == 1 and e[0]["data"]["triggers"] == ["sb26111302"]
+    handle_circular(circ(46261), store)                           # read again: not written twice
+    assert len([e for e in read_events(store.root)[0] if e["kind"] == "grb_distance"]) == 1
+    assert e[0]["summary"].startswith("GRB 261113A (sb26111302): redshift 3.58 (GCN 46261)")
+    f = next(f for f in Store(store.root).followups(False) if f["id"] == "grb:sb26111302")
+    assert f["too_far"] and not f["candidate"] and "too far for a GW search" in f["notes"][0]
+    # a nearby burst is a candidate
+    near_msg = {**circ(46261), "circularId": 99, "eventId": "GRB 261111A",
+                "subject": "GRB 261111A: spectroscopic redshift z = 0.05", "body": "z = 0.05"}
+    handle_circular(circ(46224), store)
+    handle_circular(near_msg, store)
+    f = next(f for f in Store(store.root).followups(False) if f["id"] == "grb:816089232")
+    assert f["candidate"] and not f["too_far"]
+    assert f["reasons"][0].startswith("GRB 261111A: redshift 0.05 (GCN 99), luminosity distance 2")
+    assert [e["level"] for e in read_events(store.root)[0] if e["kind"] == "grb_distance"] == ["info", "warning"]
+
+
+def test_position_in_the_text():
+    p = position_in("candidate is R.A. (J2000) = 23h03m15.21s\nDec. (J2000) = -32d19m01.2s\n\n"
+                    "with an uncertainty of 0.50 arcsec.")
+    assert p == {"ra": 345.813375, "dec": -32.317, "err_arcsec": 0.5}
+    assert position_in("localization (RA, Dec = 3.984, +51.5986 deg, J2000)") == {
+        "ra": 3.984, "dec": 51.5986, "err_arcsec": 1.0}
+    assert position_in("RA(J2000) = 12:30:49.42, Dec(J2000) = +12:23:28.0")["ra"] == pytest.approx(187.70592, abs=1e-5)
+    assert position_in("RA = 187.7059 deg, Dec = -12.3911 deg")["dec"] == -12.3911
+    assert position_in("no coordinates here, r = 21.2") is None
+
+
+def test_photometry_in_the_text():
+    t0 = event_date("GRB 261114A").replace(hour=9, minute=31, second=29)
+    body = ("Observations started at 20:54:24 UT (about 11.5 hr after the SVOM trigger).\n\n"
+            "In our stacked image, we measure the preliminary AB magnitude:\n\nr = 22.38 ± 0.13\n\n"
+            "No source is detected in the g band, with an upper limit g > 23.5 (3 sigma). "
+            "The afterglow at redshift z = 3.716 was J = 19.37 +/- 0.14 mag (Vega), at a mid-time of "
+            "~6.17 hours post-trigger.\n\n| a | r = 18.1 | table |")
+    pts = photometry_in(body, t0)
+    assert [(p["band"], p["mag"], p["mag_err"], p["upper_limit"]) for p in pts] == [
+        ("r", 22.38, 0.13, False), ("g", 23.5, None, True), ("J", 19.37, 0.14, False)]
+    assert pts[0]["time"] == "2026-11-14T21:01:29.000Z" and pts[0]["time_from"] == "delay after the trigger"
+    assert pts[2]["time"] == "2026-11-14T15:41:41.000Z" and pts[2]["system"] == "Vega"
+    assert pts[0]["text"] == "r = 22.38 ± 0.13"
+    # without the trigger time only a date of the text gives the time
+    assert photometry_in("We measure r = 20.1 +/- 0.1, 3 hours after the trigger.")[0]["time"] is None
+    assert photometry_in("On 2026-11-14T10:00:00 UT we measure r = 20.1.")[0]["time_from"] == "date in the text"
+    assert photometry_in("The source was detected with L = 16.32 ± 0.01 AB mag (+0.5h).", t0)[0]["time"] \
+        == "2026-11-14T10:01:29.000Z"
+
+
+def test_optical_transient_of_a_reported_counterpart(store):
+    from raven_kn.connection import Redshift
+    sub = "GRB 261113A: optical afterglow detection"
+    base = {**circ(46248), "eventId": "GRB 261113A"}
+    handle_circular(circ(46244), store)                          # names the burst sb26111302 (10, 20; 1 deg)
+    # a detection without a position, a stellar flare, a position outside the burst: no transient
+    handle_circular({**base, "circularId": 1, "subject": sub, "body": "We detect it at r = 19.1 +/- 0.1."}, store)
+    handle_circular({**base, "circularId": 2, "subject": sub, "body":
+                     "RA, Dec = 10.2, 20.1. We detect a stellar flare of a known M-dwarf."}, store)
+    handle_circular({**base, "circularId": 3, "subject": sub, "body": "We detect it at RA, Dec = 50.0, -20.0."}, store)
+    assert store.transients() == []
+    # a spectroscopic redshift read before the transient exists is applied when it is created
+    handle_circular(circ(46261), store)
+    handle_circular({**base, "circularId": 4, "subject": sub, "body":
+                     "We detect the afterglow at RA, Dec = 10.2001, 20.1002 with an uncertainty of 0.3 arcsec, "
+                     "with r = 19.14 +/- 0.05, 0.5 hours after the trigger.\n\nA\n\nB\n\nC\n\nLater, i > 21.0."}, store)
+    kn, = store.transients()
+    assert (kn.name, kn.ra, kn.dec, kn.pos_err_arcsec) == ("GRB261113A-OT", 10.2001, 20.1002, 0.3)
+    assert kn.source == "GCN circular 4" and kn.grb.graceid == "sb26111302" and kn.photometry == []
+    assert kn.redshift == Redshift(z=3.58, z_err=1e-3, kind="spectroscopic", source="GCN circular 46261")
+    kinds = [e["kind"] for e in read_events(store.root)[0]]
+    assert kinds.count("optical_new") == 1
+    # a second report does not create another one; the same redshift again changes nothing
+    handle_circular({**base, "circularId": 5, "subject": sub, "body": "We detect it at RA, Dec = 10.2003, 20.1."}, store)
+    handle_circular({**circ(46261), "circularId": 6}, store)
+    assert len(store.transients()) == 1
+    assert [e["kind"] for e in read_events(store.root)[0]].count("optical_update") == 0
+    # too far and no GW alert: two detection types, not a candidate
+    f = next(f for f in Store(store.root).followups(False) if f["optical"] == "GRB261113A-OT")
+    assert f["types"] == ["grb", "optical"] and f["too_far"] and not f["candidate"]
+    # a redshift measured otherwise is not replaced
+    kn.redshift = Redshift(z=0.01, kind="spectroscopic", source="host NGC 1")
+    store.save(kn)
+    handle_circular({**circ(46261), "circularId": 7, "subject": "GRB 261113A: spectroscopic redshift z = 2.0",
+                     "body": "From the spectrum, z = 2.0."}, store)
+    assert store.transients()[0].redshift.z == 0.01
+
+    # reported photometry: shown, not in the photometry of the transient until accepted
+    kn = store.transients()[0]
+    rep = reported_photometry(store.root, kn)
+    assert [(p["circular"], p["band"], p["mag"], p["accepted"]) for p in rep if p["circular"] in (1, 4)] == [
+        (1, "r", 19.1, False), (4, "r", 19.14, False), (4, "i", 21.0, False)]
+    detail = Store(store.root).optical_detail("GRB261113A-OT", False)
+    assert len(detail["reported_photometry"]) == len(rep) and detail["optical"]["photometry"] == []
+    added = accept_photometry(store, "GRB261113A-OT", [1, 4])
+    assert [(p["circular"], p["band"]) for p in added] == [(4, "r")]        # the others have no time
+    pt, = store.transients()[0].photometry
+    assert (pt.band, pt.mag, pt.mag_err, pt.survey, pt.upper_limit) == ("ps1::r", 19.14, 0.05, "GCN 4", False)
+    assert pt.mjd == pytest.approx(61357.6253, abs=1e-3)
+    assert [p["accepted"] for p in reported_photometry(store.root, store.transients()[0])
+            if p["circular"] == 4] == [True, False]
+    assert [p["circular"] for p in accept_photometry(store, "GRB261113A-OT")] == [6, 46261]   # all the others
+    with pytest.raises(ValueError):
+        accept_photometry(store, "unknown")
 
 
 def test_summary_and_service(store):

@@ -201,6 +201,14 @@ def main(argv=None):
     ci.add_argument("ids", nargs="+", help="circular numbers or ranges, e.g. 46261 46270-46290")
     ci.add_argument("--store", required=True)
 
+    ap = sub.add_parser("accept-photometry",
+                        help="magnitudes reported in GCN Circulars about an optical transient: list them, "
+                             "or copy them into its photometry once read (--accept)")
+    ap.add_argument("name", help="name of the optical transient")
+    ap.add_argument("--store", required=True)
+    ap.add_argument("--circular", type=int, nargs="*", help="only those of these circulars")
+    ap.add_argument("--accept", action="store_true", help="copy them (those that have a time)")
+
     ad = sub.add_parser("add", help="add an optical transient to the listener store and match it against "
                                     "GW alerts already received")
     ad.add_argument("optical", help="JSON file of the optical transient")
@@ -342,6 +350,20 @@ def main(argv=None):
             save_optical(kn, args.save)
             res["saved"] = args.save
         print(json.dumps(res, indent=2, default=float))
+        return
+    if args.cmd == "accept-photometry":
+        from .circulars import accept_photometry, reported_photometry
+        from .listener import AlertStore
+        store = AlertStore(args.store, source="cli")
+        if args.accept:
+            out = accept_photometry(store, args.name, args.circular)
+        else:
+            kn = next((t for t in store.transients() if t.name == args.name), None)
+            if kn is None:
+                raise SystemExit(f"no optical transient {args.name} in the store")
+            out = [p for p in reported_photometry(store.root, kn)
+                   if not args.circular or p["circular"] in args.circular]
+        print(json.dumps(out, indent=2))
         return
     if args.cmd == "circular":
         from .circulars import expand_ids, fetch_circular, handle_circular

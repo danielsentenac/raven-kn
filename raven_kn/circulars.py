@@ -35,6 +35,31 @@ Links, in this order:
 Nothing is changed in the optical transients: a redshift announced in a
 circular is recorded with the circular, not applied.
 
+**Distance gate.** A redshift announced for a GRB gives its luminosity
+distance (:func:`distance_gate`, Planck 2018), compared with the distance
+beyond which a search is not worth it (:data:`D_MAX_USEFUL_MPC`, the default
+of :func:`raven_kn.search.assess`). It is written in the journal
+(``grb_distance``) and given with the digest of the alert; the service makes
+a GRB within reach a candidate and marks the others as too far. GRB 261114A
+at z = 3.716 is at 33.6 Gpc: no GW search can be about it.
+
+**Optical transient of a reported counterpart.** A circular labelled as an
+optical detection, linked to one GRB or X-ray notice and giving a position
+(:func:`position_in`) creates the optical transient of that burst when it has
+none: source ``GCN circular <number>``, the burst attached, so that its
+merger-time window is the one of the GRB. It has no photometry. A redshift
+that a circular gives as spectroscopic is applied to the transient attached to
+the burst, unless it already has a spectroscopic redshift from another source.
+Reports about stellar flares and other Galactic sources create nothing.
+
+**Reported photometry.** The magnitudes written as ``r = 19.95 +/- 0.06`` or
+``r > 21.56`` are extracted (:func:`photometry_in`) with the time found near
+them (a delay after the trigger, else a date), and kept with the circular as
+*reported, unverified*: they are shown, with the sentence they come from, and
+are not part of the photometry of the transient, so that they do not enter the
+kilonova test. ``raven-kn accept-photometry`` copies the chosen ones into the
+transient, once a person has read them.
+
 ``raven-kn circular 46261 46270-46290 --store DIR`` reads circulars from the
 archive (https://gcn.nasa.gov/circulars/<number>.json), to fill what was sent
 before the listener subscribed, or to link again.
@@ -58,6 +83,7 @@ ARCHIVE_URL = "https://gcn.nasa.gov/circulars/{id}"
 TRIGGER_TIME_TOL_S = 1.5         # the circulars give the trigger time to the second
 UNLINKED_DAYS = 30.0
 MIN_ID_LEN = 6                   # shorter identifiers are not searched for in the text
+D_MAX_USEFUL_MPC = 500.0         # as d_max_useful_mpc of raven_kn.search.assess
 
 # Keywords of each band, searched as whole words in the subject (lower case).
 # The optical list holds the facilities met in the circulars of October and
@@ -225,6 +251,166 @@ def _norm(name: Optional[str]) -> str:
     return "".join(c for c in str(name or "").upper() if c.isalnum())
 
 
+def distance_gate(z: float, circular: Optional[int] = None,
+                  d_max_mpc: float = D_MAX_USEFUL_MPC) -> dict[str, Any]:
+    """Luminosity distance of a redshift (Planck 2018) and whether a GW
+    search can reach it: ``{"z", "circular", "d_mpc", "limit_mpc",
+    "within_reach", "text"}``."""
+    from astropy.cosmology import Planck18
+    d = float(Planck18.luminosity_distance(float(z)).to_value("Mpc"))
+    within = d <= d_max_mpc
+    dist = f"{d / 1000:.3g} Gpc" if d >= 1000 else f"{d:.3g} Mpc"
+    text = (f"redshift {float(z):g}" + (f" (GCN {circular})" if circular else "")
+            + f", luminosity distance {dist}: "
+            + (f"within the range of a GW search ({d_max_mpc:.0f} Mpc)" if within
+               else f"too far for a GW search (limit {d_max_mpc:.0f} Mpc)"))
+    return {"z": float(z), "circular": circular, "d_mpc": d, "limit_mpc": float(d_max_mpc),
+            "within_reach": within, "text": text}
+
+
+# --------------------------------------------------------------------------
+# Position and photometry written in the text
+# --------------------------------------------------------------------------
+
+_RA_SEX = re.compile(r"R\.?\s?A\.?\s*(?:\(?J?2000(?:\.0)?\)?)?\s*[=:]\s*"
+                     r"(\d{1,2})\s*[h: ]\s*(\d{1,2})\s*[m: ]\s*(\d{1,2}(?:\.\d+)?)", re.I)
+_DEC_SEX = re.compile(r"Dec(?:l)?\.?\s*(?:\(?J?2000(?:\.0)?\)?)?\s*[=:]\s*"
+                      r"([+\-−–]?)\s*(\d{1,2})\s*[d°: ]\s*(\d{1,2})\s*[m'′: ]\s*(\d{1,2}(?:\.\d+)?)",
+                      re.I)
+_RADEC_DEG = re.compile(r"R\.?A\.?\s*,\s*Dec(?:l)?\.?\s*(?:\(?J?2000(?:\.0)?\)?)?\s*[=:]\s*"
+                        r"(\d{1,3}\.\d+)\s*,\s*([+\-−–]?\d{1,2}\.\d+)", re.I)
+_RA_DEG = re.compile(r"R\.?A\.?\s*(?:\(?J?2000(?:\.0)?\)?)?\s*[=:]\s*(\d{1,3}\.\d+)\s*(?:deg|d\b|°)?"
+                     r"[\s,;]*Dec(?:l)?\.?\s*(?:\(?J?2000(?:\.0)?\)?)?\s*[=:]\s*([+\-−–]?\d{1,2}\.\d+)",
+                     re.I)
+_POS_ERR = re.compile(r"(?:uncertaint\w+|error|accuracy|radius)\s*(?:of|is|:)?\s*(?:about|~|±|\+/-)?\s*"
+                      r"(\d+(?:\.\d+)?)\s*(arcsec|\"|''|arcmin|')", re.I)
+_GALACTIC = re.compile(r"flar(?:e|ing) star|stellar flare|flare of|known (?:AGN|star|source)|"
+                       r"cataclysmic|dwarf nova|\bCV\b|Galactic (?:source|transient|origin)|"
+                       r"M[- ]dwarf|not (?:a|an) (?:GRB|extragalactic)", re.I)
+_AT_NAME = re.compile(r"\b(AT|SN)\s?(20\d{2}[a-z]{2,5})\b")
+_SPECTROSCOPIC = re.compile(r"spectroscop|spectrum|spectra\b|absorption|emission line", re.I)
+
+_BANDS = {**{b: f"ps1::{b}" for b in "grizy"}, "u": "sdssu", "J": "2massj", "H": "2massh",
+          "K": "2massks", "Ks": "2massks"}
+_MAG = re.compile(r"(?<![A-Za-z0-9_.])(Ks|[ugrizyUBVRIJHKL])['’′]?(?:[- ]band)?"
+                  r"(?:\s*\((?:AB|Vega)\))?\s*(=|~|≈|>=|≥|>|<)\s*(\d{1,2}\.\d{1,3})(?!\d)"
+                  r"(?:\s*(?:\+/-|±|\+-)\s*(\d?\.\d{1,3}))?")
+_UNITS = {"s": 1.0, "sec": 1.0, "secs": 1.0, "second": 1.0, "seconds": 1.0,
+          "min": 60.0, "mins": 60.0, "minute": 60.0, "minutes": 60.0,
+          "h": 3600.0, "hr": 3600.0, "hrs": 3600.0, "hour": 3600.0, "hours": 3600.0,
+          "d": 86400.0, "day": 86400.0, "days": 86400.0}
+_U = r"(seconds?|secs?|s|minutes?|mins?|hours?|hrs?|h|days?|d)"
+_AFTER = r"\s*(?:after|post|since|from)[- ]?\s*(?:the\s+)?(?:[\w/-]+\s+){0,3}?(?:trigger|burst|T0|GRB|event|alert|notice)"
+_DELAY_RANGE = re.compile(r"(?:from\s+)?~?(\d+(?:\.\d+)?)\s*(?:to|-|–)\s*~?(\d+(?:\.\d+)?)\s*" + _U + r"\b"
+                          + _AFTER, re.I)
+_DELAY = re.compile(r"(?<![\d.])~?\+?(\d+(?:\.\d+)?)\s*" + _U + r"\b" + _AFTER, re.I)
+_DELAY_PLUS = re.compile(r"(?:\(|T0?\s*)\+\s*(\d+(?:\.\d+)?)\s*" + _U + r"\b")     # "(+0.11h)", "T0+3.2 h"
+
+
+def position_in(text: str) -> Optional[dict[str, float]]:
+    """First position written in a text: ``{"ra", "dec"}`` in degrees
+    (sexagesimal ``RA (J2000) = 22h29m24.76s``, ``Dec = +27d01m34.4s``, or
+    decimal degrees), with ``err_arcsec`` when an uncertainty follows it
+    (else 1 arcsec)."""
+    ra = dec = None
+    end = 0
+    m, d = _RA_SEX.search(text), None
+    if m:
+        d = _DEC_SEX.search(text, m.end())
+    if m and d and d.start() - m.end() < 200:
+        ra = 15 * (int(m.group(1)) + int(m.group(2)) / 60 + float(m.group(3)) / 3600)
+        dec = int(d.group(2)) + int(d.group(3)) / 60 + float(d.group(4)) / 3600
+        if d.group(1) in ("-", "−", "–"):
+            dec = -dec
+        end = d.end()
+    else:
+        m = _RADEC_DEG.search(text) or _RA_DEG.search(text)
+        if m:
+            ra = float(m.group(1))
+            dec = float(m.group(2).replace("−", "-").replace("–", "-"))
+            end = m.end()
+    if ra is None or not (0 <= ra < 360 and -90 <= dec <= 90):
+        return None
+    e = _POS_ERR.search(text, end, end + 250)
+    err = 1.0
+    if e:
+        err = float(e.group(1)) * (60.0 if e.group(2) in ("arcmin", "'") else 1.0)
+    return {"ra": round(ra, 6), "dec": round(dec, 6), "err_arcsec": err}
+
+
+def _segments(body: str) -> list[tuple[int, str]]:
+    """Sentences of a text with their offset (paragraphs are often one line)."""
+    out, pos = [], 0
+    for part in re.split(r"(\n\s*\n|(?<=[.;:])\s+(?=[A-Z(]))", body):
+        if part.strip() and not re.fullmatch(r"\s+", part):
+            out.append((pos, part))
+        pos += len(part)
+    return out
+
+
+def photometry_in(body: str, trigger: Optional[datetime] = None) -> list[dict[str, Any]]:
+    """Magnitudes written in a text as ``r = 19.95 +/- 0.06`` or ``r > 21.56``.
+
+    Each one: ``band`` (as written), ``mag``, ``mag_err``, ``upper_limit``
+    (``>``, or a sentence about a limit), ``system`` (``AB``, ``Vega`` or
+    None), ``time`` (ISO, or None) with ``time_from``: ``delay after the
+    trigger`` (the last ``N hours after the trigger`` before the magnitude,
+    in its sentence or the three before; needs ``trigger``) or ``date in the
+    text``; and ``text``, the sentence it comes from. Magnitudes given in a
+    table are not read. ``z = 2.4`` is a
+    redshift, not a z-band magnitude: magnitudes are between 8 and 30."""
+    segs = _segments(body)
+    out, seen = [], set()
+    for k, (off, seg) in enumerate(segs):
+        if seg.count("|") >= 2:                        # a table: columns cannot be told apart
+            continue
+        for m in _MAG.finditer(seg):
+            band, op, mag = m.group(1), m.group(2), float(m.group(3))
+            if not 8.0 <= mag <= 30.0 or (band == "z" and mag < 12.0):
+                continue
+            err = float(m.group(4)) if m.group(4) else None
+            limit = op in (">", ">=", "≥") or (err is None and bool(
+                re.search(r"upper limit|limiting mag|not detect|no \w+ ?(?:source|counterpart)", seg, re.I)))
+            if op == "<":                              # "brighter than": not a measurement
+                continue
+            # the time: before the magnitude in its sentence, else after it, else the sentence before
+            before = seg[:m.start()]
+            when, how = None, None
+            for text, last in ((before, True), (seg[m.end():], False),
+                               *((segs[j][1], True) for j in range(k - 1, max(k - 4, -1), -1))):
+                if trigger is not None:
+                    hits = [(h.start(), (float(h.group(1)) + float(h.group(2))) / 2 * _UNITS[h.group(3).lower()])
+                            for h in _DELAY_RANGE.finditer(text)]
+                    hits += [(h.start(), float(h.group(1)) * _UNITS[h.group(2).lower()])
+                             for rx in (_DELAY, _DELAY_PLUS) for h in rx.finditer(text)]
+                    if hits:
+                        hits.sort()
+                        when = trigger + timedelta(seconds=(hits[-1] if last else hits[0])[1])
+                        how = "delay after the trigger"
+                        break
+                dates = times_in(text, None)
+                if dates:
+                    when, how = (dates[-1] if last else dates[0]), "date in the text"
+                    break
+            key = (band, mag, err, limit)
+            if key in seen:
+                continue
+            seen.add(key)
+            ctx = seg[max(0, m.start() - 200):m.end() + 120]
+            out.append({"band": band, "mag": mag, "mag_err": err, "upper_limit": limit,
+                        "system": "Vega" if re.search(r"\bVega\b", ctx) else
+                                  "AB" if re.search(r"\bAB\b", ctx) else None,
+                        "time": iso(when) if when else None, "time_from": how,
+                        "text": " ".join(seg.split())[:300]})
+    return out
+
+
+def pipeline_band(band: str) -> str:
+    """Band name of the pipeline for a letter of a circular (``r`` ->
+    ``ps1::r``, ``J`` -> ``2massj``); other letters are kept as written."""
+    return _BANDS.get(band, band)
+
+
 # --------------------------------------------------------------------------
 # Store
 # --------------------------------------------------------------------------
@@ -338,6 +524,15 @@ def handle_circular(msg: dict | bytes | str, store: Any, _relink: bool = True) -
     circ.update(classify(circ["subject"], circ["body"]))
     circ["links"] = find_links(circ, root, before)
     circ["received"] = iso(utcnow())
+    circ["distance_logged"] = bool((_read(_dir(root) / f"{circ['id']}.json") or {}).get("distance_logged"))
+    # what an optical report says: where, how bright, and whether its redshift is from a spectrum
+    text = f"{circ['subject']}\n{circ['body']}"
+    optical = "optical" in circ["bands"]
+    circ["position"] = position_in(circ["body"]) if optical and circ["result"] == "detection" else None
+    circ["photometry"] = photometry_in(circ["body"], _trigger_time(root, circ["links"])) if optical else []
+    circ["redshift_kind"] = (None if circ["redshift"] is None else
+                             "spectroscopic" if _SPECTROSCOPIC.search(text) else "unknown")
+    circ["galactic"] = bool(_GALACTIC.search(text))
     name = f"{circ['id']}.json"
     linked_p, wait_p = _dir(root) / name, _dir(root, False) / name
     previous = _read(linked_p)
@@ -368,6 +563,20 @@ def handle_circular(msg: dict | bytes | str, store: Any, _relink: bool = True) -
             submitter=circ["submitter"], published=circ["time"], bands=circ["bands"],
             result=circ["result"], redshift=circ["redshift"], links=circ["links"], url=circ["url"])
         log.info("circular %s linked to %s", circ["id"], what)
+    # the distance of the GRB, once per circular (also for one stored before this rule)
+    grbs = [ln["id"] for ln in circ["links"] if ln["type"] == "grb"]
+    if circ["redshift"] is not None and grbs and not (previous or {}).get("distance_logged"):
+        gate = distance_gate(circ["redshift"], circ["id"])
+        journal_of(store).log(
+            "grb_distance", f"{circ.get('event') or 'GRB'} ({', '.join(grbs)}): {gate['text']}",
+            level="info" if not gate["within_reach"] else "warning",
+            event=circ.get("event"), triggers=grbs, **gate)
+        circ["distance_logged"] = True
+        _write_atomic(linked_p, json.dumps(circ, indent=1))
+    try:
+        _counterpart(circ, store)
+    except Exception:                                  # the circular itself is stored and written
+        log.exception("circular %s: optical transient not created or updated", circ["id"])
     # a name learnt from this circular: the earlier reports that only gave the name
     if _relink and circ.get("event") and _norm(circ["event"]) not in before \
             and _norm(circ["event"]) in event_names(root):
@@ -379,6 +588,154 @@ def handle_circular(msg: dict | bytes | str, store: Any, _relink: bool = True) -
 
 
 # --------------------------------------------------------------------------
+# Optical transient of a reported counterpart, reported photometry
+# --------------------------------------------------------------------------
+
+def _grb_record(root: Path, links: Iterable[dict]) -> Optional[tuple[str, dict]]:
+    """(id in the store, stored record) of the burst a circular is about,
+    when it is about one burst only and its notice was received."""
+    grbs = [ln["id"] for ln in links if ln["type"] == "grb"]
+    if len(grbs) != 1:
+        return None
+    rec = _read(root / "grb" / f"{grbs[0]}.json") or {}
+    return (grbs[0], rec) if rec.get("grb") else None
+
+
+def _trigger_time(root: Path, links: Iterable[dict]) -> Optional[datetime]:
+    got = _grb_record(root, links)
+    return _gps_utc(got[1]["grb"]["gps"]) if got else None
+
+
+def _attached_to(store: Any, g: dict):
+    """The optical transient the burst ``g`` (stored ``grb`` record) is attached to."""
+    for kn in store.transients():
+        a = kn.grb
+        if a is None or a.instrument != g.get("instrument"):
+            continue
+        if (a.graceid is not None and a.graceid == g.get("graceid")) or abs(a.gps - g["gps"]) < 1.0:
+            return kn
+    return None
+
+
+def _spectroscopic_redshift(root: Path, grb_id: str) -> Optional[dict]:
+    """Latest circular linked to the burst that gives a spectroscopic redshift."""
+    z = [c for c in stored_circulars(root)
+         if c.get("redshift") is not None and c.get("redshift_kind") == "spectroscopic"
+         and any(ln["type"] == "grb" and ln["id"] == grb_id for ln in c.get("links") or [])]
+    return z[-1] if z else None
+
+
+def _counterpart(circ: dict, store: Any) -> Optional[str]:
+    """Create the optical transient of the burst from a reported counterpart
+    with a position, and apply a spectroscopic redshift to the transient
+    attached to the burst (rules in the module documentation). Returns the
+    name of the transient created or updated."""
+    from astropy.coordinates import SkyCoord
+    import astropy.units as u
+    from .connection import GRBAssociation, OpticalTransient, Redshift
+    from .listener import add_optical
+    root = Path(store.root)
+    got = _grb_record(root, circ["links"])
+    if got is None or not hasattr(store, "transients"):
+        return None
+    grb_id, rec = got
+    g = rec["grb"]
+    kn = _attached_to(store, g)
+    changed = False
+    pos = circ.get("position")
+    if kn is None and pos and circ.get("result") == "detection" and not circ.get("galactic"):
+        x = rec.get("xray") or {}
+        ra0, dec0, err0 = ((x.get("ra"), x.get("dec"), x.get("err_deg")) if x.get("ra") is not None
+                           else (rec.get("ra"), rec.get("dec"), rec.get("err_deg")))
+        if ra0 is not None:
+            sep = SkyCoord(ra0 * u.deg, dec0 * u.deg).separation(
+                SkyCoord(pos["ra"] * u.deg, pos["dec"] * u.deg)).deg
+            if sep > 2.0 * (err0 or 0.0) + 1.0 / 60:
+                log.info("circular %s: position %.3f deg from the burst, outside its error circle: "
+                         "no optical transient", circ["id"], sep)
+                return None
+        at = _AT_NAME.search(f"{circ['subject']}\n{circ['body']}")
+        base = circ.get("event") or f"GCN{circ['id']}"
+        name = f"{at.group(1)}{at.group(2)}" if at else _safe("".join(base.split())) + "-OT"
+        if any(t.name == name for t in store.transients()):
+            return None                                # a transient of that name, attached elsewhere
+        kn = OpticalTransient(
+            name=name, ra=pos["ra"], dec=pos["dec"], pos_err_arcsec=pos["err_arcsec"],
+            source=f"GCN circular {circ['id']}", grb=GRBAssociation(**g),
+            notes=f"Optical counterpart of {circ.get('event') or 'the burst'} reported in GCN circular "
+                  f"{circ['id']} ({circ['subject']}); position read from its text. "
+                  f"GRB {g.get('graceid') or ''} ({g.get('instrument')}) attached from the circular.")
+        changed = True
+    if kn is None:
+        return None
+    zc = _spectroscopic_redshift(root, grb_id)
+    if zc is not None:
+        src = f"GCN circular {zc['id']}"
+        old = kn.redshift
+        mine = old is not None and old.source.startswith("GCN circular")
+        if (old is None or old.kind != "spectroscopic" or mine) \
+                and not (mine and abs(old.z - float(zc["redshift"])) < 1e-9):   # the same value again
+            kn.redshift = Redshift(z=float(zc["redshift"]), z_err=1e-3, kind="spectroscopic", source=src)
+            kn.notes = (kn.notes + f" Redshift {zc['redshift']:g} from {src}.").strip()
+            changed = True
+    if changed:
+        add_optical(kn, store)
+        log.info("circular %s: optical transient %s %s", circ["id"], kn.name,
+                 "created" if kn.source == f"GCN circular {circ['id']}" else "updated")
+        return kn.name
+    return None
+
+
+def reported_photometry(root: str | Path, kn: Any) -> list[dict]:
+    """Magnitudes reported in the circulars about an optical transient or
+    about its burst, oldest circular first: the points of
+    :func:`photometry_in`, each with ``circular``, ``index`` (its place in
+    that circular) and ``accepted`` (already copied into the transient)."""
+    root = Path(root)
+    keys = {("optical", kn.name)}
+    if kn.grb is not None:
+        for p in (root / "grb").glob("*.json"):
+            g = (_read(p) or {}).get("grb") or {}
+            if g.get("instrument") == kn.grb.instrument and (
+                    (kn.grb.graceid is not None and g.get("graceid") == kn.grb.graceid)
+                    or abs((g.get("gps") or 0) - kn.grb.gps) < 1.0):
+                keys.add(("grb", p.stem))
+    have = {(p.survey, p.band, round(p.mag, 3)) for p in kn.photometry}
+    out = []
+    for c in stored_circulars(root):
+        if not any((ln["type"], ln["id"]) in keys for ln in c.get("links") or []):
+            continue
+        for i, pt in enumerate(c.get("photometry") or []):
+            out.append({**pt, "circular": c["id"], "index": i, "subject": c["subject"],
+                        "accepted": (f"GCN {c['id']}", pipeline_band(pt["band"]), round(pt["mag"], 3)) in have})
+    return out
+
+
+def accept_photometry(store: Any, name: str, circulars: Optional[Iterable[int]] = None) -> list[dict]:
+    """Copy reported magnitudes into the photometry of the optical transient
+    ``name`` (survey ``GCN <number>``): those of the given circulars, or all.
+    Points without a time cannot be copied. Returns the points added."""
+    from astropy.time import Time
+    from .connection import PhotometryPoint
+    from .listener import add_optical
+    kn = next((t for t in store.transients() if t.name == name), None)
+    if kn is None:
+        raise ValueError(f"no optical transient {name} in the store")
+    want = set(int(c) for c in circulars) if circulars else None
+    added = []
+    for pt in reported_photometry(store.root, kn):
+        if pt["accepted"] or pt["time"] is None or (want is not None and pt["circular"] not in want):
+            continue
+        kn.photometry.append(PhotometryPoint(
+            mjd=float(Time(parse_iso(pt["time"])).mjd), band=pipeline_band(pt["band"]), mag=pt["mag"],
+            mag_err=pt["mag_err"], upper_limit=bool(pt["upper_limit"]), survey=f"GCN {pt['circular']}"))
+        added.append(pt)
+    if added:
+        add_optical(kn, store)
+    return added
+
+
+# --------------------------------------------------------------------------
 # What the circulars say about one alert
 # --------------------------------------------------------------------------
 
@@ -386,7 +743,8 @@ def summary(circs: Iterable[dict]) -> Optional[dict]:
     """Digest of the circulars linked to one alert: how many, in which bands,
     and for the optical: whether a search was reported, its best outcome
     (``detection`` over ``upper_limit`` over ``observation``), the time of
-    the first report, the latest redshift announced."""
+    the first report, the latest redshift announced and its distance gate
+    (:func:`distance_gate`)."""
     circs = sorted(circs, key=lambda c: c.get("id") or 0)
     if not circs:
         return None
@@ -404,6 +762,7 @@ def summary(circs: Iterable[dict]) -> Optional[dict]:
             "n_optical": len(opt), "first_optical": opt[0].get("time") if opt else None,
             "redshift": z[-1]["redshift"] if z else None,
             "redshift_circular": z[-1]["id"] if z else None,
+            "distance": distance_gate(z[-1]["redshift"], z[-1]["id"]) if z else None,
             "latest": circs[-1].get("time")}
 
 

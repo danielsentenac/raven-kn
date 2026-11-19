@@ -90,6 +90,42 @@ recorded with the circular; it is not applied to an optical transient. These are
 reading of the text: the subject is kept beside the labels, and the list of optical facilities
 (`BANDS` in `raven_kn/circulars.py`) is the one met in the circulars of October and November 2026.
 
+**Distance gate**: a redshift announced for a GRB gives its luminosity distance (Planck 2018), which is
+compared with the 500 Mpc beyond which a search is not worth it (`d_max_useful_mpc` of the search
+decision). The result is written in the journal (`grb_distance`). In the follow-ups of the service a GRB
+within that range is a candidate, and a GRB beyond it is marked too far (`notes`, `too_far`): GRB 261114A
+at z = 3.716 is at 33.6 Gpc, so no GW search can be about it. A too-far follow-up is not a candidate unless it holds a GW alert: a
+burst at z = 3.7 linked to its own afterglow is two detection types, and no GW source.
+
+**Optical transient of a reported counterpart**: a circular labelled as an optical detection, about one
+GRB or X-ray notice, and giving a position (`RA (J2000) = 23h03m15.21s`, `Dec = -32d19m01.2s`, or decimal
+degrees; the stated uncertainty, else 1″) creates the optical transient of that burst when it has none.
+Its source is `GCN circular <number>`, its name the `AT` name of the text or `<event>-OT`, and the burst
+is attached to it, so that its merger-time window is that of the GRB. The position must lie within 2× the
+error radius of the burst (plus 1′); reports of stellar flares and other Galactic sources create nothing.
+A redshift that a circular gives as spectroscopic is applied to the transient attached to the burst
+(source `GCN circular <number>`), unless it already has a spectroscopic redshift from another source.
+
+**Reported photometry**: magnitudes written as `r = 19.95 +/- 0.06` or `r > 21.56` are extracted with the
+time found near them (a delay after the trigger in the same sentence or the three before, else a date)
+and kept with the circular as *reported, unverified*. They are given by `/api/optical/<name>`
+(`reported_photometry`, each with the sentence it comes from) and are **not** in the photometry of the
+transient, so they do not enter the kilonova test: early points of a GRB are afterglow, and the
+extraction is a pattern, not a reading. Magnitudes in tables are not read, and a point may have no time (12 of the 20
+extracted from the 72 linked circulars have one). After reading them:
+
+```bash
+raven-kn accept-photometry GRB261114A-OT --store kn_store/                    # list them
+raven-kn accept-photometry GRB261114A-OT --store kn_store/ --circular 46278 --accept
+```
+
+copies those that have a time into the transient (survey `GCN <number>`), as `raven-kn add` would.
+
+On the same 441 circulars, three transients were created: `GRB261113A-OT` (z = 3.58, 12 reported
+magnitudes) and `GRB261114A-OT` (z = 3.716, 3 magnitudes), both too far, and `GCN46276-OT`, an optical
+fading source reported by SVOM/GWAC in the error box of the Fermi-GBM burst 816291960, which is a
+candidate (GRB and optical linked, no redshift).
+
 **Journal and service**: a `circular` entry is written when a circular is linked, and
 [`/api/sky` and `/api/followups`](logbook.md) give for each alert the digest of its circulars: how
 many, in which bands, whether an optical search was reported and its best outcome, the time of the

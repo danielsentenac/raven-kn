@@ -40,6 +40,7 @@ The package mirrors LVK RAVEN so that it can be merged into it later.
 | `raven-kn fink-listen --survey ztf\|lsst --store DIR` | optical transients from Fink's livestream into the same store |
 | `raven-kn add OPTICAL.json --store DIR` | add an optical transient to the listener's store |
 | `raven-kn circular NUMBER... --store DIR` | read GCN Circulars from the archive into the store |
+| `raven-kn accept-photometry NAME --store DIR` | list the magnitudes reported in circulars about an optical transient; `--accept` copies them into its photometry |
 | `raven-kn serve --store DIR` | read-only HTTP service for the logbook application |
 | `raven-kn runlog OUT --request REQ.json` | mark a search or PE run as submitted in the logbook |
 
