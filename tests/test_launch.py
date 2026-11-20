@@ -125,6 +125,42 @@ def test_run_on_site_data(store, tmp_path):
     assert bad["status"] == "failed" and "exit code 3" in bad["detail"]
 
 
+def test_run_on_a_farm_node(store, tmp_path, monkeypatch):
+    from raven_kn.launch import farm_hosts, pick_node
+    assert farm_hosts("farmn1, farmn2  farmn3") == ["farmn1", "farmn2", "farmn3"] and farm_hosts(None) == []
+    nodes = {"a": {"host": "a", "cores": 8, "load": 0.4, "mem_gb": 12.0},
+             "b": {"host": "b", "cores": 8, "load": 0.1, "mem_gb": 3.0},      # too little memory
+             "c": {"host": "c", "cores": 8, "load": 0.2, "mem_gb": 9.0},
+             "d": {"host": "d", "cores": 8, "load": 15.0, "mem_gb": 14.0},    # busy
+             "e": None}                                                       # not reached
+    probe = lambda h, paths: nodes[h]
+    assert pick_node(list(nodes), probe=probe)[0]["host"] == "c"
+    assert pick_node(["b", "d"], probe=probe) == (None, "the 2 farm nodes reached are all busy")
+    assert pick_node(["e"], probe=probe) == (None, "none of the 1 farm nodes reached")
+
+    src = site(tmp_path, {"H1": [(T0 - 500, T0 + 500)], "L1": [(T0 - 500, T0 + 500)]})
+    monkeypatch.setenv("RAVEN_KN_LIBS", "/soft/lib")
+    seen = {}
+    rec = process(store, request_search(store, "KN1"), source=src, farm=["a", "c"],
+                  picker=lambda hosts, paths: (seen.update(paths=paths) or nodes["c"], ""),
+                  runner=lambda cmd, lp, tick: seen.update(cmd=cmd) or 0)
+    run_dir = store.root / "runs" / "KN1" / rec["id"]
+    assert rec["status"] == "done" and rec["host"] == "c" and "run on c (8 cores)" in rec["detail"]
+    assert seen["paths"][0] == str(run_dir)                           # the node must see the run directory
+    cmd = seen["cmd"]
+    assert cmd[0] == "ssh" and cmd[-2] == "c" and cmd[-1].startswith("/bin/bash -c ")
+    import shlex
+    script = shlex.split(cmd[-1])[2]
+    assert script.startswith(f"cd {run_dir} && export LD_LIBRARY_PATH=/soft/lib:$LD_LIBRARY_PATH && exec ")
+    assert "-m raven_kn.cli targeted --request" in script and "--ifos H1,L1" in script
+    # no node free: on the launcher's machine, and the note says why
+    rec = process(store, request_search(store, "KN1"), source=src, farm=["d"],
+                  picker=lambda hosts, paths: (None, "the 1 farm nodes reached are all busy"),
+                  runner=lambda cmd, lp, tick: seen.update(cmd=cmd) or 0)
+    assert rec["host"] is None and "launcher's machine (the 1 farm nodes reached are all busy)" in rec["detail"]
+    assert seen["cmd"][1:4] == ["-m", "raven_kn.cli", "targeted"]
+
+
 def test_replay_moves_the_window(store, tmp_path):
     now = T0 + 90000
     src = site(tmp_path, {"H1": [(now - 3000, now - 100)], "L1": [(now - 3000, now - 100)],

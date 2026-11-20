@@ -106,6 +106,14 @@ entry. `raven-kn launcher --store DIR`, one long-lived process on the Virgo site
 3. it runs `raven-kn targeted --source site` in `<store>/runs/<optical>/<id>/`, where the service reads
    the state, the journal and the result of the run, as for any run. The result is marked `lvk`.
 
+With a farm (`raven-kn launcher --farm farmn1,farmn2,...`, or `RAVEN_KN_FARM` in
+`~/.config/raven_kn_launcher.env`), step 3 does not run on the launcher's machine but on a node of the
+list, started over `ssh`: the least loaded of those reached without a password, seeing the run directory
+and the Python of the pipeline, with a 1-minute load below 1 and 6 GB of memory available. The nodes must
+see the store, the pipeline and the frames at the same paths (a shared home directory). The node is
+written in the request (`host`) and in the note of the run. When no node qualifies, the search runs on
+the launcher's machine and the note says why. One search runs on one node; a search is not split.
+
 | Data | Detectors | Directory on the Virgo site | Strain, state vector |
 |---|---|---|---|
 | `site` | H1, L1 | `/data/prod/fromCIT/<IFO>ArrakisOnline` | `CAL-STRAIN_C00_16K`, `CAL-STATE_VECTOR_C00` |

@@ -275,6 +275,10 @@ def main(argv=None):
     la.add_argument("--store", required=True)
     la.add_argument("--once", action="store_true", help="stop when no request is waiting")
     la.add_argument("--interval", type=float, default=10.0, help="seconds between two looks")
+    la.add_argument("--farm", default=None,
+                    help="nodes to run the searches on, e.g. farmn1,farmn2 (else RAVEN_KN_FARM; "
+                         "without, they run on this machine). Reached by ssh without a password, "
+                         "same store, Python and frames at the same paths")
 
     fl = sub.add_parser("fink-listen", help="optical transients from a Fink Kafka livestream "
                                             "(credentials: finkctl auth register)")
@@ -306,10 +310,11 @@ def main(argv=None):
         return
     if args.cmd == "launcher":
         import logging
-        from .launch import launcher
+        from .launch import farm_hosts, launcher
         from .listener import AlertStore
         logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
-        launcher(AlertStore(args.store, source="launcher"), args.interval, args.once)
+        launcher(AlertStore(args.store, source="launcher"), args.interval, args.once,
+                 farm_hosts(args.farm if args.farm is not None else os.environ.get("RAVEN_KN_FARM")))
         return
     if args.cmd == "runlog":
         from .journal import RunLog

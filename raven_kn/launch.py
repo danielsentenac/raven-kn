@@ -24,6 +24,13 @@ with the sky of the alert: the window keeps its length and is moved to the
 latest stretch of replay data analysable in the most detectors, and the run
 says so in its name and its note.
 
+With a **farm** (``raven-kn launcher --farm farmn1,farmn2,...`` or
+``RAVEN_KN_FARM``), the search does not run on the launcher's machine but on
+the least loaded node of the list, started over ``ssh`` (:func:`pick_node`).
+The nodes must be reached without a password and see the same store, the same
+Python and the same frames at the same paths. When no node qualifies the
+search runs on the launcher's machine, and its note says so.
+
 Status of a request: ``requested``, ``running``, ``done``, ``failed``,
 ``refused``.
 """
@@ -32,11 +39,14 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import shlex
 import subprocess
 import sys
 import time
 from pathlib import Path
-from typing import Any, Callable, Optional
+from concurrent.futures import ThreadPoolExecutor
+from typing import Any, Callable, Optional, Sequence
 
 from .journal import Heartbeat, Journal, RunLog, _safe, _write_atomic, iso, journal_of, utcnow
 
@@ -48,6 +58,9 @@ ACTIVE = ("requested", "running")
 F_LOW = 30.0
 TAIL_S = 32.0                    # read after the window: 4 x the padding of the search
 LEAD_FALLBACK_S = 110.0          # before it, when the template duration cannot be computed
+NODE_MAX_LOAD = 1.0              # a farm node is taken when its 1-minute load is below this
+NODE_MIN_MEM_GB = 6.0            # and it has this much memory available
+SSH = ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", "-o", "ServerAliveInterval=30"]
 
 
 def _dir(root: str | Path) -> Path:
@@ -118,11 +131,55 @@ def _run(cmd: list[str], log_path: Path, tick: Optional[Callable[[], None]] = No
         return int(proc.returncode)
 
 
+def farm_hosts(text: Optional[str]) -> list[str]:
+    """Host names of a farm given as ``farmn1,farmn2`` (commas or spaces)."""
+    return [h for h in (text or "").replace(",", " ").split() if h]
+
+
+def _remote(script: str) -> str:
+    """The remote command running ``script`` with bash, whatever the login shell."""
+    return "/bin/bash -c " + shlex.quote(script)
+
+
+def _probe(host: str, paths: Sequence[str]) -> Optional[dict]:
+    """Cores, load and available memory of a node, or None when it is not
+    reached without a password or does not see one of ``paths``."""
+    script = ("; ".join(f"test -e {shlex.quote(str(p))} || exit 3" for p in paths) + "; " if paths else "") + (
+        "echo $(nproc) $(cut -d' ' -f1 /proc/loadavg) $(awk '/MemAvailable/{print $2}' /proc/meminfo)")
+    try:
+        out = subprocess.run(SSH + [host, _remote(script)], capture_output=True, text=True, timeout=30)
+        cores, load, mem_kb = out.stdout.split()[-3:]
+        if out.returncode != 0:
+            return None
+        return {"host": host, "cores": int(cores), "load": float(load), "mem_gb": float(mem_kb) / 1048576.0}
+    except (OSError, ValueError, subprocess.SubprocessError):
+        return None
+
+
+def pick_node(hosts: Sequence[str], paths: Sequence[str] = (),
+              probe: Callable[..., Optional[dict]] = _probe) -> tuple[Optional[dict], str]:
+    """The node of ``hosts`` to run a search on: among those reached, seeing
+    ``paths``, with a load below :data:`NODE_MAX_LOAD` and
+    :data:`NODE_MIN_MEM_GB` of memory available, the least loaded (then the
+    one with the most memory). Returns (node or None, why none)."""
+    if not hosts:
+        return None, "no farm configured"
+    with ThreadPoolExecutor(max_workers=min(20, len(hosts))) as ex:
+        nodes = [n for n in ex.map(lambda h: probe(h, paths), hosts) if n]
+    if not nodes:
+        return None, f"none of the {len(hosts)} farm nodes reached"
+    free = [n for n in nodes if n["load"] < NODE_MAX_LOAD and n["mem_gb"] >= NODE_MIN_MEM_GB]
+    if not free:
+        return None, f"the {len(nodes)} farm nodes reached are all busy"
+    return min(free, key=lambda n: (n["load"], -n["mem_gb"])), ""
+
+
 def process(store: Any, rec: dict, source: Any = None, now_gps: Optional[float] = None,
-            runner: Callable[..., int] = _run, tick: Optional[Callable[[], None]] = None) -> dict:
+            runner: Callable[..., int] = _run, tick: Optional[Callable[[], None]] = None,
+            farm: Sequence[str] = (), picker: Callable[..., tuple] = pick_node) -> dict:
     """Carry out one launch request (steps in the module documentation).
-    ``source``, ``now_gps`` and ``runner`` are replaced in tests. Returns the
-    request with its final status."""
+    ``source``, ``now_gps``, ``runner`` and ``picker`` are replaced in tests.
+    Returns the request with its final status."""
     root = Path(store.root)
     jr = journal_of(store)
     name, label = rec["optical"], rec["id"]
@@ -138,7 +195,7 @@ def process(store: Any, rec: dict, source: Any = None, now_gps: Optional[float] 
         kn = next((t for t in store.transients() if t.name == name), None)
         if kn is None:
             return end("refused", "the optical transient is no longer in the store", "warning")
-        run_dir = root / "runs" / _safe(name) / label
+        run_dir = (root / "runs" / _safe(name) / label).resolve()     # the same path on a farm node
         run_dir.mkdir(parents=True, exist_ok=True)
         from .search import assess
         assess(kn, out_dir=run_dir, write_request=True)
@@ -176,13 +233,26 @@ def process(store: Any, rec: dict, source: Any = None, now_gps: Optional[float] 
             note += "; detectors without analysable data: " + (
                 ", ".join(f"{i} ({c['why']})" for i, c in cov.items() if not c["ok"]) or "none")
         req_path.write_text(json.dumps(req, indent=2))
-        RunLog(run_dir, name, label, visibility="lvk").submitted(note)
-        rec.update(status="running", detail=note, started=iso(utcnow()), ifos=ifos, run=label,
-                   gps_start=req["gps_start"], gps_end=req["gps_end"])
-        _save(root, rec)
         cmd = [sys.executable, "-m", "raven_kn.cli", "targeted", "--request", str(req_path),
                "--source", rec["data"], "--ifos", ",".join(ifos), "--statistic", rec["statistic"],
                "--label", label, "--out", str(run_dir), "--visibility", "lvk"]
+        host = None
+        if farm:
+            node, why = picker(farm, [str(run_dir), sys.executable])
+            if node:
+                host = node["host"]
+                note += f"; run on {host} ({node['cores']} cores)"
+                libs = os.environ.get("RAVEN_KN_LIBS", "")
+                script = (f"cd {shlex.quote(str(run_dir))} && "
+                          + (f"export LD_LIBRARY_PATH={shlex.quote(libs)}:$LD_LIBRARY_PATH && " if libs else "")
+                          + "exec " + " ".join(shlex.quote(c) for c in cmd))
+                cmd = SSH + [host, _remote(script)]
+            else:
+                note += f"; run on the launcher's machine ({why})"
+        RunLog(run_dir, name, label, visibility="lvk").submitted(note)
+        rec.update(status="running", detail=note, started=iso(utcnow()), ifos=ifos, run=label,
+                   host=host, gps_start=req["gps_start"], gps_end=req["gps_end"])
+        _save(root, rec)
         code = runner(cmd, run_dir / f"{label}.log", tick)
         if code == 0:
             return end("done", note, ifos=ifos)
@@ -193,9 +263,10 @@ def process(store: Any, rec: dict, source: Any = None, now_gps: Optional[float] 
         return end("failed", f"{type(e).__name__}: {e}"[:300], "error")
 
 
-def launcher(store: Any, interval_s: float = 10.0, once: bool = False) -> None:
+def launcher(store: Any, interval_s: float = 10.0, once: bool = False,
+             farm: Sequence[str] = ()) -> None:
     """Carry out the launch requests of a store, one at a time, forever (or
-    until none is waiting, with ``once``). Requests left ``running`` by a
+    until none is waiting, with ``once``), on a node of ``farm`` when given. Requests left ``running`` by a
     launcher that stopped are marked failed at the start."""
     root = Path(store.root)
     hb = Heartbeat(root, "launcher", Journal.for_store(root, "launcher"), ["launch requests"])
@@ -212,7 +283,7 @@ def launcher(store: Any, interval_s: float = 10.0, once: bool = False) -> None:
         waiting = [r for r in launches(root) if r.get("status") == "requested"]
         if waiting:
             hb.message("launch requests")
-            done = process(store, waiting[0], tick=hb.tick)
+            done = process(store, waiting[0], tick=hb.tick, farm=farm)
             log.info("launch %s: %s %s", done["id"], done["status"], done.get("detail", ""))
         elif once:
             return
