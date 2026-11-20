@@ -10,6 +10,11 @@ interface.
     the GWOSC timelines
     (``H1_DATA``, ``H1_CBC_CAT1``, ``H1_CBC_CAT2``). DQSegDB is not needed.
 
+``site-live`` and ``site-replay`` (:class:`SiteSource`, no credentials)
+    Frame files kept on a site: on the Virgo site, the online strain of H1,
+    L1, V1 and K1, and a replay of O4 data for tests. Analysable time comes
+    from the state vector in the same files.
+
 ``lvk`` (:class:`LVKSource`, IGWN SciToken)
     The collaboration's calibrated h(t) frames, available at once. Science
     segments and veto-definer categories come from DQSegDB
@@ -574,6 +579,165 @@ class ManifestSource(DataSource):
                 "original": {i: {k: m[k] for k in ("original_channel", "original_frames") if k in m}
                              for i, m in self.manifest["ifos"].items() if "original_channel" in m},
                 "notes": self.manifest.get("notes", {})}
+
+
+# --------------------------------------------------------------------------
+# Frames kept on a site (the Virgo site)
+# --------------------------------------------------------------------------
+
+# Where the strain of each detector is written on the Virgo site, the channel
+# of its strain and of its state vector, and the bits that must be set for the
+# data to be analysable: bit 0 (h(t) computed) and bit 1 (observing / science
+# mode). ``live``: the detectors' online strain. ``replay``: O4 data replayed
+# at the current time with the low-latency chain, for tests: the sky at that
+# time has nothing to do with them.
+SITE_LAYOUTS: dict[str, dict[str, dict]] = {
+    "live": {
+        "H1": {"dir": "/data/prod/fromCIT/H1ArrakisOnline", "channel": "H1:CAL-STRAIN_C00_16K",
+               "state": "H1:CAL-STATE_VECTOR_C00", "mask": 3},
+        "L1": {"dir": "/data/prod/fromCIT/L1ArrakisOnline", "channel": "L1:CAL-STRAIN_C00_16K",
+               "state": "L1:CAL-STATE_VECTOR_C00", "mask": 3},
+        "V1": {"dir": "/data/prod/hrec/V1Online", "channel": "V1:Hrec_hoft_16384Hz",
+               "state": "V1:DQ_ANALYSIS_STATE_VECTOR", "mask": 3},
+        "K1": {"dir": "/data/prod/fromCIT/K1KafkaOnline", "channel": "K1:CAL-STRAIN_C00",
+               "state": "K1:CAL-STATE_VECTOR_C00", "mask": 3},
+    },
+    "replay": {
+        "H1": {"dir": "/data/prod/fromCIT/H1ArrakisLLPIC", "channel": "H1:GDS-CALIB_STRAIN_CLEAN_O4Replay",
+               "state": "H1:GDS-CALIB_STATE_VECTOR", "mask": 3},
+        "L1": {"dir": "/data/prod/fromCIT/L1ArrakisLLPIC", "channel": "L1:GDS-CALIB_STRAIN_CLEAN_O4Replay",
+               "state": "L1:GDS-CALIB_STATE_VECTOR", "mask": 3},
+        "V1": {"dir": "/data/prod/fromCIT/V1ArrakisLLPIC", "channel": "V1:Hrec_hoft_16384Hz_O4Replay",
+               "state": "V1:DQ_ANALYSIS_STATE_VECTOR", "mask": 3},
+    },
+}
+_FRAME_NAME = re.compile(r"-(\d{9,10})-(\d+)\.gwf$")      # closed files only: not ..._NOT_YET_CLOSED
+
+
+@dataclass
+class SiteSource(DataSource):
+    """Frame files kept on a site, one flat directory per detector
+    (:data:`SITE_LAYOUTS`): no datafind, no segment database, no credentials.
+    A stretch is analysable where a closed file holds it and the state vector
+    of the detector has the bits of the layout's ``mask`` set."""
+    sample_rate: int = 2048
+    name: str = "site-live"
+    layout: dict = field(default_factory=lambda: SITE_LAYOUTS["live"])
+    used: dict = field(default_factory=dict, repr=False)
+    raw_calibration: dict = field(default_factory=dict)
+    _segs: dict = field(default_factory=dict, repr=False)
+
+    @classmethod
+    def named(cls, which: str, sample_rate: int = 2048, layout: Optional[dict] = None) -> "SiteSource":
+        """``which``: ``live`` or ``replay``; ``layout`` replaces the built-in one."""
+        return cls(sample_rate=sample_rate, name=f"site-{which}", layout=layout or SITE_LAYOUTS[which])
+
+    def ifos(self) -> list[str]:
+        return list(self.layout)
+
+    def files(self, ifo: str, start: float, end: float) -> list[tuple[float, float, str]]:
+        """Closed frame files of ``ifo`` that overlap [start, end]: (start, end, path)."""
+        lay = self.layout.get(ifo)
+        if lay is None:
+            return []
+        out = []
+        try:
+            names = os.listdir(lay["dir"])
+        except OSError:
+            return []
+        for f in names:
+            m = _FRAME_NAME.search(f)
+            if m:
+                a = float(m.group(1))
+                b = a + float(m.group(2))
+                if a < end and b > start:
+                    out.append((a, b, os.path.join(lay["dir"], f)))
+        return sorted(out)
+
+    def _state_samples(self, path: str, channel: str, start: float, end: float):
+        """State vector of one file over [start, end]: (time of the first
+        sample, sample spacing, integer values)."""
+        import numpy as np
+        from pycbc.frame import read_frame
+        ts = read_frame(path, channel, start_time=start, end_time=end)
+        return float(ts.start_time), float(ts.delta_t), np.asarray(ts.numpy()).astype("int64")
+
+    def analysable(self, ifo, start, end):
+        import numpy as np
+        key = (ifo, float(start), float(end))
+        if key in self._segs:
+            return self._segs[key]
+        lay = self.layout.get(ifo)
+        segs: Segs = []
+        for a, b, path in self.files(ifo, start, end):
+            lo, hi = max(a, float(np.floor(start))), min(b, float(np.ceil(end)))
+            if hi <= lo:
+                continue
+            try:
+                t0, dt, v = self._state_samples(path, lay["state"], lo, hi)
+            except Exception:                         # unreadable file: not analysable
+                continue
+            ok = (v & lay["mask"]) == lay["mask"]
+            edges = np.flatnonzero(np.diff(np.concatenate(([0], ok.astype("int8"), [0]))))
+            segs += [(t0 + i * dt, t0 + j * dt) for i, j in zip(edges[::2], edges[1::2])]
+        out = _clip(segs, start, end)
+        self._segs[key] = out
+        return out
+
+    def vetoed(self, ifo, start, end):
+        return []                                     # no veto definer on the site
+
+    def channel(self, ifo):
+        return self.layout[ifo]["channel"]
+
+    def frame_urls(self, ifo, start, end):
+        return ["file://" + p for _, _, p in self.files(ifo, start, end)]
+
+    def coverage(self, ifos: Sequence[str], start: float, end: float) -> dict[str, dict]:
+        """For each detector: whether [start, end] is entirely analysable,
+        and if not, why (no file, or the analysable part)."""
+        out = {}
+        for ifo in ifos:
+            files = self.files(ifo, start, end)
+            segs = self.analysable(ifo, start, end)
+            ok = _covers(segs, start, end)
+            if ok:
+                why = ""
+            elif not files:
+                why = "no frame file for that time"
+            elif not segs:
+                why = "not in observing mode (state vector)"
+            else:
+                why = f"observing for {sum(b - a for a, b in segs):.0f} s of {end - start:.0f} s only"
+            out[ifo] = {"ok": ok, "why": why, "analysable": segs}
+        return out
+
+    def latest_window(self, length: float, lead: float, tail: float, now: float,
+                      lookback: float = 6 * 3600.0, min_ifos: int = 2) -> Optional[tuple[float, list[str]]]:
+        """Latest stretch of ``lead + length + tail`` seconds analysable in
+        the largest number of detectors (at least ``min_ifos``), in the last
+        ``lookback`` seconds: (start of the ``length`` window, detectors)."""
+        from itertools import combinations
+        need = lead + length + tail
+        segs = {i: self.analysable(i, now - lookback, now) for i in self.ifos()}
+        for n in range(len(segs), min_ifos - 1, -1):
+            best = None
+            for combo in combinations(sorted(segs), n):
+                common = segs[combo[0]]
+                for i in combo[1:]:
+                    common = [(max(a, c), min(b, d)) for a, b in common for c, d in segs[i]
+                              if min(b, d) > max(a, c)]
+                long_enough = [(a, b) for a, b in common if b - a >= need]
+                if long_enough and (best is None or long_enough[-1][1] > best[0]):
+                    best = (long_enough[-1][1], list(combo))
+            if best is not None:
+                return best[0] - tail - length, best[1]
+        return None
+
+    def provenance(self):
+        return {**super().provenance(),
+                "layout": {i: {k: v for k, v in lay.items()} for i, lay in self.layout.items()
+                           if i in self.used}}
 
 
 def bearer_token() -> Optional[str]:

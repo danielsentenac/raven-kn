@@ -22,6 +22,7 @@ Journal entries (`kind`):
 | Reports | `circular`: a GCN Circular linked to an alert of the store, with its labels; `grb_distance`: the distance of a GRB from a redshift announced in a circular, and whether a GW search can reach it ([GCN Circulars](listener.md#gcn-circulars)) |
 | Associations | `grb_attached`, `grb_detached`, `nu_attached`, `nu_detached`, `coincidence` |
 | Decisions | `decision` (only when it changes), `search_request`, `decision_failed` |
+| Launches | `search_requested` (asked for from the application), `search_refused` (fewer than two detectors with analysable data, each with its reason), `search_done`, `search_failed` |
 | Search and PE | `run_submitted`, `run_start`, `run_stage`, `run_progress`, `search_result`, `pe_result`, `run_end`, `run_failed` |
 | Pipeline | `listener_start` (with the time without heartbeat before it), `kafka_error`, `message_failed` |
 
@@ -74,7 +75,8 @@ network or put a TLS proxy in front of it.
 | `GET /api/health` | listeners (alive if the heartbeat is younger than 3 min), store counts, age of the run copy; `targeted_search.virgo`: whether the service has a Virgo targeted-search token and whether the request carried it |
 | `GET /api/events?cursor=&limit=` | journal entries after the cursor, oldest first; `more` when there are others |
 | `GET /api/optical` | optical transients with their steps |
-| `GET /api/optical/<name>` | optical transient, decision, coincidences, runs, steps; `reported_photometry`: the magnitudes reported in GCN Circulars about it or its burst, not verified |
+| `POST /api/optical/<name>/search` | ask for a targeted search: body `{"data": "site" \| "replay", "statistic": "coherent" \| "network"}`; needs the Virgo targeted-search token; answers the launch request, or 400 when one is already waiting or running |
+| `GET /api/optical/<name>` | optical transient, decision, coincidences, runs, steps; `launches`: the searches asked for from the application and what became of them; `reported_photometry`: the magnitudes reported in GCN Circulars about it or its burst, not verified |
 | `GET /api/runs/<optical>/<run>` | state, results, SNR series, PE summaries and samples |
 | `GET /api/gw` | superevents and their sky-map versions |
 | `GET /api/gw/<id>/map/<n>/<gw\|combined>` | reduced map: gzip of one byte per pixel, nside 128 NESTED, byte = ceil(credible level × 250), 255 where empty |
@@ -88,6 +90,35 @@ data. The **Virgo targeted-search token** is not a reading token: the applicatio
 reading token, in the header `X-Raven-KN-Virgo-Search`, and it will be required to start a targeted
 search on the Virgo site, from the strain data available there. It must differ from the reading tokens.
 A search on LVK data elsewhere (CIT) is a later addition, for which the LVK token is kept.
+
+## Starting a targeted search from the application
+
+The service runs nothing: it writes a launch request in `<store>/launch/` and a `search_requested`
+entry. `raven-kn launcher --store DIR`, one long-lived process on the Virgo site
+(`examples/logbook_service/run_launcher.sh`, `ensure_launcher.sh`), carries the requests out one at a time:
+
+1. it writes the search request of the optical transient (window, position, priors, chirp-mass range),
+   also when its decision is *held*: a person asked for the search;
+2. it looks at the frames kept on the site (`SiteSource`, `raven_kn/targeted/datasource.py`). A detector is
+   used where closed frame files cover what the search reads (the window, the longest template before it,
+   32 s after it) and its state vector has bits 0 and 1 set (h(t) computed, observing). With fewer than
+   two detectors the request is refused, each detector with its reason;
+3. it runs `raven-kn targeted --source site` in `<store>/runs/<optical>/<id>/`, where the service reads
+   the state, the journal and the result of the run, as for any run. The result is marked `lvk`.
+
+| Data | Detectors | Directory on the Virgo site | Strain, state vector |
+|---|---|---|---|
+| `site` | H1, L1 | `/data/prod/fromCIT/<IFO>ArrakisOnline` | `CAL-STRAIN_C00_16K`, `CAL-STATE_VECTOR_C00` |
+| | V1 | `/data/prod/hrec/V1Online` | `Hrec_hoft_16384Hz`, `DQ_ANALYSIS_STATE_VECTOR` |
+| | K1 | `/data/prod/fromCIT/K1KafkaOnline` | `CAL-STRAIN_C00`, `CAL-STATE_VECTOR_C00` |
+| `replay` | H1, L1, V1 | `/data/prod/fromCIT/<IFO>ArrakisLLPIC` | O4 data replayed at the current time (`..._O4Replay`), about 30 h kept |
+
+`replay` is a test of the chain: the replayed data have nothing to do with the sky of the alert, so the
+window keeps its length and is moved to the latest replay data analysable in the most detectors; the run
+says so in its name and its note. On 2026-11-19 no detector had observing data in the `site` frames kept
+since 30 September (H1 and L1: the h(t) bit never set; V1: no science mode, and no strain since the power
+cut of 11 November), so every `site` request of that period is refused. The meaning of bits 0 and 1 of the
+`C00` state vectors was not checked on observing data, for lack of any.
 
 The cursor is the number of lines already read in each journal file. It stays exact when an older entry
 arrives late, as with a run journal copied from a cluster hours after it was written.

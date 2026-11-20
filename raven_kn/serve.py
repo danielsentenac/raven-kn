@@ -1,6 +1,8 @@
 """Read-only HTTP service on a store, for the logbook application.
 
-Standard library only. Every request needs ``Authorization: Bearer <token>``;
+Read-only but for one request: ``POST /api/optical/<name>/search`` records
+that a targeted search is asked for (:mod:`raven_kn.launch`); the service
+itself runs nothing. Standard library only. Every request needs ``Authorization: Bearer <token>``;
 without it the answer is a JSON 401, so that a client can tell this service
 from a login page put in front of it. A second token (``lvk_token``) also
 shows the runs and journal entries marked ``visibility: lvk``.
@@ -371,8 +373,11 @@ class Store:
         except Exception:
             log.exception("%s: reported photometry not read", name)
             reported = []
+        from .launch import launches
         return {"optical": c, "decision": d, "request": self.request(name), "coincidences": co,
                 "reported_photometry": reported,
+                # targeted searches asked for from the application, with what became of them
+                "launches": launches(self.root, name),
                 "runs": runs, "hidden_runs": hidden, "steps": self.steps(name, allow_lvk, c),
                 "marks": marks,
                 "window": ({"start": _gps_iso(win["gps_start"]), "end": _gps_iso(win["gps_end"]),
@@ -709,6 +714,44 @@ def make_handler(store: Store, token: Optional[str], lvk_token: Optional[str],
             ok = bool(virgo_search_token and got
                       and hmac.compare_digest(got.encode(), virgo_search_token.encode()))
             return {"configured": bool(virgo_search_token), "granted": ok}
+
+        def do_POST(self):                                   # noqa: N802
+            try:
+                self._post()
+            except BrokenPipeError:
+                pass
+            except Exception as e:
+                log.exception("request failed: %s", self.path)
+                self._json({"service": "raven-kn", "error": f"{type(e).__name__}: {e}"}, 500)
+
+        def _post(self):
+            """``POST /api/optical/<name>/search`` with ``{"data": site | replay,
+            "statistic": coherent | network}``: ask for a targeted search. Needs
+            a reading token and the Virgo targeted-search token."""
+            u = urlparse(self.path)
+            p = [unquote(x) for x in u.path.strip("/").split("/")]
+            n = int(self.headers.get("Content-Length") or 0)
+            body = self.rfile.read(min(n, 4096)) if n > 0 else b""
+            if self._scope() is None:
+                return self._json({"service": "raven-kn", "api": API_VERSION, "error": "unauthorized"}, 401)
+            if len(p) != 4 or p[0] != "api" or p[1] != "optical" or p[3] != "search" \
+                    or any(x in ("", ".", "..") or "/" in x or "\\" in x for x in p):
+                return self._json({"service": "raven-kn", "error": "not found"}, 404)
+            if not self._virgo_search()["granted"]:
+                return self._json({"service": "raven-kn", "error": "the Virgo targeted-search token is "
+                                   "required to start a search"}, 403)
+            try:
+                opts = json.loads(body or b"{}")
+                if not isinstance(opts, dict) or n > 4096:
+                    raise ValueError("the request must be a small JSON object")
+                from .launch import request_search
+                from .journal import Journal
+                rec = request_search(store, p[2], str(opts.get("data", "site")),
+                                     str(opts.get("statistic", "coherent")),
+                                     journal=Journal.for_store(store.root, "serve"))
+            except ValueError as e:
+                return self._json({"service": "raven-kn", "error": str(e)}, 400)
+            return self._json({"launch": rec})
 
         def do_GET(self):                                    # noqa: N802
             try:

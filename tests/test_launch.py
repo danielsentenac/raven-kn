@@ -1,0 +1,173 @@
+"""Targeted searches asked for from the application: the request, the data
+check of the launcher, the replay test mode, and the service's endpoint."""
+import json
+import threading
+import urllib.error
+import urllib.request
+
+import numpy as np
+import pytest
+
+from raven_kn.connection import GRBAssociation, OpticalTransient
+from raven_kn.journal import read_events
+from raven_kn.launch import launches, process, request_search
+from raven_kn.listener import AlertStore, add_optical
+from raven_kn.serve import Store, make_server
+from raven_kn.targeted.datasource import SiteSource
+
+T0 = 1479043087.0
+
+
+@pytest.fixture()
+def store(tmp_path):
+    s = AlertStore(tmp_path / "store", source="t")
+    add_optical(OpticalTransient(name="KN1", ra=10.0, dec=20.0, source="GCN circular 1",
+                                 grb=GRBAssociation(gps=T0, instrument="Fermi-GBM", graceid="1")), s,
+                now_gps=T0 + 10)
+    return s
+
+
+def site(tmp_path, observing, t_files=(T0 - 2000, T0 + 2000)):
+    """A site with one 4000 s file per detector; ``observing``: detector ->
+    list of (start, end) where its state vector says observing."""
+    layout = {}
+    for ifo in observing:
+        d = tmp_path / "frames" / ifo
+        d.mkdir(parents=True, exist_ok=True)
+        (d / f"{ifo[0]}-Test-{int(t_files[0])}-{int(t_files[1] - t_files[0])}.gwf").write_bytes(b"")
+        (d / f"{ifo[0]}-Test-{int(t_files[1])}-4000.gwf_NOT_YET_CLOSED").write_bytes(b"")
+        layout[ifo] = {"dir": str(d), "channel": f"{ifo}:STRAIN", "state": f"{ifo}:STATE", "mask": 3}
+    src = SiteSource.named("live", layout=layout)
+
+    def state(path, channel, start, end):
+        ifo = channel.split(":")[0]
+        t = np.arange(start, end, 1.0)
+        v = np.full(t.size, 496, dtype="int64")                       # h(t) not OK, not observing
+        for a, b in observing[ifo]:
+            v[(t >= a) & (t < b)] = 0b111                              # bits 0 and 1 set
+        return float(start), 1.0, v
+    src._state_samples = state
+    return src
+
+
+def test_site_source(tmp_path):
+    src = site(tmp_path, {"H1": [(T0 - 500, T0 + 500)], "L1": [(T0 - 500, T0 + 20)], "V1": []})
+    assert [(a, b) for a, b, _ in src.files("H1", T0 - 10, T0 + 10)] == [(T0 - 2000, T0 + 2000)]
+    assert src.files("H1", T0 + 2100, T0 + 2200) == []                 # the file still being written
+    assert src.analysable("H1", T0 - 600, T0 + 600) == [(T0 - 500, T0 + 500)]
+    assert src.available("H1", T0 - 100, T0 + 32) and not src.available("L1", T0 - 100, T0 + 32)
+    cov = src.coverage(["H1", "L1", "V1", "K1"], T0 - 100, T0 + 32)
+    assert cov["H1"] == {"ok": True, "why": "", "analysable": [(T0 - 100, T0 + 32)]}
+    assert cov["L1"]["why"] == "observing for 120 s of 132 s only"
+    assert cov["V1"]["why"] == "not in observing mode (state vector)"
+    assert cov["K1"]["why"] == "no frame file for that time"
+    assert src.frame_urls("H1", T0, T0 + 1)[0].startswith("file://") and src.channel("H1") == "H1:STRAIN"
+    # the latest stretch analysable in the most detectors: H1 and L1 until T0 + 20
+    start, ifos = src.latest_window(6.0, 100.0, 32.0, now=T0 + 1000)
+    assert ifos == ["H1", "L1"] and start == T0 + 20 - 32 - 6
+    assert src.latest_window(6.0, 100.0, 32.0, now=T0 + 1000, min_ifos=3) is None
+
+
+def test_request(store):
+    with pytest.raises(ValueError):
+        request_search(store, "KN1", data="elsewhere")
+    with pytest.raises(ValueError):
+        request_search(store, "unknown")
+    rec = request_search(store, "KN1", "replay", "network")
+    assert rec["status"] == "requested" and rec["test"] and rec["id"].startswith("KN1_replay_network_")
+    assert launches(store.root, "KN1") == [rec] and launches(store.root, "other") == []
+    with pytest.raises(ValueError, match="already waiting or running"):
+        request_search(store, "KN1")
+    assert [e["summary"] for e in read_events(store.root)[0] if e["kind"] == "search_requested"] == [
+        "KN1: targeted search asked for from the application (replay data, a test, network statistic)"]
+
+
+def test_refused_without_two_detectors(store, tmp_path):
+    src = site(tmp_path, {"H1": [(T0 - 500, T0 + 500)], "L1": [], "V1": []})
+    rec = process(store, request_search(store, "KN1"), source=src,
+                  runner=lambda *a: pytest.fail("no search must run"))
+    assert rec["status"] == "refused"
+    assert rec["detail"] == ("fewer than two detectors with analysable data (L1: not in observing mode "
+                             "(state vector); V1: not in observing mode (state vector))")
+    e = [e for e in read_events(store.root)[0] if e["kind"] == "search_refused"]
+    assert len(e) == 1 and e[0]["level"] == "warning"
+    assert not list((store.root / "runs" / "KN1" / rec["id"]).glob("*_state.json"))   # no run was started
+    request_search(store, "KN1")                                       # a refused one does not block another
+
+
+def test_run_on_site_data(store, tmp_path):
+    src = site(tmp_path, {"H1": [(T0 - 500, T0 + 500)], "L1": [(T0 - 500, T0 + 500)], "V1": []})
+    seen = {}
+
+    def runner(cmd, log_path, tick):
+        seen["cmd"] = cmd
+        return 0
+    rec = process(store, request_search(store, "KN1", "site", "coherent"), source=src, runner=runner)
+    assert rec["status"] == "done" and rec["ifos"] == ["H1", "L1"]
+    cmd = seen["cmd"]
+    assert cmd[1:4] == ["-m", "raven_kn.cli", "targeted"]
+    opt = dict(zip(cmd[4::2], cmd[5::2]))
+    assert (opt["--source"], opt["--ifos"], opt["--statistic"], opt["--label"], opt["--visibility"]) == (
+        "site", "H1,L1", "coherent", rec["id"], "lvk")
+    run_dir = store.root / "runs" / "KN1" / rec["id"]
+    assert opt["--out"] == str(run_dir)
+    req = json.loads(open(opt["--request"]).read())
+    assert (req["gps_start"], req["gps_end"]) == (T0 - 5, T0 + 1)      # the GRB window, as it is
+    assert not list(run_dir.glob("*_skymap.fits"))
+    # the run is in the logbook from the start, with who asked for it
+    state = json.loads((run_dir / f"{rec['id']}_state.json").read_text())
+    assert state["stage"] == "submitted" and "V1 (not in observing mode" in state["note"]
+    view = Store(store.root).optical_detail("KN1", True)
+    assert [r["run"] for r in view["runs"]] == [rec["id"]]
+    assert [l["status"] for l in view["launches"]] == ["done"]
+    # a search that stops with an error
+    bad = process(store, request_search(store, "KN1"), source=src, runner=lambda *a: 3)
+    assert bad["status"] == "failed" and "exit code 3" in bad["detail"]
+
+
+def test_replay_moves_the_window(store, tmp_path):
+    now = T0 + 90000
+    src = site(tmp_path, {"H1": [(now - 3000, now - 100)], "L1": [(now - 3000, now - 100)],
+                          "V1": [(now - 3000, now - 400)]}, t_files=(now - 4000, now))
+    seen = {}
+    rec = process(store, request_search(store, "KN1", "replay"), source=src, now_gps=now,
+                  runner=lambda cmd, lp, tick: seen.update(cmd=cmd) or 0)
+    assert rec["status"] == "done" and rec["ifos"] == ["H1", "L1", "V1"] and rec["test"]
+    req = json.loads(open(dict(zip(seen["cmd"][4::2], seen["cmd"][5::2]))["--request"]).read())
+    assert req["gps_end"] - req["gps_start"] == 6.0 and req["original_gps_start"] == T0 - 5
+    assert req["gps_end"] == now - 400 - 32                            # the three detectors until there
+    assert "TEST on replayed O4 data" in rec["detail"]
+    # no replay data at all
+    empty = site(tmp_path / "e", {"H1": [], "L1": []}, t_files=(now - 4000, now))
+    r2 = process(store, request_search(store, "KN1", "replay"), source=empty, now_gps=now)
+    assert r2["status"] == "refused" and "no replay data" in r2["detail"]
+
+
+def test_endpoint(store):
+    srv = make_server(store.root, "127.0.0.1", 0, token="pub", lvk_token="lvk", virgo_search_token="vts")
+    threading.Thread(target=srv.serve_forever, daemon=True).start()
+    base = f"http://127.0.0.1:{srv.server_address[1]}"
+
+    def post(path, body, headers):
+        req = urllib.request.Request(base + path, data=json.dumps(body).encode(), method="POST", headers=headers)
+        try:
+            with urllib.request.urlopen(req) as r:
+                return r.status, json.loads(r.read())
+        except urllib.error.HTTPError as e:
+            return e.code, json.loads(e.read())
+    try:
+        ok = {"Authorization": "Bearer lvk", "X-Raven-KN-Virgo-Search": "vts"}
+        assert post("/api/optical/KN1/search", {}, {})[0] == 401
+        assert post("/api/optical/KN1/search", {}, {"Authorization": "Bearer lvk"})[0] == 403
+        assert post("/api/optical/KN1/search", {}, {**ok, "X-Raven-KN-Virgo-Search": "no"})[0] == 403
+        assert post("/api/optical/KN1/search", {"data": "rm -rf"}, ok)[0] == 400
+        assert post("/api/optical/unknown/search", {}, ok)[0] == 400
+        assert post("/api/optical/KN1/other", {}, ok)[0] == 404
+        assert launches(store.root) == []
+        code, out = post("/api/optical/KN1/search", {"data": "replay", "statistic": "network"}, ok)
+        assert code == 200 and out["launch"]["status"] == "requested" and out["launch"]["data"] == "replay"
+        assert post("/api/optical/KN1/search", {}, ok)[0] == 400       # one at a time
+        assert [e["source"] for e in read_events(store.root)[0] if e["kind"] == "search_requested"] == ["serve"]
+    finally:
+        srv.shutdown()
+        srv.server_close()

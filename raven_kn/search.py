@@ -131,7 +131,7 @@ def assess(kn: OpticalTransient, out_dir: Optional[str | Path] = None,
            nside: int = 512, model_sys_frac: float = 0.75,
            chirp_mass_msun: Optional[float] = None, require_kn_evidence: bool = True,
            mchirp_source_range: tuple[float, float] = (1.0, 1.5),
-           kn_evidence_kw: Optional[dict] = None) -> dict:
+           kn_evidence_kw: Optional[dict] = None, write_request: bool = False) -> dict:
     """Targeted-search trigger decision for one optical transient.
 
     Steps: (1) distance/inclination posterior from EM data; (2) t0 window,
@@ -145,7 +145,8 @@ def assess(kn: OpticalTransient, out_dir: Optional[str | Path] = None,
     ``mchirp_source_range`` times (1 + z) over the redshifts of the distance
     prior (``chirp_mass_msun``, if given, is taken as is, +-10 %).
     If ``out_dir`` is given, write the decision, the 3D sky map, the
-    posterior samples and the targeted-search request there.
+    posterior samples and, when the search is triggered (or with
+    ``write_request``), the targeted-search request there.
     """
     post = posterior_for(kn, d_max=d_max_prior)
     d95 = float(np.quantile(post.d_mpc, 0.95)) if post.constraints else None
@@ -190,7 +191,7 @@ def assess(kn: OpticalTransient, out_dir: Optional[str | Path] = None,
             "note": "split windows longer than a few hours into sub-segments (Earth rotation)",
         }
         decision["files"] = {"skymap": fits.name, "samples": request["samples"]}
-        if trigger:
+        if trigger or write_request:                 # write_request: a search asked for by a person
             (out / f"{stem}_targeted_search_request.json").write_text(json.dumps(request, indent=2))
             decision["files"]["targeted_search_request"] = f"{stem}_targeted_search_request.json"
         (out / f"{stem}_decision.json").write_text(json.dumps(decision, indent=2))

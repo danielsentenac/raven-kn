@@ -65,6 +65,8 @@ from typing import Callable, Optional, Sequence
 
 import numpy as np
 
+_trapz = getattr(np, "trapezoid", None) or np.trapz      # numpy 2 name, else the numpy 1 one
+
 from ..treatment.far import combine_subsegments, targeted_pvalue
 
 DEFAULT_IFOS = ("H1", "L1", "V1")
@@ -207,12 +209,12 @@ def _chirp_metric(mchirp: float, f_low: float, f_high: float, psd_func) -> float
     G_c3 = 4.925490947e-6
     f = np.linspace(f_low, f_high, 20000)
     w = f ** (-7 / 3) / psd_func(f)
-    w /= np.trapezoid(w, f)
+    w /= _trapz(w, f)
     dpsi = -5 / 3 * 3 / 128 * (np.pi * G_c3 * mchirp * f) ** (-5 / 3)
     basis = np.vstack([np.ones_like(f), 2 * np.pi * f])          # d psi / d phi_c, d psi / d t_c
-    gram = np.array([[np.trapezoid(w * a * b, f) for b in basis] for a in basis])
-    proj = np.array([np.trapezoid(w * dpsi * a, f) for a in basis])
-    return float(np.trapezoid(w * dpsi ** 2, f) - proj @ np.linalg.solve(gram, proj))
+    gram = np.array([[_trapz(w * a * b, f) for b in basis] for a in basis])
+    proj = np.array([_trapz(w * dpsi * a, f) for a in basis])
+    return float(_trapz(w * dpsi ** 2, f) - proj @ np.linalg.solve(gram, proj))
 
 
 def _aligo_psd():

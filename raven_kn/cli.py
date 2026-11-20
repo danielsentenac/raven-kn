@@ -122,10 +122,12 @@ def main(argv=None):
     g.add_argument("--statistic", choices=["network", "coherent"], default="network",
                    help="incoherent network SNR, or coherent SNR with null-stream cut (as PyGRB)")
     g.add_argument("--no-gating", action="store_true")
-    g.add_argument("--source", default="auto", choices=["auto", "public", "lvk", "gwosc"],
+    g.add_argument("--source", default="auto", choices=["auto", "public", "lvk", "gwosc", "site", "replay"],
                    help="auto: public GWOSC data (datafind.gwosc.org frames, GWOSC timelines) if they "
                         "cover the window, else LVK data if configured and a SciToken is present; "
-                        "public / lvk: force one; gwosc: GWOSC event files only, no segment check")
+                        "public / lvk: force one; gwosc: GWOSC event files only, no segment check; "
+                        "site: the online strain kept on the Virgo site; replay: the O4 replay kept "
+                        "there, for tests")
     g.add_argument("--files", help="IFO=path[:channel],... (frame files need :channel); "
                                    "detectors without a file are read from GWOSC")
     g.add_argument("--lvk-preset", help="LVK frame types, channels and science flags of a run (O2)")
@@ -268,6 +270,12 @@ def main(argv=None):
                     help="file with the Virgo targeted-search token, required to start a targeted "
                          "search on the Virgo site (else RAVEN_KN_VIRGO_SEARCH_TOKEN; optional)")
 
+    la = sub.add_parser("launcher", help="carry out the targeted searches asked for from the logbook "
+                                         "application, on the data kept on the site")
+    la.add_argument("--store", required=True)
+    la.add_argument("--once", action="store_true", help="stop when no request is waiting")
+    la.add_argument("--interval", type=float, default=10.0, help="seconds between two looks")
+
     fl = sub.add_parser("fink-listen", help="optical transients from a Fink Kafka livestream "
                                             "(credentials: finkctl auth register)")
     fl.add_argument("--survey", choices=["ztf", "lsst"], required=True)
@@ -295,6 +303,13 @@ def main(argv=None):
         vts = (Path(args.virgo_search_token_file).read_text().strip() if args.virgo_search_token_file
                else os.environ.get("RAVEN_KN_VIRGO_SEARCH_TOKEN", ""))
         serve(args.store, args.host, args.port, tok or None, lvk or None, vts or None)
+        return
+    if args.cmd == "launcher":
+        import logging
+        from .launch import launcher
+        from .listener import AlertStore
+        logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
+        launcher(AlertStore(args.store, source="launcher"), args.interval, args.once)
         return
     if args.cmd == "runlog":
         from .journal import RunLog
@@ -458,6 +473,10 @@ def main(argv=None):
             from .targeted.datasource import ManifestSource
             fetch = ManifestSource.load(args.manifest, cfg.sample_rate, args.frame_dir)
             print(f"data source: {fetch.name} (manifest {args.manifest})", flush=True)
+        elif args.source in ("site", "replay"):
+            from .targeted.datasource import SiteSource
+            fetch = SiteSource.named("live" if args.source == "site" else "replay", cfg.sample_rate)
+            print(f"data source: {fetch.name}", flush=True)
         elif args.source == "gwosc":
             fetch = gw
         else:
