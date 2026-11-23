@@ -50,6 +50,14 @@ A PyCBC-based search that runs on a laptop or a single cluster node:
   removed from the background only if loud in two detectors. Optionally, off-source trials
   (`--n-offsource N`) sample the data around the window, as PyGRB does.
 - **Significance**: a p-value per sub-segment, combined over sub-segments with a trials factor.
+- **Cost**: about 11 minutes for a sub-segment of 1024 s with three detectors and 2148 templates, on
+  8 cores (`--workers 6`; coherent statistic, measured on replayed O4 data). What makes it so:
+  the data length is trimmed, by at most about a second of the lead, to a length the transforms are fast
+  at; each template is generated once for the detectors; the gate-aware chi-square is computed on the
+  stretch of data the template spans (the template's duration plus 11 s), not over the whole
+  sub-segment (`gate_chisq_stretch`; the same quantity, values within about 1 %, 5 % at most on a
+  synthetic gated signal); and `--workers N` shares the templates of a sub-segment between N processes
+  of one thread each, with the same result whatever N.
 - **Masses**: the request gives the chirp-mass range in the detector frame, the source-frame range
   (1.0–1.5 M☉ by default) times 1 + z over the redshifts of the distance prior.
 - **Parameter estimation** (`--pe em|gw|both`, `raven_kn/targeted/pe.py`): Bilby on the loudest

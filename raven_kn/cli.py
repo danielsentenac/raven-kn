@@ -121,6 +121,9 @@ def main(argv=None):
                    help="off-source trials (same length, outside the window) per sub-segment")
     g.add_argument("--statistic", choices=["network", "coherent"], default="network",
                    help="incoherent network SNR, or coherent SNR with null-stream cut (as PyGRB)")
+    g.add_argument("--workers", type=int, default=1,
+                   help="coherent statistic: processes sharing the templates of a sub-segment "
+                        "(one thread each; the result does not depend on it)")
     g.add_argument("--no-gating", action="store_true")
     g.add_argument("--source", default="auto", choices=["auto", "public", "lvk", "gwosc", "site", "replay"],
                    help="auto: public GWOSC data (datafind.gwosc.org frames, GWOSC timelines) if they "
@@ -279,6 +282,9 @@ def main(argv=None):
                     help="nodes to run the searches on, e.g. farmn1,farmn2 (else RAVEN_KN_FARM; "
                          "without, they run on this machine). Reached by ssh without a password, "
                          "same store, Python and frames at the same paths")
+    la.add_argument("--max-nodes", type=int, default=None,
+                    help="farm nodes a search cut in pieces uses at once (else RAVEN_KN_FARM_MAX, "
+                         "else 10)")
 
     fl = sub.add_parser("fink-listen", help="optical transients from a Fink Kafka livestream "
                                             "(credentials: finkctl auth register)")
@@ -314,7 +320,8 @@ def main(argv=None):
         from .listener import AlertStore
         logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(message)s")
         launcher(AlertStore(args.store, source="launcher"), args.interval, args.once,
-                 farm_hosts(args.farm if args.farm is not None else os.environ.get("RAVEN_KN_FARM")))
+                 farm_hosts(args.farm if args.farm is not None else os.environ.get("RAVEN_KN_FARM")),
+                 args.max_nodes or int(os.environ.get("RAVEN_KN_FARM_MAX") or 10))
         return
     if args.cmd == "runlog":
         from .journal import RunLog
@@ -456,7 +463,7 @@ def main(argv=None):
         kw = dict(ifos=tuple(args.ifos.split(",")), mchirp_min=args.mchirp_min,
                   mchirp_max=args.mchirp_max, mass_ratio=args.mass_ratio, spin1z=args.spin1z,
                   spin2z=args.spin2z, f_low=args.f_low, subsegment_s=args.subsegment,
-                  n_slides=args.n_slides, n_offsource=args.n_offsource, statistic=args.statistic,
+                  n_slides=args.n_slides, n_offsource=args.n_offsource, statistic=args.statistic, workers=args.workers,
                   gate_threshold=None if args.no_gating else 50.0)
         if args.distance_prior:
             kw["distance_prior"] = True

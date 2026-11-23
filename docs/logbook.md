@@ -109,10 +109,23 @@ entry. `raven-kn launcher --store DIR`, one long-lived process on the Virgo site
 With a farm (`raven-kn launcher --farm farmn1,farmn2,...`, or `RAVEN_KN_FARM` in
 `~/.config/raven_kn_launcher.env`), step 3 does not run on the launcher's machine but on a node of the
 list, started over `ssh`: the least loaded of those reached without a password, seeing the run directory
-and the Python of the pipeline, with a 1-minute load below 1 and 6 GB of memory available. The nodes must
+and the Python of the pipeline, with a 1-minute load below 1 and 10 GB of memory available. The nodes must
 see the store, the pipeline and the frames at the same paths (a shared home directory). The node is
 written in the request (`host`) and in the note of the run. When no node qualifies, the search runs on
-the launcher's machine and the note says why. One search runs on one node; a search is not split.
+the launcher's machine and the note says why. The search shares its templates between the cores of the
+node less two (`raven-kn targeted --workers`).
+
+A window longer than one sub-segment of the search (1024 s; a window from the light curve alone lasts
+hours to days) is cut in pieces of one sub-segment. Each piece is checked for data on its own and
+skipped, with the reason, where fewer than two detectors have any. The others are searched as separate
+jobs in `<run directory>/pieces/pNNNN/`, on at most 10 nodes of the farm at once (`--max-nodes`,
+`RAVEN_KN_FARM_MAX`), or one after the other on the launcher's machine without a farm. A piece that fails
+is tried once more on another node. At the end the results are merged in one
+`<id>_targeted_result.json` (sub-segments in order of time, p-value combined with the trials factor,
+pieces skipped or failed listed under `data.skipped`): the application shows one run, with its progress
+in sub-segments. The request carries `pieces_total`, `pieces_done`, `pieces_skipped`, `pieces_failed` and
+`hosts`. A piece of 1024 s with three detectors takes about 11 minutes on a node of 8 cores (measured on
+replayed O4 data), so a window of two days, about 170 pieces, about 3 hours on 10 nodes.
 
 | Data | Detectors | Directory on the Virgo site | Strain, state vector |
 |---|---|---|---|

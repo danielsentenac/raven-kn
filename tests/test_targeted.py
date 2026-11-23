@@ -421,3 +421,29 @@ def test_coherent_distance_prior():
     bad = run(_coh_cfg(distance_prior=True, distance_range_mpc=(20.0, 25.0), inclination_ranges_rad=near,
                        n_slides=20), f, progress=False).subsegments[0]
     assert bad.loudest_rho_net == 0.0 and max(bad.background) == 0.0
+
+
+def test_coherent_in_parallel_is_the_same():
+    """The templates of a sub-segment shared between processes: same loudest
+    candidate, same background, same counts as in one process."""
+    cfg = {**_coh_cfg().__dict__, "gate_threshold": 50.0}
+    fetch = _spiked(synthetic_fetcher(inject=True, distance_mpc=60))
+    one = run(TargetedSearchConfig(**cfg), fetch, progress=False).subsegments[0]
+    three = run(TargetedSearchConfig(**{**cfg, "workers": 3}), fetch, progress=False).subsegments[0]
+    assert three.loudest_rho_net == one.loudest_rho_net and three.loudest_gps == one.loudest_gps
+    assert three.loudest_rho_ifo == one.loudest_rho_ifo and three.loudest_mchirp == one.loudest_mchirp
+    assert three.background == one.background and three.notes == one.notes
+
+
+def test_gated_chisq_on_the_stretch_agrees():
+    """The gated chi-square computed on the stretch of data the template spans
+    gives the same candidate as over the whole sub-segment, to a fraction of a
+    per cent in the statistic."""
+    cfg = {**_coh_cfg().__dict__, "gate_threshold": 50.0}
+    fetch = _spiked(synthetic_fetcher(inject=True, distance_mpc=60))
+    new = run(TargetedSearchConfig(**cfg), fetch, progress=False).subsegments[0]
+    old = run(TargetedSearchConfig(**{**cfg, "gate_chisq_stretch": False}), fetch,
+              progress=False).subsegments[0]
+    assert new.gates["L1"] and abs(new.loudest_gps - old.loudest_gps) < 1e-3
+    assert new.loudest_rho_net == pytest.approx(old.loudest_rho_net, rel=0.01)
+    assert max(new.background) == pytest.approx(max(old.background), rel=0.03)

@@ -128,9 +128,9 @@ def test_run_on_site_data(store, tmp_path):
 def test_run_on_a_farm_node(store, tmp_path, monkeypatch):
     from raven_kn.launch import farm_hosts, pick_node
     assert farm_hosts("farmn1, farmn2  farmn3") == ["farmn1", "farmn2", "farmn3"] and farm_hosts(None) == []
-    nodes = {"a": {"host": "a", "cores": 8, "load": 0.4, "mem_gb": 12.0},
+    nodes = {"a": {"host": "a", "cores": 8, "load": 0.4, "mem_gb": 13.0},
              "b": {"host": "b", "cores": 8, "load": 0.1, "mem_gb": 3.0},      # too little memory
-             "c": {"host": "c", "cores": 8, "load": 0.2, "mem_gb": 9.0},
+             "c": {"host": "c", "cores": 8, "load": 0.2, "mem_gb": 11.0},
              "d": {"host": "d", "cores": 8, "load": 15.0, "mem_gb": 14.0},    # busy
              "e": None}                                                       # not reached
     probe = lambda h, paths: nodes[h]
@@ -159,6 +159,67 @@ def test_run_on_a_farm_node(store, tmp_path, monkeypatch):
                   runner=lambda cmd, lp, tick: seen.update(cmd=cmd) or 0)
     assert rec["host"] is None and "launcher's machine (the 1 farm nodes reached are all busy)" in rec["detail"]
     assert seen["cmd"][1:4] == ["-m", "raven_kn.cli", "targeted"]
+
+
+def test_long_window_in_pieces(store, tmp_path, monkeypatch):
+    """A window longer than one piece: each piece checked for data and run as
+    its own job on the farm, a failed one tried again elsewhere, one result."""
+    import raven_kn.launch as L
+    monkeypatch.setattr(L, "PIECE_S", 2.0)                             # the 6 s window: 3 pieces
+    monkeypatch.setattr(L, "MIN_PIECE_S", 0.5)
+    assert L.pieces(0.0, 5.2) == [(0.0, 2.0), (2.0, 4.0), (4.0, 5.2)] and L.pieces(0.0, 2.0) == [(0.0, 2.0)]
+    assert L.pieces(0.0, 4.2) == [(0.0, 2.0), (2.0, 4.0)]              # the leftover dropped
+    # H1 stops observing before what the last piece reads: that piece has one detector only
+    src = site(tmp_path, {"H1": [(T0 - 500, T0 + L.TAIL_S)], "L1": [(T0 - 500, T0 + 500)]})
+    calls = []
+
+    class Job:
+        def __init__(self, cmd, log_path):
+            script = cmd[-1] if cmd[0] == "ssh" else " ".join(cmd)
+            import shlex
+            words = shlex.split(shlex.split(script)[2].split("exec ", 1)[1]) if cmd[0] == "ssh" else cmd
+            opt = dict(zip(words[4::2], words[5::2]))
+            self.host = cmd[-2] if cmd[0] == "ssh" else None
+            calls.append((self.host, opt["--label"]))
+            n = int(opt["--label"][-4:])
+            self.code = 1 if (n == 1 and self.host == "a") else 0     # piece 1 fails on node a
+            if self.code == 0:
+                req = json.loads(open(opt["--request"]).read())
+                sub = {"gps_start": req["gps_start"], "gps_end": req["gps_end"], "ifos": opt["--ifos"].split(","),
+                       "loudest_rho_net": 5.0 + n, "loudest_gps": req["gps_start"] + 1, "loudest_mchirp": 1.2,
+                       "loudest_rho_ifo": {"H1": 4.0, "L1": 4.0}, "background": [6.5] * 99, "p_value": 1.0 / n}
+                (tmp_path / "x").write_text("")
+                from pathlib import Path
+                Path(opt["--out"], f"{opt['--label']}_targeted_result.json").write_text(json.dumps(
+                    {"config": {"label": opt["--label"]}, "bank_size": 7, "subsegments": [sub], "p_value": 1.0 / n,
+                     "loudest": {k: v for k, v in sub.items() if k != "background"}, "data": {"source": "site-live"}}))
+
+        def poll(self):
+            return self.code
+
+    free = {"a": {"host": "a", "cores": 8, "load": 0.0, "mem_gb": 14.0},
+            "b": {"host": "b", "cores": 8, "load": 0.0, "mem_gb": 14.0}}
+    picker = lambda hosts, paths: ((free[hosts[0]], "") if hosts else (None, "none"))
+    rec = process(store, request_search(store, "KN1"), source=src, farm=["a", "b"], picker=picker,
+                  spawn=Job, poll_s=0.0)
+    assert rec["status"] == "done", rec["detail"]
+    assert (rec["pieces_done"], rec["pieces_skipped"], rec["pieces_failed"]) == (2, 1, 0)
+    assert "2 of 3 pieces searched on 2 machines, 1 skipped for lack of data" in rec["detail"]
+    assert calls[0] == ("a", f"{rec['id']}_p0001") and ("b", f"{rec['id']}_p0001") in calls   # tried again on b
+    run_dir = store.root / "runs" / "KN1" / rec["id"]
+    res = json.loads((run_dir / f"{rec['id']}_targeted_result.json").read_text())
+    assert [s["gps_start"] for s in res["subsegments"]] == [T0 - 5, T0 - 3]
+    assert res["loudest"]["loudest_rho_net"] == 7.0 and res["config"]["gps_end"] == T0 + 1
+    assert res["p_value"] == pytest.approx(1 - (1 - 0.5) ** 2)         # trials factor over the pieces
+    assert res["data"]["pieces"] == 2 and "H1" in res["data"]["skipped"][0]["why"]
+    state = json.loads((run_dir / f"{rec['id']}_state.json").read_text())
+    assert (state["stage"], state["subsegments_done"], state["subsegments_total"]) == ("done", 2, 2)
+    view = Store(store.root).optical_detail("KN1", True)
+    assert [r["run"] for r in view["runs"]] == [rec["id"]]            # one run, not one per piece
+    # without a farm: the pieces one after the other on the launcher's machine
+    calls.clear()
+    rec = process(store, request_search(store, "KN1"), source=src, spawn=Job, poll_s=0.0)
+    assert rec["status"] == "done" and [h for h, _ in calls] == [None, None]
 
 
 def test_replay_moves_the_window(store, tmp_path):
