@@ -475,7 +475,7 @@ def _evaluate(kn: OpticalTransient, gw: dict, moc: Optional[Table], combined: Op
     # same window as raven_kn.search.assess: the 95th-percentile EM distance
     # decides which non-detections constrain the merger time
     post = posterior_for(kn) if (kn.redshift or kn.distance or kn.lc_fit_samples) else None
-    d95 = float(np.quantile(post.d_mpc, 0.95)) if post is not None and post.constraints else None
+    d95 = float(np.quantile(post.d_mpc, 0.95)) if post is not None and post.distance_informed else None
     window = estimate_window(kn, d_mpc_upper=d95)
     if not window.gps_start <= gw["gpstime"] <= window.gps_end:
         return None

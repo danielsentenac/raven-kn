@@ -59,6 +59,26 @@ def test_posterior_recovers_ngc4993_distance_and_angle():
     assert pri["luminosity_distance_mpc"][0] < 40 < pri["luminosity_distance_mpc"][1]
 
 
+def test_high_redshift_is_placed_at_its_distance_not_at_the_prior_limit():
+    post = posterior_for(make_kn(z=3.58, theta=None))
+    s = post.summary()
+    assert s["distance_informed"]
+    assert 30000 < s["luminosity_distance_mpc"]["median"] < 34000      # not 1500, the default limit
+    far = assess(make_kn(z=3.58, theta=None))
+    assert not far["trigger_targeted_search"]
+    assert any("Mpc cut" in r for r in far["detectability"]["reasons"])
+
+
+def test_no_distance_information_is_said_and_not_shown_as_a_distance():
+    kn = make_kn(z=None, theta=None, grb=True)        # a burst alone says nothing on distance
+    post = posterior_for(kn)
+    assert not post.distance_informed and not post.summary()["distance_informed"]
+    d = assess(kn, require_kn_evidence=False)
+    why = " ".join(d["detectability"]["reasons"])
+    assert "distance unknown" in why and "median D_L" not in why
+    assert not d["trigger_targeted_search"]
+
+
 # ---------------- decision ----------------
 
 def test_nearby_is_worth_far_is_not(tmp_path):

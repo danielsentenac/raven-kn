@@ -27,6 +27,7 @@ from astropy.cosmology import Planck18, z_at_value
 from ..connection import OpticalTransient
 
 C_KMS = 299792.458
+FAR_MARGIN = 1.5      # a source beyond the distance prior: the prior is extended to this times its distance
 LogLike = Callable[[np.ndarray, np.ndarray], np.ndarray]   # (d_mpc, cos_iota) -> log L
 
 
@@ -38,6 +39,7 @@ LogLike = Callable[[np.ndarray, np.ndarray], np.ndarray]   # (d_mpc, cos_iota) -
 class Constraint:
     name: str
     loglike: LogLike
+    d_mpc: Optional[float] = None    # distance it points to; None if it says nothing on distance
 
 
 def _z_of_d(cosmo=Planck18, d_max=3000.0, n=2000):
@@ -53,12 +55,13 @@ def redshift_constraint(z: float, z_err: float = 1e-4, v_pec_err_kms: float = 30
     """Spectroscopic (host or transient) redshift. The peculiar velocity
     (~300 km/s) dominates below ~100 Mpc. The cosmology (H0) is fixed: for
     an H0 measurement use the GW distance instead."""
-    z_of_d = _z_of_d(cosmo)
+    d0 = float(cosmo.luminosity_distance(z).to_value(u.Mpc))
+    z_of_d = _z_of_d(cosmo, d_max=max(3000.0, FAR_MARGIN * d0))
     sig = np.hypot(z_err, v_pec_err_kms / C_KMS)
 
     def ll(d, c):
         return -0.5 * ((z_of_d(d) - z) / sig) ** 2
-    return Constraint(f"redshift({kind}) z={z}", ll)
+    return Constraint(f"redshift({kind}) z={z}", ll, d0)
 
 
 def distance_constraint(mean_mpc: float, std_mpc: float, method: str = "") -> Constraint:
@@ -66,7 +69,7 @@ def distance_constraint(mean_mpc: float, std_mpc: float, method: str = "") -> Co
     fit summarised as mean/std."""
     def ll(d, c):
         return -0.5 * ((d - mean_mpc) / std_mpc) ** 2
-    return Constraint(f"distance({method}) {mean_mpc}+-{std_mpc} Mpc", ll)
+    return Constraint(f"distance({method}) {mean_mpc}+-{std_mpc} Mpc", ll, float(mean_mpc))
 
 
 def viewing_angle_constraint(mean_deg: float, std_deg: float, method: str = "") -> Constraint:
@@ -109,7 +112,7 @@ def samples_constraint(d_samples: np.ndarray, cos_iota_samples: Optional[np.ndar
 
         def ll(d, c):
             return np.log(kde(np.vstack([d, np.abs(c)])) + 1e-300)
-    return Constraint(name, ll)
+    return Constraint(name, ll, float(np.median(d_samples)))
 
 
 def constraints_from_optical(kn: OpticalTransient) -> list[Constraint]:
@@ -149,6 +152,7 @@ class DistanceInclinationPosterior:
     constraints: list[str] = field(default_factory=list)
     n_eff: float = 0.0
     d_max_prior: float = 0.0
+    distance_informed: bool = True   # False: no constraint on distance, d_mpc is the prior
 
     @property
     def theta_obs_deg(self) -> np.ndarray:
@@ -165,6 +169,7 @@ class DistanceInclinationPosterior:
                 "viewing_angle_deg": q(self.theta_obs_deg),
                 "n_eff": float(self.n_eff),
                 "constraints": self.constraints,
+                "distance_informed": self.distance_informed,
                 "distance_prior": f"uniform in volume, D_L < {self.d_max_prior} Mpc",
                 "inclination_prior": "isotropic (cos iota uniform)"}
 
@@ -205,11 +210,17 @@ def combine(constraints: list[Constraint], d_max: float = 1500.0, n_out: int = 2
 
     Two-stage grid (the problem is 2D): a coarse grid over [0, d_max] finds
     the support, a fine grid over it gives the samples (jittered within
-    cells). With no constraint the result is the prior: the distance is
-    then unknown, which the detectability step reports.
+    cells). With no constraint on distance the result is the prior
+    (``distance_informed`` False): the distance is then unknown, which the
+    detectability step reports. A constraint pointing beyond ``d_max`` (a
+    high redshift) extends the prior to :data:`FAR_MARGIN` times its
+    distance, so the source is placed where it is and not at the limit.
     """
     rng = np.random.default_rng(seed)
     names = [x.name for x in constraints]
+    centres = [x.d_mpc for x in constraints if x.d_mpc is not None]
+    if centres and FAR_MARGIN * max(centres) > d_max:
+        d_max = FAR_MARGIN * max(centres)
     d, c, p = _grid_post(constraints, 0.0, d_max, n_d, 50)
     pd = p.sum(axis=1)
     cdf = np.cumsum(pd)
@@ -224,7 +235,7 @@ def combine(constraints: list[Constraint], d_max: float = 1500.0, n_out: int = 2
     ds = d[i] + rng.uniform(-0.5, 0.5, n_out) * dd
     cs = np.clip(c[j] + rng.uniform(-0.5, 0.5, n_out) * dc, -1, 1)
     n_eff = 1.0 / np.sum(flat ** 2)              # effective number of grid cells
-    return DistanceInclinationPosterior(ds, cs, names, n_eff, d_max)
+    return DistanceInclinationPosterior(ds, cs, names, n_eff, d_max, bool(centres))
 
 
 def posterior_for(kn: OpticalTransient, **kw) -> DistanceInclinationPosterior:

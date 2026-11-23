@@ -149,12 +149,12 @@ def assess(kn: OpticalTransient, out_dir: Optional[str | Path] = None,
     ``write_request``), the targeted-search request there.
     """
     post = posterior_for(kn, d_max=d_max_prior)
-    d95 = float(np.quantile(post.d_mpc, 0.95)) if post.constraints else None
+    d95 = float(np.quantile(post.d_mpc, 0.95)) if post.distance_informed else None
     window = estimate_window(kn, d_mpc_upper=d95, model_sys_frac=model_sys_frac)
     det = assess_detectability(post, window, kn.ra, kn.dec, ranges_mpc, snr_threshold,
                                p_min, d_max_useful_mpc, segments, duty_cycle,
                                chirp_mass_msun=chirp_mass_msun)
-    d_med = float(np.median(post.d_mpc)) if post.constraints else None
+    d_med = float(np.median(post.d_mpc)) if post.distance_informed else None
     ev = kilonova_evidence(kn, d_med, **(kn_evidence_kw or {}))
     trigger = det.worth_search and (ev.confirmed or not require_kn_evidence)
     decision = {
@@ -170,14 +170,14 @@ def assess(kn: OpticalTransient, out_dir: Optional[str | Path] = None,
         out = Path(out_dir)
         out.mkdir(parents=True, exist_ok=True)
         stem = kn.name.replace(" ", "_")
-        cols = kn_skymap_3d(kn.ra, kn.dec, post if post.constraints else None,
+        cols = kn_skymap_3d(kn.ra, kn.dec, post if post.distance_informed else None,
                             kn.pos_err_arcsec, nside)
         fits = write_skymap(out / f"{stem}_skymap.fits", cols, kn.name, kn.gpstime,
-                            post if post.constraints else None)
+                            post if post.distance_informed else None)
         np.savez(out / f"{stem}_dist_incl_samples.npz", luminosity_distance=post.d_mpc,
                  cos_iota=post.cos_iota)
         z_range = redshift_range(decision["search_priors"]["luminosity_distance_mpc"]) \
-            if post.constraints else [0.0, 0.0]
+            if post.distance_informed else [0.0, 0.0]
         request = {
             "optical": kn.name, "ra_deg": kn.ra, "dec_deg": kn.dec,
             "gps_start": window.gps_start, "gps_end": window.gps_end,

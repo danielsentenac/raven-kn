@@ -150,14 +150,19 @@ def assess_detectability(post: DistanceInclinationPosterior, window: MergerTimeW
     reasons, worth = [], True
     if d_max_useful_mpc is not None and d_med > d_max_useful_mpc:
         worth = False
-        reasons.append(f"median D_L {d_med:.0f} Mpc > {d_max_useful_mpc:.0f} Mpc cut")
+        if post.distance_informed:
+            reasons.append(f"median D_L {d_med:.0f} Mpc > {d_max_useful_mpc:.0f} Mpc cut")
+        else:                       # d_med is the median of the prior, not a measurement
+            reasons.append(f"distance unknown (no redshift or distance): assumed uniform in volume "
+                           f"below {post.d_max_prior:.0f} Mpc, mostly beyond the "
+                           f"{d_max_useful_mpc:.0f} Mpc cut")
     if p < p_min:
         worth = False
         reasons.append(f"P(network SNR >= {snr_threshold}) = {p:.3f} < {p_min}")
     if all(f == 0 for f in frac.values()):
         worth = False
         reasons.append("no detector data in the window")
-    if post.constraints == []:
+    if not post.distance_informed and (d_max_useful_mpc is None or d_med <= d_max_useful_mpc):
         reasons.append("WARNING: no distance information; prior only")
     if worth:
         reasons.append(f"P(network SNR >= {snr_threshold}) = {p:.3f}")
