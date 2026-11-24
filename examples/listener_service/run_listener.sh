@@ -7,6 +7,8 @@
 #   results.jsonl           : one line per coincidence result
 #   listener.log            : starts, exits, Kafka errors, candidates updated
 set -a; . ~/.config/gcn_kafka.env; set +a
+# optional: tokens of the alert brokers (LASAIR_TOKEN=..., mode 600), see docs/listener.md
+[ -f ~/.config/raven_kn_brokers.env ] && { set -a; . ~/.config/raven_kn_brokers.env; set +a; }
 cd ~/raven-kn-run
 while true; do
     echo "$(date -Is) starting listener on $(hostname)" >> listener.log

@@ -74,6 +74,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -681,6 +682,12 @@ def assess_transient(kn: Any, store: Any, **assess_kw) -> Optional[dict]:
     if not d["trigger_targeted_search"]:
         (adir / f"{stem}_skymap.fits").unlink(missing_ok=True)
     log_decision(journal_of(store), d, previous)
+    try:                                               # what the brokers have at its position
+        from .brokers import REFRESH_H, crossmatch_transient
+        if os.environ.get("RAVEN_KN_BROKERS", "1") != "0":   # "0": no request to the brokers (tests)
+            crossmatch_transient(kn, store.root, max_age_h=REFRESH_H)
+    except Exception:
+        log.exception("%s: brokers not asked", kn.name)
     return d
 
 

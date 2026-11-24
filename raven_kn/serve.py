@@ -384,6 +384,8 @@ class Store:
                 "reported_photometry": reported,
                 # what the circulars about it and about its burst report, by category
                 "reported": facts,
+                # what the alert brokers have at its position (raven_kn.brokers), None: not asked yet
+                "brokers": _load(self.root / "brokers" / f"{_safe(name)}.json"),
                 # targeted searches asked for from the application, with what became of them
                 "launches": launches(self.root, name),
                 "runs": runs, "hidden_runs": hidden, "steps": self.steps(name, allow_lvk, c),

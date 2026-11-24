@@ -219,7 +219,7 @@ class FinkConnector:
 
     ZTF_BANDS = {1: "g", 2: "r", 3: "i"}
 
-    def __init__(self, base_url: str = "https://api.fink-portal.org",
+    def __init__(self, base_url: str = "https://api.ztf.fink-portal.org",   # api.fink-portal.org until 2026
                  session: Any = None, parser=None):
         self.base_url = base_url.rstrip("/")
         self._session = session

@@ -222,6 +222,12 @@ def main(argv=None):
                     help="look up the host redshift/distance (NED, GLADE+) before matching")
     ad.add_argument("--use-combined-skymap", action="store_true")
 
+    br = sub.add_parser("brokers", help="what the alert brokers (Lasair, Fink, ALeRCE, ANTARES) have at the "
+                                        "position of optical transients of a store ($LASAIR_TOKEN for Lasair)")
+    br.add_argument("names", nargs="*", help="optical transients (default: all those of the store)")
+    br.add_argument("--store", required=True)
+    br.add_argument("--radius", type=float, default=3.0, help="search radius in arcsec (default 3)")
+
     h = sub.add_parser("host", help="host galaxy, redshift and redshift-independent distance "
                                     "(NED, then GLADE+, then DES Y6; NED-D for nearby hosts)")
     h.add_argument("optical", help="JSON file of the optical transient")
@@ -365,6 +371,19 @@ def main(argv=None):
                 save_optical(kn, args.save)
                 res["saved"] = args.save
             print(json.dumps(res, indent=2))
+        return
+    if args.cmd == "brokers":
+        from .brokers import crossmatch_transient
+        from .listener import optical_files
+        for p in optical_files(args.store):
+            if args.names and p.stem not in args.names:
+                continue
+            rec = crossmatch_transient(load_optical(p), args.store, radius_arcsec=args.radius)
+            for b in rec["brokers"]:
+                what = b.get("object") or b.get("note") or ""
+                sep = f" at {b['sep_arcsec']:.2f} arcsec" if b.get("sep_arcsec") is not None else ""
+                cls = f", {b['classification']}" if b.get("classification") else ""
+                print(f"{rec['optical']:<18} {b['label']:<14} {b['status']:<15} {what}{sep}{cls}")
         return
     if args.cmd in ("host", "tns"):
         from .connection import TNSConnector, find_host, save_optical

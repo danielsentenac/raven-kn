@@ -122,6 +122,21 @@ them with each circular (`/api/circulars`) and by alert (`/api/reported?keys=grb
 the application shows them in the tabs Prompt emission, Afterglow, Spectroscopy, Images and links.
 Values in a table are not read.
 
+**Brokers**: each time an optical transient is assessed, and at most every 12 hours, the alert
+brokers are asked for the object nearest to its position, within 3 arcsec (`raven_kn/brokers.py`):
+Lasair (ZTF; Sherlock classification, proposed host with its redshift, TNS name), Fink (ZTF and Rubin),
+ALeRCE and ANTARES. The answers are kept in `<store>/brokers/<name>.json`, given by the service with the
+transient and shown in the Brokers tab of the application. They are not applied to the transient: a host
+redshift of a broker is a catalogue match, not a measurement. A broker that does not answer is marked,
+its last answer kept. Lasair needs the token of a free account, as `LASAIR_TOKEN` in
+`~/.config/raven_kn_brokers.env` (mode 600), read by `run_listener.sh`; without it the others are still
+asked. By hand:
+
+```bash
+raven-kn brokers --store kn_store/                 # all the transients of the store
+raven-kn brokers GRB261114A-OT --store kn_store/ --radius 5
+```
+
 **Reported photometry**: magnitudes written as `r = 19.95 +/- 0.06` or `r > 21.56` are extracted with the
 time found near them (a delay after the trigger in the same sentence or the three before, else a date)
 and kept with the circular as *reported, unverified*. They are given by `/api/optical/<name>`
