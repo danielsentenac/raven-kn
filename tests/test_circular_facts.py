@@ -114,6 +114,15 @@ def test_links():                                                               
         ("image", "sky map"), ("data", "sky map"), ("image", "light curve"), ("image", "diagram"),
         ("page", None)]
     assert got[2]["url"].endswith("svgrb261113A.png") and got[0]["text"] == "The skymap can be found here"
+    assert [x["general"] for x in got] == [False] * 5
+    # 46283: the plot of the burst is about the event, the page of the telescope is not
+    hx = links_in("The HXMT/HE light curve can be found here:\nhttps://www.bursthub.cn/gcn/2026/hxmtgrb261113B.png\n\n"
+                  "More information about it could be found at: http://hxmten.ihep.ac.cn/ and "
+                  "https://fermi.gsfc.nasa.gov/ssc/data/access/gbm/, https://ror.org/05qajvd42. Real time updated "
+                  "cover map available here: https://master.sai.msu.ru/site/master2/observ.php?id=3532560")
+    assert [(x["kind"], x["about"], x["general"]) for x in hx] == [
+        ("image", "light curve", False), ("page", None, True), ("page", None, True), ("page", None, True),
+        ("page", "sky map", False)]
 
 
 def test_reported_by_alert_and_service(store):  # noqa: F811

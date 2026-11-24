@@ -119,7 +119,10 @@ luminosity, short or long), afterglow (decay index, X-ray flux, column density, 
 spectroscopy (lines named, sentences about the host). The web addresses of the text are listed with the
 words that introduce them, as image, data or page. Nothing of this enters a decision. The service gives
 them with each circular (`/api/circulars`) and by alert (`/api/reported?keys=grb:<id>,optical:<name>`);
-the application shows them in the tabs Prompt emission, Afterglow, Spectroscopy, Images and links.
+the application shows them in the tabs Prompt emission, Afterglow, Spectroscopy (values, plots and pages),
+Available data (the data files) and, for sky maps, under the sky view. An address that is not about the
+event (no number of five digits: the page of a telescope or of a collaboration) is marked `general` and
+not shown.
 Values in a table are not read.
 
 **Brokers**: each time an optical transient is assessed, and at most every 12 hours, the alert

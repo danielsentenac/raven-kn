@@ -402,10 +402,12 @@ class Store:
         for p in (self.root / "circulars").glob("*.json"):
             c = _load(p)
             if c:
-                if "facts" not in c:             # stored before the quantities of the text were read
-                    from .circular_facts import facts_in, links_in
-                    c["facts"] = facts_in(c.get("subject") or "", c.get("body") or "", c.get("bands"))
-                    c["web_links"] = links_in(c.get("body") or "")
+                # read again from the text: the rules change, the stored text does not
+                from .circular_facts import facts_in, links_in
+                c["facts"] = facts_in(c.get("subject") or "", c.get("body") or "", c.get("bands"))
+                c["web_links"] = links_in(c.get("body") or "")
+                from .circulars import photometry_of
+                c["photometry"] = photometry_of(self.root, c)
                 out.append(c if body else {k: v for k, v in c.items() if k != "body"})
         return sorted(out, key=lambda c: c.get("id") or 0)
 

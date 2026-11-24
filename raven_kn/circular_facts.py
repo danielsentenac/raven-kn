@@ -244,8 +244,10 @@ def facts_in(subject: str, body: str, bands: Optional[list[str]] = None) -> list
 def links_in(body: str) -> list[dict[str, Any]]:
     """Web addresses of a text: ``url``, ``kind`` (``image``, ``data`` or
     ``page``), ``about`` (``light curve``, ``sky map``, ``diagram`` or None,
-    from the words before it and its name) and ``text``, the words that
-    introduce it. References to other circulars are left out."""
+    from the words before it and its name), ``text``, the words that
+    introduce it, and ``general``: True for an address that is not about the
+    event (the page of a telescope or of a collaboration: no number of five
+    digits in it). References to other circulars are left out."""
     out, seen = [], set()
     for m in _URL.finditer(body):
         url = m.group(0).rstrip(".,;:")
@@ -259,6 +261,10 @@ def links_in(body: str) -> list[dict[str, Any]]:
         about = ("diagram" if re.search(r"diagram|relation|amati|yonetoku", hint) else
                  "sky map" if re.search(r"sky ?map|locali[sz]ation|healpix|cover map", hint) else
                  "light curve" if re.search(r"light ?curve|_lc_|lc\.", hint) else None)
-        out.append({"url": url, "kind": "image" if _IMAGE.search(url) else
-                    "data" if _DATA.search(url) else "page", "about": about, "text": intro[:200]})
+        kind = "image" if _IMAGE.search(url) else "data" if _DATA.search(url) else "page"
+        # an address about the event carries its number or its date (GRB261113A, bn261111477,
+        # id=3532560); the home page of a telescope, of a collaboration or of a program does not
+        path = re.sub(r"^https?://[^/]+", "", url)
+        out.append({"url": url, "kind": kind, "about": about, "text": intro[:200],
+                    "general": kind != "image" and not re.search(r"\d{5}", path)})
     return out

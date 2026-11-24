@@ -196,6 +196,17 @@ def test_photometry_in_the_text():
         == "2026-11-14T10:01:29.000Z"
 
 
+def test_magnitude_some_time_after_the_discovery():                       # 46276
+    body = ("SVOM/GWAC detected an uncatalogued fading source G261113_D02737 at 2026-11-13T19:45:45 UTC. "
+            "The source initially rose and then faded, reaching a peak magnitude of W~13.8 mag.\n\n"
+            "Automatically follow-up observations by GWAC-F60 showed that it was fading continuously with the "
+            "decay slope of -0.94 with a single power law, down to the R~18.5 mag at 3 ks after the GWAC "
+            "discovery time.")
+    r = next(p for p in photometry_in(body) if p["band"] == "R")
+    assert r["time"] == "2026-11-13T20:35:45.000Z"                       # not the discovery time itself
+    assert r["time_from"] == "delay after the discovery time of the text"
+
+
 def test_optical_transient_of_a_reported_counterpart(store):
     from raven_kn.connection import Redshift
     sub = "GRB 261113A: optical afterglow detection"

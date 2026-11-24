@@ -302,15 +302,18 @@ _BANDS = {**{b: f"ps1::{b}" for b in "grizy"}, "u": "sdssu", "J": "2massj", "H":
 _MAG = re.compile(r"(?<![A-Za-z0-9_.])(Ks|[ugrizyUBVRIJHKL])['’′]?(?:[- ]band)?"
                   r"(?:\s*\((?:AB|Vega)\))?\s*(=|~|≈|>=|≥|>|<)\s*(\d{1,2}\.\d{1,3})(?!\d)"
                   r"(?:\s*(?:\+/-|±|\+-)\s*(\d?\.\d{1,3}))?")
-_UNITS = {"s": 1.0, "sec": 1.0, "secs": 1.0, "second": 1.0, "seconds": 1.0,
+_UNITS = {"ks": 1000.0, "ksec": 1000.0, "s": 1.0, "sec": 1.0, "secs": 1.0, "second": 1.0, "seconds": 1.0,
           "min": 60.0, "mins": 60.0, "minute": 60.0, "minutes": 60.0,
           "h": 3600.0, "hr": 3600.0, "hrs": 3600.0, "hour": 3600.0, "hours": 3600.0,
           "d": 86400.0, "day": 86400.0, "days": 86400.0}
-_U = r"(seconds?|secs?|s|minutes?|mins?|hours?|hrs?|h|days?|d)"
+_U = r"(ksec|ks|seconds?|secs?|s|minutes?|mins?|hours?|hrs?|h|days?|d)"
 _AFTER = r"\s*(?:after|post|since|from)[- ]?\s*(?:the\s+)?(?:[\w/-]+\s+){0,3}?(?:trigger|burst|T0|GRB|event|alert|notice)"
 _DELAY_RANGE = re.compile(r"(?:from\s+)?~?(\d+(?:\.\d+)?)\s*(?:to|-|–)\s*~?(\d+(?:\.\d+)?)\s*" + _U + r"\b"
                           + _AFTER, re.I)
 _DELAY = re.compile(r"(?<![\d.])~?\+?(\d+(?:\.\d+)?)\s*" + _U + r"\b" + _AFTER, re.I)
+# "3 ks after the GWAC discovery time": counted from the time the text gave for that discovery
+_DELAY_FOUND = re.compile(r"(?<![\d.])~?\+?(\d+(?:\.\d+)?)\s*" + _U + r"\b\s*(?:after|since|from)\s+(?:the\s+)?"
+                          r"(?:[\w/-]+\s+){0,3}?(?:discovery|detection|first detection)", re.I)
 _DELAY_PLUS = re.compile(r"(?:\(|T0?\s*)\+\s*(\d+(?:\.\d+)?)\s*" + _U + r"\b")     # "(+0.11h)", "T0+3.2 h"
 
 
@@ -362,8 +365,9 @@ def photometry_in(body: str, trigger: Optional[datetime] = None) -> list[dict[st
     (``>``, or a sentence about a limit), ``system`` (``AB``, ``Vega`` or
     None), ``time`` (ISO, or None) with ``time_from``: ``delay after the
     trigger`` (the last ``N hours after the trigger`` before the magnitude,
-    in its sentence or the three before; needs ``trigger``) or ``date in the
-    text``; and ``text``, the sentence it comes from. Magnitudes given in a
+    in its sentence or the three before; needs ``trigger``), ``delay after
+    the discovery time of the text`` (``3 ks after the GWAC discovery time``,
+    from the last time given before the sentence) or ``date in the text``; and ``text``, the sentence it comes from. Magnitudes given in a
     table are not read. ``z = 2.4`` is a
     redshift, not a z-band magnitude: magnitudes are between 8 and 30."""
     segs = _segments(body)
@@ -383,8 +387,15 @@ def photometry_in(body: str, trigger: Optional[datetime] = None) -> list[dict[st
             # the time: before the magnitude in its sentence, else after it, else the sentence before
             before = seg[:m.start()]
             when, how = None, None
-            for text, last in ((before, True), (seg[m.end():], False),
-                               *((segs[j][1], True) for j in range(k - 1, max(k - 4, -1), -1))):
+            # a delay after the discovery: from the last time the text gave before this sentence
+            found = [h for h in _DELAY_FOUND.finditer(seg)]
+            given = times_in(body[:off], None) if found else []
+            if found and given:
+                h = min(found, key=lambda h: abs(h.start() - m.start()))
+                when = given[-1] + timedelta(seconds=float(h.group(1)) * _UNITS[h.group(2).lower()])
+                how = "delay after the discovery time of the text"
+            for text, last in (() if when else ((before, True), (seg[m.end():], False),
+                               *((segs[j][1], True) for j in range(k - 1, max(k - 4, -1), -1)))):
                 if trigger is not None:
                     hits = [(h.start(), (float(h.group(1)) + float(h.group(2))) / 2 * _UNITS[h.group(3).lower()])
                             for h in _DELAY_RANGE.finditer(text)]
@@ -757,6 +768,16 @@ def _counterpart(circ: dict, store: Any) -> Optional[str]:
     return None
 
 
+def photometry_of(root: str | Path, c: dict) -> list[dict]:
+    """Magnitudes of a stored circular, read again from its text (the rules
+    change, the stored text does not); those stored with it when it has no text."""
+    if not c.get("body"):
+        return c.get("photometry") or []
+    if "optical" not in (c.get("bands") or []):
+        return []
+    return photometry_in(c["body"], _trigger_time(Path(root), c.get("links") or []))
+
+
 def alert_keys(root: str | Path, kn: Any) -> set[tuple[str, str]]:
     """``(type, id)`` of the alerts whose circulars are about an optical
     transient: itself and the stored notices of its burst."""
@@ -779,8 +800,7 @@ def reported(root: str | Path, keys: Iterable[tuple[str, str]]) -> dict[str, Any
     announced), ``photometry`` (:func:`photometry_in`) and ``links``
     (:func:`raven_kn.circular_facts.links_in`). Each item carries
     ``circular``, ``subject``, ``submitter``, ``published`` and ``circular_url``.
-    Nothing here is verified. A circular stored before these were read is
-    read now."""
+    Nothing here is verified. The text is read again at each call."""
     keys = set(keys)
     out: dict[str, Any] = {"prompt": [], "afterglow": [], "spectroscopy": [], "photometry": [],
                            "links": [], "circulars": []}
@@ -790,8 +810,8 @@ def reported(root: str | Path, keys: Iterable[tuple[str, str]]) -> dict[str, Any
         src = {"circular": c["id"], "subject": c.get("subject"), "submitter": c.get("submitter"),
                "published": c.get("time"), "circular_url": c.get("url")}
         out["circulars"].append(c["id"])
-        facts = c["facts"] if "facts" in c else facts_in(c.get("subject") or "", c.get("body") or "",
-                                                         c.get("bands"))
+        # read again from the text: the rules change, the stored text does not
+        facts = facts_in(c.get("subject") or "", c.get("body") or "", c.get("bands"))
         if c.get("redshift") is not None:
             out["spectroscopy"].append({
                 "category": "spectroscopy", "kind": "redshift", "value": c["redshift"],
@@ -801,10 +821,10 @@ def reported(root: str | Path, keys: Iterable[tuple[str, str]]) -> dict[str, Any
         for f in facts:
             if f.get("category") in ("prompt", "afterglow", "spectroscopy"):
                 out[f["category"]].append({**f, **src})
-        for i, pt in enumerate(c.get("photometry") or []):
+        for i, pt in enumerate(photometry_of(root, c)):
             out["photometry"].append({**pt, "index": i, **src})
-        for ln in (c["web_links"] if "web_links" in c else links_in(c.get("body") or "")):
-            out["links"].append({**ln, **src})
+        for ln in links_in(c.get("body") or ""):
+            out["links"].append({**ln, "bands": c.get("bands") or [], **src})
     return out
 
 
@@ -820,7 +840,7 @@ def reported_photometry(root: str | Path, kn: Any) -> list[dict]:
     for c in stored_circulars(root):
         if not any((ln["type"], ln["id"]) in keys for ln in c.get("links") or []):
             continue
-        for i, pt in enumerate(c.get("photometry") or []):
+        for i, pt in enumerate(photometry_of(root, c)):
             out.append({**pt, "circular": c["id"], "index": i, "subject": c["subject"],
                         "accepted": (f"GCN {c['id']}", pipeline_band(pt["band"]), round(pt["mag"], 3)) in have})
     return out
