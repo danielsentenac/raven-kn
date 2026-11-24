@@ -26,6 +26,9 @@ says whether the service has one and whether the request carried it.
                                       alerts each optical transient is attached to
 ``GET /api/circulars``                GCN Circulars linked to the alerts of the store
 ``GET /api/circulars/<number>``       one of them, with its text
+``GET /api/reported?keys=``           what the circulars linked to the alerts ``<type>:<id>,...``
+                                      report, by category: prompt emission, afterglow,
+                                      spectroscopy, photometry, links (not verified)
 ====================================  =========================================
 
 Step status: ``pending``, ``running``, ``done``, ``held``, ``warning``,
@@ -365,17 +368,22 @@ class Store:
             if r.get("gw_gpstime"):
                 marks.append({"kind": "gw", "label": r["superevent_id"], "time": _gps_iso(r["gw_gpstime"])})
         win = (d or {}).get("t0_window")
-        from .circulars import reported_photometry
+        from .circulars import alert_keys, reported as reported_facts, reported_photometry
         from .connection import load_optical
+        facts = None
         try:                                    # magnitudes reported in GCN Circulars, not verified
             path = next(p for p in optical_files(self.root) if p.stem == name)
-            reported = reported_photometry(self.root, load_optical(path))
+            kn = load_optical(path)
+            reported = reported_photometry(self.root, kn)
+            facts = reported_facts(self.root, alert_keys(self.root, kn))
         except Exception:
             log.exception("%s: reported photometry not read", name)
             reported = []
         from .launch import launches
         return {"optical": c, "decision": d, "request": self.request(name), "coincidences": co,
                 "reported_photometry": reported,
+                # what the circulars about it and about its burst report, by category
+                "reported": facts,
                 # targeted searches asked for from the application, with what became of them
                 "launches": launches(self.root, name),
                 "runs": runs, "hidden_runs": hidden, "steps": self.steps(name, allow_lvk, c),
@@ -385,13 +393,26 @@ class Store:
 
     # ---- circulars ------------------------------------------------------
     def circulars(self, body: bool = False) -> list[dict]:
-        """GCN Circulars linked to alerts of the store, oldest first."""
+        """GCN Circulars linked to alerts of the store, oldest first, each with
+        the quantities (``facts``) and the web addresses (``web_links``) read
+        in its text (:mod:`raven_kn.circular_facts`)."""
         out = []
         for p in (self.root / "circulars").glob("*.json"):
             c = _load(p)
             if c:
+                if "facts" not in c:             # stored before the quantities of the text were read
+                    from .circular_facts import facts_in, links_in
+                    c["facts"] = facts_in(c.get("subject") or "", c.get("body") or "", c.get("bands"))
+                    c["web_links"] = links_in(c.get("body") or "")
                 out.append(c if body else {k: v for k, v in c.items() if k != "body"})
         return sorted(out, key=lambda c: c.get("id") or 0)
+
+    def reported(self, keys: str) -> dict:
+        """What the circulars linked to the alerts ``keys`` report
+        (``grb:<id>,optical:<name>,...``; :func:`raven_kn.circulars.reported`)."""
+        from .circulars import reported
+        pairs = [tuple(k.split(":", 1)) for k in keys.split(",") if ":" in k]
+        return reported(self.root, pairs)
 
     def circular(self, number: str) -> Optional[dict]:
         return _load(self.root / "circulars" / f"{int(number)}.json") if number.isdigit() else None
@@ -804,6 +825,8 @@ def make_handler(store: Store, token: Optional[str], lvk_token: Optional[str],
                 return self._json({"followups": store.followups(lvk)})
             if p == ["circulars"]:
                 return self._json({"circulars": store.circulars()})
+            if p == ["reported"]:
+                return self._json(store.reported(q.get("keys", "")))
             if len(p) == 2 and p[0] == "circulars":
                 d = store.circular(p[1])
                 return self._json(d) if d else self._json({"service": "raven-kn", "error": "not found"}, 404)

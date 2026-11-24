@@ -112,6 +112,16 @@ journal when it changes: a revised redshift that brings a burst within reach cha
 itself. The decision still needs the kilonova confirmation to trigger a search, and a search is still
 launched by a person.
 
+**Reported quantities and links**: the numbers written in the text are read by keyword rules
+(`raven_kn/circular_facts.py`) and kept with the circular as *reported, unverified*, each with its
+sentence: prompt emission (T90, fluence, peak flux, peak energy, spectral index, isotropic energy and
+luminosity, short or long), afterglow (decay index, X-ray flux, column density, radio flux density) and
+spectroscopy (lines named, sentences about the host). The web addresses of the text are listed with the
+words that introduce them, as image, data or page. Nothing of this enters a decision. The service gives
+them with each circular (`/api/circulars`) and by alert (`/api/reported?keys=grb:<id>,optical:<name>`);
+the application shows them in the tabs Prompt emission, Afterglow, Spectroscopy, Images and links.
+Values in a table are not read.
+
 **Reported photometry**: magnitudes written as `r = 19.95 +/- 0.06` or `r > 21.56` are extracted with the
 time found near them (a delay after the trigger in the same sentence or the three before, else a date)
 and kept with the circular as *reported, unverified*. They are given by `/api/optical/<name>`

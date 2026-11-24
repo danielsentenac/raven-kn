@@ -79,6 +79,7 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Iterable, Optional
 
+from .circular_facts import facts_in, links_in
 from .journal import _safe, _write_atomic, iso, journal_of, parse_iso, utcnow
 
 log = logging.getLogger("raven_kn.circulars")
@@ -538,6 +539,9 @@ def handle_circular(msg: dict | bytes | str, store: Any, _relink: bool = True) -
     circ["redshift_kind"] = (None if circ["redshift"] is None else
                              "spectroscopic" if _SPECTROSCOPIC.search(text) else "unknown")
     circ["galactic"] = bool(_GALACTIC.search(text))
+    # the quantities and the web addresses of the text (reported, not verified)
+    circ["facts"] = facts_in(circ["subject"], circ["body"], circ["bands"])
+    circ["web_links"] = links_in(circ["body"])
     _link_transient(circ, store)
     name = f"{circ['id']}.json"
     linked_p, wait_p = _dir(root) / name, _dir(root, False) / name
@@ -746,11 +750,9 @@ def _counterpart(circ: dict, store: Any) -> Optional[str]:
     return None
 
 
-def reported_photometry(root: str | Path, kn: Any) -> list[dict]:
-    """Magnitudes reported in the circulars about an optical transient or
-    about its burst, oldest circular first: the points of
-    :func:`photometry_in`, each with ``circular``, ``index`` (its place in
-    that circular) and ``accepted`` (already copied into the transient)."""
+def alert_keys(root: str | Path, kn: Any) -> set[tuple[str, str]]:
+    """``(type, id)`` of the alerts whose circulars are about an optical
+    transient: itself and the stored notices of its burst."""
     root = Path(root)
     keys = {("optical", kn.name)}
     if kn.grb is not None:
@@ -760,6 +762,52 @@ def reported_photometry(root: str | Path, kn: Any) -> list[dict]:
                     (kn.grb.graceid is not None and g.get("graceid") == kn.grb.graceid)
                     or abs((g.get("gps") or 0) - kn.grb.gps) < 1.0):
                 keys.add(("grb", p.stem))
+    return keys
+
+
+def reported(root: str | Path, keys: Iterable[tuple[str, str]]) -> dict[str, Any]:
+    """What the circulars linked to the alerts ``keys`` report, oldest
+    circular first, by category: ``prompt``, ``afterglow``, ``spectroscopy``
+    (the facts of :func:`raven_kn.circular_facts.facts_in`, and the redshift
+    announced), ``photometry`` (:func:`photometry_in`) and ``links``
+    (:func:`raven_kn.circular_facts.links_in`). Each item carries
+    ``circular``, ``subject``, ``submitter``, ``published`` and ``circular_url``.
+    Nothing here is verified. A circular stored before these were read is
+    read now."""
+    keys = set(keys)
+    out: dict[str, Any] = {"prompt": [], "afterglow": [], "spectroscopy": [], "photometry": [],
+                           "links": [], "circulars": []}
+    for c in stored_circulars(root):
+        if not any((ln["type"], ln["id"]) in keys for ln in c.get("links") or []):
+            continue
+        src = {"circular": c["id"], "subject": c.get("subject"), "submitter": c.get("submitter"),
+               "published": c.get("time"), "circular_url": c.get("url")}
+        out["circulars"].append(c["id"])
+        facts = c["facts"] if "facts" in c else facts_in(c.get("subject") or "", c.get("body") or "",
+                                                         c.get("bands"))
+        if c.get("redshift") is not None:
+            out["spectroscopy"].append({
+                "category": "spectroscopy", "kind": "redshift", "value": c["redshift"],
+                "err_minus": None, "err_plus": None, "approx": False, "unit": "", "band": None,
+                "instrument": None, "limit": False, "what": c.get("redshift_kind"),
+                "text": c.get("subject") or "", **src})
+        for f in facts:
+            if f.get("category") in ("prompt", "afterglow", "spectroscopy"):
+                out[f["category"]].append({**f, **src})
+        for i, pt in enumerate(c.get("photometry") or []):
+            out["photometry"].append({**pt, "index": i, **src})
+        for ln in (c["web_links"] if "web_links" in c else links_in(c.get("body") or "")):
+            out["links"].append({**ln, **src})
+    return out
+
+
+def reported_photometry(root: str | Path, kn: Any) -> list[dict]:
+    """Magnitudes reported in the circulars about an optical transient or
+    about its burst, oldest circular first: the points of
+    :func:`photometry_in`, each with ``circular``, ``index`` (its place in
+    that circular) and ``accepted`` (already copied into the transient)."""
+    root = Path(root)
+    keys = alert_keys(root, kn)
     have = {(p.survey, p.band, round(p.mag, 3)) for p in kn.photometry}
     out = []
     for c in stored_circulars(root):
