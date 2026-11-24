@@ -97,3 +97,45 @@ def test_stream_loop_with_fake_consumer(tmp_path, monkeypatch):
                credentials={"username": "u", "servers": "h:1", "group_id": "g"},
                on_result=out.append, max_alerts=1)
     assert n == 1 and out[0]["optical"] == "ZTF17aaaaaaa" and out[0]["topic"] == "fink_kn_candidates_ztf"
+
+
+def test_new_transients_are_limited_per_night_and_counting_writes_nothing(tmp_path, monkeypatch):
+    import fink_client.consumer as fc
+
+    def named(name):
+        a = ztf_alert([0.5], [17.3], [1])
+        a["objectId"] = name
+        return ("fink_kn_candidates_ztf", a, "k")
+    queue = [named("ZTF26a"), named("ZTF26b"), named("ZTF26c"), named("ZTF26a"), named("ZTF26d")]
+
+    class Fake:
+        def __init__(self, topics, config, survey):
+            assert config["group.id"] == "g"                 # "groupid": the name fink-client 12 writes
+            self.q = list(queue)
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, *a):
+            pass
+
+        def poll(self, timeout):
+            return self.q.pop(0) if self.q else (None, None, None)
+    monkeypatch.setattr(fc, "AlertConsumer", Fake)
+    creds = {"username": "u", "servers": "h:1", "groupid": "g"}
+    store, out = AlertStore(tmp_path / "s", source="fink-ztf"), []
+    n = stream(store, "ztf", ["fink_kn_candidates_ztf"], credentials=creds, on_result=out.append,
+               max_alerts=5, max_new_per_night=2)
+    # the third and the fifth are new objects beyond the limit; the fourth updates a stored one
+    assert n == 5 and [r["optical"] for r in out] == ["ZTF26a", "ZTF26b", "ZTF26a"]
+    assert sorted(t.name for t in store.transients()) == ["ZTF26a", "ZTF26b"]
+    from raven_kn.journal import read_events
+    capped = [e for e in read_events(tmp_path / "s", None, 100)[0] if e["kind"] == "stream_capped"]
+    assert len(capped) == 1 and capped[0]["level"] == "warning" and "left out" in capped[0]["summary"]
+
+    count, seen = AlertStore(tmp_path / "c", source="fink-ztf"), []
+    stream(count, "ztf", ["fink_kn_candidates_ztf"], credentials=creds, on_result=seen.append,
+           max_alerts=5, count_only=True)
+    assert [(r["optical"], r["first_in_run"]) for r in seen] == [
+        ("ZTF26a", True), ("ZTF26b", True), ("ZTF26c", True), ("ZTF26a", False), ("ZTF26d", True)]
+    assert count.transients() == [] and not [p for p in (tmp_path / "c").rglob("*") if p.is_file()]

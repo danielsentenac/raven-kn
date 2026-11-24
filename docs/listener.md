@@ -125,6 +125,20 @@ event (no number of five digits: the page of a telescope or of a collaboration) 
 not shown.
 Values in a table are not read.
 
+**Ready for a search, announced**: nothing in the pipeline starts a targeted search; a person does,
+from the application. When the decision of a transient becomes positive (confirmed as a kilonova and
+within reach), it is announced once (`raven_kn/notify.py`): an `announcement` entry in the journal,
+which the application shows as a banner and at the top of its candidates, and a mail to the address of
+`RAVEN_KN_MAIL_TO` (in `~/.config/raven_kn_notify.env`, mode 600; sent with the local sendmail). If the
+decision is later withdrawn, that is announced too.
+
+**Fink streams in service**: `examples/listener_service/run_fink.sh <survey> [topics]` and
+`ensure_fink.sh` run `raven-kn fink-listen` like the GCN listener (screen session, cron check), from an
+environment that has `fink-client` (`~/raven-kn/.venv-fink`). `--max-new-per-night N` (default 50)
+leaves out the new objects of a night beyond N, with a warning in the journal; `--count-only` writes
+nothing and reports each alert, to measure a topic before using it. In November 2026 the Rubin topic
+`fink_extragalactic_new_candidate_lsst` gave up to 1200 new objects in a night: too many to follow.
+
 **Brokers**: each time an optical transient is assessed, and at most every 12 hours, the alert
 brokers are asked for the object nearest to its position, within 3 arcsec (`raven_kn/brokers.py`):
 Lasair (ZTF; Sherlock classification, proposed host with its redshift, TNS name), Fink (ZTF and Rubin),

@@ -135,7 +135,7 @@ def test_decision_logged_only_when_it_changes(tmp_path):
     assert log_decision(j, d, d) is None
     d2 = {**d, "trigger_targeted_search": True, "kilonova_evidence": {"confirmed": True, "by": ["light curve"]}}
     e = log_decision(j, d2, d)
-    assert e["data"]["trigger_changed"] and "triggered" in e["summary"]
+    assert e["data"]["trigger_changed"] and "ready for a targeted search" in e["summary"]
 
 
 def test_data_written_before_the_rename_is_still_read(tmp_path):

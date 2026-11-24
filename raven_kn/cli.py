@@ -306,6 +306,12 @@ def main(argv=None):
                     help="look up the host galaxy once per new optical transient (needed for the "
                          "light-curve kilonova test)")
     fl.add_argument("--max-alerts", type=int, default=None)
+    fl.add_argument("--max-new-per-night", type=int, default=50,
+                    help="new optical transients accepted per UTC day; beyond, new objects are left out "
+                         "until the next day, with a warning in the journal (default 50; 0: no limit)")
+    fl.add_argument("--count-only", action="store_true",
+                    help="write nothing in the store: report each alert only, to measure a topic "
+                         "(Fink does not send those alerts again)")
 
     args = p.parse_args(argv)
     if args.cmd == "serve":
@@ -347,6 +353,7 @@ def main(argv=None):
         n = stream(AlertStore(args.store, source=f"fink-{args.survey}"), args.survey, topics,
                    assess_kw={"ranges_mpc": _ranges(args.ranges)} if args.assess else None,
                    find_host=args.find_host, max_alerts=args.max_alerts,
+                   max_new_per_night=args.max_new_per_night or None, count_only=args.count_only,
                    on_result=lambda r: print(json.dumps(r, default=float), flush=True))
         print(json.dumps({"alerts_processed": n}))
         return

@@ -561,7 +561,8 @@ def log_decision(journal: Any, decision: dict, previous: Optional[dict] = None,
     was = None if previous is None else bool(previous.get("trigger_targeted_search"))
     name = decision.get("optical") or decision.get("candidate")      # "candidate": the key before the rename
     if trig:
-        text = f"{name}: targeted search triggered"
+        # no search is started by the pipeline: a person does, from the application
+        text = f"{name}: ready for a targeted search (confirmed as a kilonova, within reach)"
     else:
         why = []
         if not ev.get("confirmed") and ev.get("required", True):

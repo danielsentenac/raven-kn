@@ -115,6 +115,11 @@ def alert_to_optical(alert: dict, survey: str) -> OpticalTransient:
     raise ValueError(f"unknown survey {survey!r}")
 
 
+def utc_now_iso() -> str:
+    from .journal import iso, utcnow
+    return iso(utcnow())
+
+
 def merge_into_store(kn: OpticalTransient, store) -> OpticalTransient:
     """Merge a new alert's optical transient into the stored one of the same name
     (new photometry added; the stored classification, redshift, GRB,
@@ -167,6 +172,8 @@ def handle_alert(alert: dict, survey: str, store, assess_kw: Optional[dict] = No
         prev = prev_d.get("trigger_targeted_search") if prev_d else None
         d = assess(kn, out_dir=adir, **assess_kw)
         log_decision(journal_of(store), d, prev_d)
+        from .notify import on_decision
+        on_decision(store, d)                    # ready for a search: announced, once
         out["trigger"] = d["trigger_targeted_search"]
         out["trigger_changed"] = bool(d["trigger_targeted_search"]) != bool(prev)
         out["kilonova_evidence"] = d["kilonova_evidence"]["by"]
@@ -176,21 +183,35 @@ def handle_alert(alert: dict, survey: str, store, assess_kw: Optional[dict] = No
 def stream(store, survey: str, topics: Iterable[str], credentials: Optional[dict] = None,
            assess_kw: Optional[dict] = None, find_host: bool = False,
            on_result: Optional[Callable[[dict], None]] = None, timeout_s: Optional[float] = None,
-           max_alerts: Optional[int] = None, **add_kw) -> int:
+           max_alerts: Optional[int] = None, max_new_per_night: Optional[int] = None,
+           count_only: bool = False, **add_kw) -> int:
     """Consume a Fink livestream forever (or ``max_alerts``). Credentials:
     ``fink_client.configuration.load_credentials(survey)`` unless given.
-    Returns the number of alerts processed."""
+    Returns the number of alerts processed.
+
+    ``max_new_per_night``: once that many optical transients were created in a
+    UTC day (a night at Palomar or in Chile falls in one), the alerts of
+    objects not yet in the store are left out until the next day, with one
+    warning in the journal; the transients already stored are still updated.
+    A selection that floods on a bad night cannot then fill the store.
+
+    ``count_only``: nothing is written in the store; each alert is only
+    reported (``on_result``: topic, object, number of points, whether the
+    object was seen before in this run), to measure what a topic sends
+    before putting it in service. Fink does not send those alerts again."""
     from fink_client.configuration import load_credentials
     from fink_client.consumer import AlertConsumer
     creds = credentials or load_credentials(survey=survey)
     config = {"username": creds["username"], "bootstrap.servers": creds["servers"],
-              "group.id": creds["group_id"]}
+              # fink-client 12 writes "groupid", earlier versions "group_id"
+              "group.id": creds.get("groupid") or creds["group_id"]}
     if creds.get("password"):
         config["password"] = creds["password"]
     timeout = timeout_s if timeout_s is not None else creds.get("maxtimeout", 10)
     n = 0
     hb = None
-    if getattr(store, "journal", None) is not None:
+    night, new_tonight, left_out, seen = None, 0, 0, set()
+    if not count_only and getattr(store, "journal", None) is not None:
         from .journal import Heartbeat
         hb = Heartbeat(store.root, store.journal.source, store.journal, topics)
     with AlertConsumer(list(topics), config, survey=survey) as consumer:
@@ -211,6 +232,31 @@ def stream(store, survey: str, topics: Iterable[str], credentials: Optional[dict
             if hb:
                 hb.message(topic)
             try:
+                if count_only:
+                    kn = alert_to_optical(alert, survey)
+                    if on_result:
+                        on_result({"optical": kn.name, "topic": topic, "first_in_run": kn.name not in seen,
+                                   "n_photometry": len(kn.photometry), "kn_score": kn.kn_score,
+                                   "received": utc_now_iso()})
+                    seen.add(kn.name)
+                    continue
+                if max_new_per_night is not None:
+                    today = utc_now_iso()[:10]
+                    if today != night:
+                        night, new_tonight, left_out = today, 0, 0
+                    name = alert_to_optical(alert, survey).name
+                    if not any(c.name == name for c in store.transients()):
+                        if new_tonight >= max_new_per_night:
+                            left_out += 1
+                            if left_out == 1:
+                                from .journal import journal_of
+                                journal_of(store).log(
+                                    "stream_capped", f"Fink {survey}: {max_new_per_night} new optical transients "
+                                    f"on {today} UTC, the limit: the new objects of {', '.join(topics)} are left "
+                                    f"out until tomorrow", level="warning", survey=survey, limit=max_new_per_night)
+                                log.warning("limit of %d new transients reached for %s", max_new_per_night, today)
+                            continue
+                        new_tonight += 1
                 res = handle_alert(alert, survey, store, assess_kw, find_host, **add_kw)
                 res["topic"] = topic
                 if res.get("trigger_changed") and res.get("trigger"):

@@ -271,7 +271,7 @@ class Store:
             add("decision", "Search decision", "pending", "not assessed yet")
         elif d.get("trigger_targeted_search"):
             ev = d.get("kilonova_evidence") or {}
-            add("decision", "Search decision", "done", "search triggered"
+            add("decision", "Search decision", "done", "ready for a targeted search"
                 + (f" (kilonova: {', '.join(ev.get('by') or [])})" if ev.get("by") else ""))
         else:
             ev, det = d.get("kilonova_evidence") or {}, d.get("detectability") or {}
@@ -299,7 +299,7 @@ class Store:
                 f"window {req['gps_end'] - req['gps_start']:.0f} s, chirp mass "
                 f"{req['mchirp_range'][0]:.2f}-{req['mchirp_range'][1]:.2f}")
         else:
-            add("request", "Search request", "pending", "written when the search is triggered")
+            add("request", "Search request", "pending", "written when the transient is ready for a search")
         runs, hidden = self.runs(name, allow_lvk)
         searches = [r for r in runs if r.get("kind") != "pe"]
         hid = f"; {hidden} run(s) on LVK data not shown" if hidden else ""
@@ -310,7 +310,7 @@ class Store:
                 + (f"; earlier: {', '.join(bad)} did not finish" if bad else "") + hid)
         else:
             add("search", "Targeted search", "held" if triggered else "pending",
-                ("triggered; no search launched yet" if triggered else "not triggered") + hid)
+                ("ready; no search started yet (a person starts it)" if triggered else "not ready") + hid)
         pes = [(r, k, v) for r in runs for k, v in (r.get("pe") or {}).items()]
         if pes:
             warn = [f"{k}: {w}" for _, k, v in pes for w in v.get("warnings") or []]
@@ -328,6 +328,13 @@ class Store:
             add("pe", "Parameter estimation", "pending", "not run")
         return steps
 
+    def _searched(self, name: str, allow_lvk: bool) -> bool:
+        """A targeted search was asked for or run for this transient."""
+        from .launch import launches
+        runs, hidden = self.runs(name, allow_lvk)
+        return bool(hidden or [r for r in runs if r.get("kind") != "pe"]
+                    or [r for r in launches(self.root, name) if r.get("status") != "refused"])
+
     def optical_summary(self, name: str, allow_lvk: bool) -> Optional[dict]:
         c = self.optical(name)
         if c is None:
@@ -343,6 +350,9 @@ class Store:
                 "first_detection": _mjd_iso(first["mjd"]) if first else None,
                 "grb": c.get("grb"), "neutrino": c.get("neutrino"),
                 "trigger": d.get("trigger_targeted_search") if d else None,
+                # ready for a targeted search and none asked for yet: to be looked at by a person
+                "ready": bool(d and d.get("trigger_targeted_search")) and not self._searched(name, allow_lvk),
+                "announced": _load(self.root / "announce" / f"{_safe(name)}.json"),
                 "steps": steps, "attention": worst if worst in order[:4] else None}
 
     def optical_detail(self, name: str, allow_lvk: bool) -> Optional[dict]:
@@ -585,14 +595,14 @@ class Store:
                              key=lambda m: (m["time"] is None, m["time"] or "", rank[m["type"]]))
             why = sorted({r for pair, r in reasons.items() if pair <= comp})
             optical = next((m["id"] for m in members if m["type"] == "optical"), None)
-            steps, attention = None, None
+            steps, attention, ready = None, None, False
             if optical:
                 d = self.decision(optical) or {}
                 ev = d.get("kilonova_evidence") or {}
                 if ev.get("confirmed"):
                     why.append("optical transient confirmed as a kilonova (" + ", ".join(ev.get("by") or []) + ")")
                 summ = self.optical_summary(optical, allow_lvk) or {}
-                steps, attention = summ.get("steps"), summ.get("attention")
+                steps, attention, ready = summ.get("steps"), summ.get("attention"), bool(summ.get("ready"))
             for m in members:
                 if m["type"] != "gw" or m.get("retracted"):
                     continue
@@ -620,6 +630,8 @@ class Store:
                         "members": members, "optical": optical, "reasons": why,
                         "candidate": bool(why) and not (notes and "gw" not in types),
                         "notes": notes, "too_far": bool(notes),
+                        # its optical transient is ready for a targeted search and none was asked for
+                        "ready": ready,
                         "steps": steps, "attention": attention})
         out.sort(key=lambda f: f["time"] or "", reverse=True)
         return out
